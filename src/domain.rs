@@ -226,10 +226,13 @@ impl Counting {
     }
 }
 
-impl Default for Counting {
-    fn default() -> Self {
-        // Leave is per person and entered on purpose, so it starts on; the rest
-        // depend on how the team works and start off.
+impl Counting {
+    /// Counts every day, including the ones most workplaces are shut on.
+    ///
+    /// The starting point for a project that wants calendar days, and what the
+    /// arithmetic tests build on.
+    #[cfg(test)]
+    pub fn none() -> Self {
         Self {
             monday: false,
             tuesday: false,
@@ -239,6 +242,27 @@ impl Default for Counting {
             saturday: false,
             sunday: false,
             holidays: false,
+            leave: false,
+        }
+    }
+}
+
+impl Default for Counting {
+    fn default() -> Self {
+        // Weekends and public holidays are days off nearly everywhere this is
+        // used, so counting them would be the surprising answer. Monday to
+        // Friday start off: a workplace that closes on Wednesdays knows it and
+        // can say so. Leave is per person and entered on purpose, so it counts
+        // from the start too.
+        Self {
+            monday: false,
+            tuesday: false,
+            wednesday: false,
+            thursday: false,
+            friday: false,
+            saturday: true,
+            sunday: true,
+            holidays: true,
             leave: true,
         }
     }
@@ -337,6 +361,10 @@ pub struct Field {
     pub kind: String,
     /// The master list, for `select` and `suggest` fields.
     pub options: Vec<Option_>,
+    /// Whether any task has written a value here. What is already entered is
+    /// what makes changing the kind a bad idea.
+    #[serde(default)]
+    pub in_use: bool,
 }
 
 /// One entry of a master list, with the colours it is drawn in.
@@ -1055,6 +1083,12 @@ fn parse_date(text: &str) -> Option<Date> {
 mod tests {
     use super::*;
 
+    /// Counts every day on the calendar.
+    ///
+    /// These tests are about the arithmetic — what a parent sums, what a wait
+    /// takes out, when a row is late — and a calendar underneath would make
+    /// every expected number depend on which weekday the fixture happens to
+    /// start on. The tests that are about the calendar say so and set their own.
     fn build_for_test(id: &str, revision: i64, today: Date, rows: Vec<TaskRow>) -> GridData {
         build(
             id,
@@ -1063,6 +1097,10 @@ mod tests {
             rows,
             Settings {
                 can_edit: true,
+                counting: Counting {
+                    leave: true,
+                    ..Counting::none()
+                },
                 ..Settings::default()
             },
         )
@@ -1251,6 +1289,11 @@ mod tests {
                     note: "夏季休暇".to_owned(),
                     kind: "off".to_owned(),
                 }],
+                // Leave alone, so the numbers below are about the leave.
+                counting: Counting {
+                    leave: true,
+                    ..Counting::none()
+                },
                 ..Settings::default()
             },
         )

@@ -1121,7 +1121,10 @@ fn counting(stored: &HashMap<String, String>) -> domain::Counting {
             holidays: on("skip_holidays"),
             leave: on("skip_leave"),
         }
-    } else {
+    } else if stored.contains_key("workdays_only") {
+        // An older project that answered the single switch, either way. That
+        // answer stands: raising the default must not quietly start skipping
+        // days for somebody who said not to.
         domain::Counting {
             saturday: legacy,
             sunday: legacy,
@@ -1129,6 +1132,9 @@ fn counting(stored: &HashMap<String, String>) -> domain::Counting {
             leave: true,
             ..domain::Counting::default()
         }
+    } else {
+        // Never asked. Weekends and holidays are days off.
+        domain::Counting::default()
     }
 }
 
@@ -1338,6 +1344,21 @@ pub async fn fields(cx: &Cx, project_id: &str) -> Result<Vec<domain::Field>> {
     .fetch_all(db::pool(cx))
     .await?;
 
+    // Which fields have anything written in them. Changing a field's kind is
+    // safe while it is empty and a way to lose meaning once it is not.
+    let used: std::collections::HashSet<String> = sqlx::query_as::<_, (String,)>(
+        "SELECT DISTINCT task_field_values.field_id
+           FROM task_field_values
+           JOIN project_fields ON project_fields.id = task_field_values.field_id
+          WHERE project_fields.project_id = ?1 AND TRIM(task_field_values.value) <> ''",
+    )
+    .bind(project_id)
+    .fetch_all(db::pool(cx))
+    .await?
+    .into_iter()
+    .map(|(id,)| id)
+    .collect();
+
     let mut by_field: HashMap<String, Vec<domain::Option_>> = HashMap::new();
     for (field_id, value, color, background) in options {
         by_field
@@ -1354,6 +1375,7 @@ pub async fn fields(cx: &Cx, project_id: &str) -> Result<Vec<domain::Field>> {
         .into_iter()
         .map(|(id, label, kind)| domain::Field {
             options: by_field.remove(&id).unwrap_or_default(),
+            in_use: used.contains(&id),
             id,
             label,
             kind,

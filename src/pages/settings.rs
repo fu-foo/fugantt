@@ -587,10 +587,71 @@ async fn settings(cx: &Cx) -> Result {
                         for field in &data.fields {
                             <li class="flex flex-col gap-3 py-3">
                                 <div class="flex items-center gap-4">
-                                    <span class="font-medium">(&field.label)</span>
-                                    <span class="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs text-slate-600">
-                                        (kind_label(&field.kind))
-                                    </span>
+                                    if project.can_edit() {
+                                        // 名前は直せる。間違えたときに、消して作り
+                                        // 直すしか道が無いと、入力済みの内容まで
+                                        // 一緒に捨てることになる。
+                                        <form
+                                            method="POST"
+                                            action=(("/projects/", &project.id, "/fields/rename"))
+                                            class="flex items-center gap-2"
+                                        >
+                                            <input type="hidden" name="field_id" value=(&field.id)>
+                                            <input
+                                                name="label"
+                                                value=(&field.label)
+                                                required=""
+                                                class="w-40 rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm font-medium"
+                                            >
+                                            <button class="rounded-lg border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-100">
+                                                (l.t("名前を保存"))
+                                            </button>
+                                        </form>
+                                    } else {
+                                        <span class="font-medium">(&field.label)</span>
+                                    }
+
+                                    if project.can_edit() && !field.in_use {
+                                        // 種類を変えられるのは、まだ何も入っていない
+                                        // うちだけ。日付の入った列を数値にすると、
+                                        // 読めない値がそのまま残る。
+                                        <form
+                                            method="POST"
+                                            action=(("/projects/", &project.id, "/fields/kind"))
+                                            class="flex items-center gap-2"
+                                        >
+                                            <input type="hidden" name="field_id" value=(&field.id)>
+                                            <select
+                                                name="kind"
+                                                class="rounded-lg border border-slate-300 px-2 py-1.5 text-sm"
+                                            >
+                                                for (value, label) in [
+                                                    ("text", "フリー"),
+                                                    ("select", "選択"),
+                                                    ("suggest", "フリー＋選択"),
+                                                    ("date", "日付"),
+                                                    ("number", "数値"),
+                                                ] {
+                                                    <option
+                                                        value=(value)
+                                                        selected=((field.kind == value).then_some("selected"))
+                                                    >
+                                                        (l.t(label))
+                                                    </option>
+                                                }
+                                            </select>
+                                            <button class="rounded-lg border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-100">
+                                                (l.t("種類を保存"))
+                                            </button>
+                                        </form>
+                                    } else {
+                                        <span class="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs text-slate-600">
+                                            (kind_label(&field.kind))
+                                            if field.in_use {
+                                                <span class="ml-1 text-slate-400">(l.t("（入力済み）"))</span>
+                                            }
+                                        </span>
+                                    }
 
                                     if project.can_edit() {
                                         <form

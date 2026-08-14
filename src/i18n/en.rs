@@ -224,6 +224,17 @@ pub fn of(ja: &str) -> Option<&'static str> {
             "A new project starts from a copy of this list. The copy belongs to that project, so changing it here moves neither the colours nor the progress of any project that already exists.",
         "手入力のまま" => "left as typed",
 
+        // --- 独自の項目 ------------------------------------------------------
+        "名前を保存" => "Save name",
+        "種類を保存" => "Save kind",
+        "（入力済み）" => "(has values)",
+        "フリー" => "Free text",
+        "選択" => "Choice",
+        "フリー＋選択" => "Free text with choices",
+        "数値" => "Number",
+        "入力済みの項目は種類を変えられません。内容を空にしてからにしてください。" =>
+            "A field with values in it cannot change kind. Empty the column first.",
+
         _ => return None,
     })
 }

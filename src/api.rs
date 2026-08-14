@@ -1415,7 +1415,7 @@ async fn add_field(cx: &Cx, Form(form): Form<FieldForm>) -> Result<SeeOther> {
 
     // `suggest` is a free text box with the master list offered as candidates —
     // the answer is usually one of a few, but not always.
-    if !["text", "number", "select", "date", "suggest"].contains(&form.kind.as_str()) {
+    if !FIELD_KINDS.contains(&form.kind.as_str()) {
         return Err(bad_request(l.t("項目の種類が不正です。")).into());
     }
 
@@ -1452,6 +1452,97 @@ async fn add_field(cx: &Cx, Form(form): Form<FieldForm>) -> Result<SeeOther> {
 #[derive(Deserialize)]
 struct RemoveField {
     field_id: String,
+}
+
+/// The kinds a project's own column can be.
+const FIELD_KINDS: [&str; 5] = ["text", "number", "select", "date", "suggest"];
+
+#[derive(Deserialize)]
+struct RenameField {
+    field_id: String,
+    label: String,
+}
+
+/// Changes a field's name.
+///
+/// The values are keyed by the field's id, so a new name is only a new name —
+/// nothing entered under the old one moves or is lost. Without this, correcting
+/// a typo meant deleting the column, which takes every value with it.
+#[route(POST "/projects/{project_id}/fields/rename")]
+async fn rename_field(cx: &Cx, Form(form): Form<RenameField>) -> Result<SeeOther> {
+    let l = crate::i18n::lang(cx).await;
+    let user = require_user(cx).await?;
+    let project_id = project::id_from_path(cx)?.to_owned();
+    authorize_edit(cx, &user.id, &project_id).await?;
+    project::field_in_project(cx, &project_id, form.field_id.trim()).await?;
+
+    let label = trim(&form.label);
+    if label.is_empty() {
+        return Err(bad_request(l.t("項目名を入力してください。")).into());
+    }
+
+    sqlx::query("UPDATE project_fields SET label = ?3 WHERE id = ?1 AND project_id = ?2")
+        .bind(form.field_id.trim())
+        .bind(&project_id)
+        .bind(&label)
+        .execute(db::pool(cx))
+        .await?;
+
+    bump_and_announce(cx, &project_id, user.display()).await?;
+
+    Ok(see_other(&format!(
+        "/projects/{project_id}/settings?open=fields#fields"
+    )))
+}
+
+#[derive(Deserialize)]
+struct FieldKind {
+    field_id: String,
+    kind: String,
+}
+
+/// Changes a field's kind, while the column is still empty.
+///
+/// A column of dates read as numbers keeps its dates and shows nothing anyone
+/// can use, so this is refused the moment a single task has written a value.
+#[route(POST "/projects/{project_id}/fields/kind")]
+async fn set_field_kind(cx: &Cx, Form(form): Form<FieldKind>) -> Result<SeeOther> {
+    let l = crate::i18n::lang(cx).await;
+    let user = require_user(cx).await?;
+    let project_id = project::id_from_path(cx)?.to_owned();
+    authorize_edit(cx, &user.id, &project_id).await?;
+    project::field_in_project(cx, &project_id, form.field_id.trim()).await?;
+
+    if !FIELD_KINDS.contains(&form.kind.as_str()) {
+        return Err(bad_request(l.t("項目の種類が不正です。")).into());
+    }
+
+    let (used,) = sqlx::query_as::<_, (i64,)>(
+        "SELECT COUNT(*) FROM task_field_values WHERE field_id = ?1 AND TRIM(value) <> ''",
+    )
+    .bind(form.field_id.trim())
+    .fetch_one(db::pool(cx))
+    .await?;
+
+    if used > 0 {
+        return Err(bad_request(l.t(
+            "入力済みの項目は種類を変えられません。内容を空にしてからにしてください。",
+        ))
+        .into());
+    }
+
+    sqlx::query("UPDATE project_fields SET kind = ?3 WHERE id = ?1 AND project_id = ?2")
+        .bind(form.field_id.trim())
+        .bind(&project_id)
+        .bind(form.kind.trim())
+        .execute(db::pool(cx))
+        .await?;
+
+    bump_and_announce(cx, &project_id, user.display()).await?;
+
+    Ok(see_other(&format!(
+        "/projects/{project_id}/settings?open=fields#fields"
+    )))
 }
 
 #[route(POST "/projects/{project_id}/fields/remove")]

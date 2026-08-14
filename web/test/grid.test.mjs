@@ -2863,6 +2863,59 @@ await page.reload({ waitUntil: "domcontentloaded" });
 await page.waitForSelector(".fg-grid");
 await settle();
 
+// --- 独自項目の編集 ---------------------------------------------------------------
+
+// 名前を間違えたときに、消して作り直すしか道が無いと、入力済みの内容まで捨てる
+// ことになる。
+const editing = await page.evaluate(async () => {
+  const post = (path, body) =>
+    fetch(`/projects/test-project/${path}`, {
+      method: "POST",
+      body: new URLSearchParams(body),
+      redirect: "manual",
+    });
+  const fields = async () => (await (await fetch("/api/projects/test-project/grid")).json()).fields;
+
+  await post("fields", { label: "工数", kind: "number" });
+  const made = (await fields()).find((f) => f.label === "工数");
+
+  // 空のうちは種類も変えられる。
+  const kindEmpty = (await post("fields/kind", { field_id: made.id, kind: "text" })).status;
+
+  await post("fields/rename", { field_id: made.id, label: "作業時間" });
+
+  await fetch("/api/projects/test-project/tasks/t-req", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ field: "custom", field_id: made.id, value: "8" }),
+  });
+
+  // 入ってしまえば、種類はもう変えられない。
+  const kindUsed = (await post("fields/kind", { field_id: made.id, kind: "date" })).status;
+
+  const after = (await fields()).find((f) => f.id === made.id);
+  const grid = await (await fetch("/api/projects/test-project/grid")).json();
+  const kept = grid.tasks.find((t) => t.id === "t-req").values[made.id];
+
+  // 名前を変えたあとも同じ列であること。
+  await post("fields/rename", { field_id: made.id, label: "" });
+  const blank = (await fields()).find((f) => f.id === made.id).label;
+
+  await post("fields/remove", { field_id: made.id });
+
+  return { name: after.label, kind: after.kind, in_use: after.in_use, kindEmpty, kindUsed, kept, blank };
+});
+
+check("独自項目の名前を変えられる", editing.name === "作業時間", editing.name);
+check("名前を変えても入力した値は残る", editing.kept === "8", String(editing.kept));
+check("空のうちは種類も変えられる", editing.kindEmpty < 400 && editing.kind === "text", JSON.stringify(editing));
+check("入力済みなら種類は変えられない", editing.kindUsed === 400, String(editing.kindUsed));
+check("空の名前には変えられない", editing.blank === "作業時間", editing.blank);
+
+await page.reload({ waitUntil: "domcontentloaded" });
+await page.waitForSelector(".fg-grid");
+await settle();
+
 // --- 既定のステータス -------------------------------------------------------------
 
 // 新しいプロジェクトは全体の一覧を写して始まる。写したあとは独立で、あとから

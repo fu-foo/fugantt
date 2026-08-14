@@ -31,6 +31,7 @@ async fn index(cx: &Cx) -> Result {
         .unwrap_or_else(|| "auto".to_owned());
     let rule = app_settings::password_rule(cx).await;
     let banned = app_settings::banned_text(cx).await;
+    let statuses = project::default_statuses(cx).await?;
     let holidays = project::app_holidays(cx).await?;
     let assignees = project::assignee_master(cx).await?;
 
@@ -174,6 +175,108 @@ async fn index(cx: &Cx) -> Result {
                         (l.t("保存"))
                     </button>
                 </form>
+            </section>
+
+            // --- default statuses -------------------------------------------
+
+            <section id="statuses" class="mt-6 rounded-xl border border-slate-200 bg-white p-6">
+                <h2 class="text-lg font-semibold">
+                    (l.t("既定のステータス"))
+                    <span class="ml-2 text-sm font-normal text-slate-400">
+                        (&format!("{} {}", statuses.len(), l.t("種類")))
+                    </span>
+                </h2>
+                <p class="mt-1 text-sm text-slate-500">
+                    (l.t("新しいプロジェクトはこの一覧を写して始まります。写したあとはそのプロジェクトのものなので、ここを直しても、既にあるプロジェクトの色や進捗は動きません。"))
+                </p>
+
+                <form method="POST" action="/admin/statuses" class="mt-4 flex flex-wrap items-end gap-3">
+                    <div class="flex flex-col gap-1">
+                        <label for="status-name" class="text-xs font-medium text-slate-500">
+                            (l.t("名前"))
+                        </label>
+                        <input
+                            id="status-name"
+                            name="name"
+                            required=""
+                            placeholder=(l.t("レビュー中"))
+                            class="w-40 rounded-lg border border-slate-300 px-3 py-2"
+                        >
+                    </div>
+
+                    <div class="flex flex-col gap-1">
+                        <label for="status-color" class="text-xs font-medium text-slate-500">
+                            (l.t("色"))
+                        </label>
+                        <input
+                            id="status-color"
+                            name="color"
+                            type="color"
+                            value="#e2e8f0"
+                            class="h-10 w-16 rounded-lg border border-slate-300"
+                        >
+                    </div>
+
+                    <div class="flex flex-col gap-1">
+                        <label for="status-percent" class="text-xs font-medium text-slate-500">
+                            (l.t("進捗（任意）"))
+                        </label>
+                        <input
+                            id="status-percent"
+                            name="percent"
+                            inputmode="numeric"
+                            placeholder="100"
+                            class="w-24 rounded-lg border border-slate-300 px-3 py-2"
+                        >
+                    </div>
+
+                    <button class="rounded-lg bg-blue-600 px-4 py-2 font-medium text-white hover:bg-blue-500">
+                        (l.t("追加・更新"))
+                    </button>
+                </form>
+
+                <ul class="mt-6 divide-y divide-slate-100 border-t border-slate-100">
+                    for (at, status) in statuses.iter().enumerate() {
+                        <li class="flex items-center gap-3 py-2.5">
+                            <span
+                                class="rounded-full px-2.5 py-0.5 text-sm"
+                                style=(("background:", &status.color))
+                            >
+                                (&status.name)
+                            </span>
+
+                            <span class="text-xs text-slate-400">
+                                match status.percent {
+                                    Some(percent) => (&format!("{percent}%")),
+                                    None => (l.t("手入力のまま")),
+                                }
+                            </span>
+
+                            <form method="POST" action="/admin/statuses/move" class="ml-auto flex gap-1">
+                                <input type="hidden" name="name" value=(&status.name)>
+                                if at > 0 {
+                                    <button
+                                        name="direction"
+                                        value="up"
+                                        class="rounded border border-slate-300 px-2 text-xs hover:bg-slate-100"
+                                    >"↑"</button>
+                                }
+                                if at + 1 < statuses.len() {
+                                    <button
+                                        name="direction"
+                                        value="down"
+                                        class="rounded border border-slate-300 px-2 text-xs hover:bg-slate-100"
+                                    >"↓"</button>
+                                }
+                            </form>
+
+                            <form method="POST" action="/admin/statuses/remove">
+                                <input type="hidden" name="name" value=(&status.name)>
+                                <button class="text-sm text-slate-400 hover:text-red-600">(l.t("削除"))</button>
+                            </form>
+                        </li>
+                    }
+                </ul>
             </section>
 
             // --- holidays ---------------------------------------------------
@@ -451,6 +554,161 @@ async fn save_password_rule(cx: &Cx, Form(form): Form<PasswordForm>) -> Result<S
 async fn require_admin(cx: &Cx) -> Result<()> {
     let user = require_user(cx).await?;
     user.is_admin().then_some(()).ok_or_not_found()?;
+    Ok(())
+}
+
+#[derive(Deserialize)]
+struct StatusForm {
+    name: String,
+    color: String,
+    percent: Option<String>,
+}
+
+/// Adds a status to the list new projects start from, or changes one.
+///
+/// The whole list is written back each time: until somebody touches it there
+/// are no rows at all, only the shipped defaults, and the first edit has to put
+/// those on the record before it can add to them.
+#[route(POST "/admin/statuses")]
+async fn set_status(cx: &Cx, Form(form): Form<StatusForm>) -> Result<SeeOther> {
+    require_admin(cx).await?;
+
+    let name = form.name.trim();
+    if name.is_empty() {
+        return Err(bad_request("名前を入力してください。").into());
+    }
+
+    if !crate::domain::is_hex_colour(form.color.trim()) {
+        return Err(bad_request("色は #rrggbb の形式で指定してください。").into());
+    }
+
+    let percent = match form.percent.as_deref().map(str::trim).unwrap_or("") {
+        "" => None,
+        text => Some(
+            text.trim_end_matches('%')
+                .parse::<i64>()
+                .ok()
+                .filter(|percent| (0..=100).contains(percent))
+                .ok_or_else(|| bad_request("進捗は 0〜100 で指定してください。"))?,
+        ),
+    };
+
+    let existing = project::default_statuses(cx).await?;
+    let mut tx = db::pool(cx).begin().await?;
+
+    for (position, status) in existing.iter().enumerate() {
+        sqlx::query(
+            "INSERT INTO app_statuses (position, name, color, percent) VALUES (?1, ?2, ?3, ?4)
+             ON CONFLICT (name) DO NOTHING",
+        )
+        .bind(position as i64)
+        .bind(&status.name)
+        .bind(&status.color)
+        .bind(status.percent)
+        .execute(&mut *tx)
+        .await?;
+    }
+
+    sqlx::query(
+        "INSERT INTO app_statuses (position, name, color, percent) VALUES (?1, ?2, ?3, ?4)
+         ON CONFLICT (name) DO UPDATE SET color = excluded.color, percent = excluded.percent",
+    )
+    .bind(existing.len() as i64)
+    .bind(name)
+    .bind(form.color.trim())
+    .bind(percent)
+    .execute(&mut *tx)
+    .await?;
+
+    tx.commit().await?;
+
+    Ok(see_other("/admin#statuses"))
+}
+
+#[derive(Deserialize)]
+struct MoveStatus {
+    name: String,
+    direction: String,
+}
+
+/// Swaps a status with its neighbour: this order is the order a new project's
+/// menu will offer them in.
+#[route(POST "/admin/statuses/move")]
+async fn move_status(cx: &Cx, Form(form): Form<MoveStatus>) -> Result<SeeOther> {
+    require_admin(cx).await?;
+
+    let mut statuses = project::default_statuses(cx).await?;
+    let Some(at) = statuses
+        .iter()
+        .position(|status| status.name == form.name.trim())
+    else {
+        return Ok(see_other("/admin#statuses"));
+    };
+
+    let to = if form.direction == "up" {
+        at.checked_sub(1)
+    } else {
+        (at + 1 < statuses.len()).then_some(at + 1)
+    };
+
+    let Some(to) = to else {
+        return Ok(see_other("/admin#statuses"));
+    };
+
+    statuses.swap(at, to);
+    rewrite(cx, &statuses).await?;
+
+    Ok(see_other("/admin#statuses"))
+}
+
+#[derive(Deserialize)]
+struct RemoveStatus {
+    name: String,
+}
+
+#[route(POST "/admin/statuses/remove")]
+async fn remove_status(cx: &Cx, Form(form): Form<RemoveStatus>) -> Result<SeeOther> {
+    require_admin(cx).await?;
+
+    let statuses = project::default_statuses(cx).await?;
+
+    // Emptying the list only brings the shipped defaults back, which is not
+    // what pressing 削除 on the last one means.
+    if statuses.len() <= 1 {
+        return Err(bad_request("ステータスは1つ以上必要です。").into());
+    }
+
+    let left: Vec<crate::domain::Status> = statuses
+        .into_iter()
+        .filter(|status| status.name != form.name.trim())
+        .collect();
+
+    rewrite(cx, &left).await?;
+
+    Ok(see_other("/admin#statuses"))
+}
+
+/// Writes the list back in one piece. The order is the list, so a change to it
+/// is a change to every row's position.
+async fn rewrite(cx: &Cx, statuses: &[crate::domain::Status]) -> Result<()> {
+    let mut tx = db::pool(cx).begin().await?;
+
+    sqlx::query("DELETE FROM app_statuses").execute(&mut *tx).await?;
+
+    for (position, status) in statuses.iter().enumerate() {
+        sqlx::query(
+            "INSERT INTO app_statuses (position, name, color, percent) VALUES (?1, ?2, ?3, ?4)",
+        )
+        .bind(position as i64)
+        .bind(&status.name)
+        .bind(&status.color)
+        .bind(status.percent)
+        .execute(&mut *tx)
+        .await?;
+    }
+
+    tx.commit().await?;
+
     Ok(())
 }
 

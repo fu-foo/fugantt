@@ -25,6 +25,14 @@ DELETE FROM projects WHERE id = 'test-project';
 -- 会社の暦は全体に一つあり、プロジェクトを作り直しても残る。休みが1日あるだけで
 -- 日数が変わり、日数で重みを付けている集計まで変わるので、種を蒔き直すときは
 -- ここも空にする。前の実行が途中で落ちた日にだけ落ちるテスト、の正体だった。
+-- 走らせるたびに増えていく使い捨てのプロジェクト。名前で作った ID なので、
+-- 名前で片付けられる。
+DELETE FROM project_members WHERE project_id IN
+  (SELECT id FROM projects WHERE name LIKE 'テスト計画 %' OR name LIKE '全体テスト %' OR name LIKE '既定テスト %');
+DELETE FROM project_statuses WHERE project_id IN
+  (SELECT id FROM projects WHERE name LIKE 'テスト計画 %' OR name LIKE '全体テスト %' OR name LIKE '既定テスト %');
+DELETE FROM projects WHERE name LIKE 'テスト計画 %' OR name LIKE '全体テスト %' OR name LIKE '既定テスト %';
+
 DELETE FROM leaves;
 DELETE FROM app_holidays;
 DELETE FROM project_holidays WHERE project_id = 'test-project';

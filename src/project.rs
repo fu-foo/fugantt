@@ -1173,6 +1173,32 @@ pub async fn statuses(cx: &Cx, project_id: &str) -> Result<Vec<domain::Status>> 
         .collect())
 }
 
+/// The statuses a new project starts from.
+///
+/// The installation's list if somebody has set one, and the shipped defaults
+/// otherwise. Read once, at creation: see `0023_default_statuses.sql` for why
+/// this is a copy rather than a subscription.
+pub async fn default_statuses(cx: &Cx) -> Result<Vec<domain::Status>> {
+    let rows = sqlx::query_as::<_, (String, String, Option<i64>)>(
+        "SELECT name, color, percent FROM app_statuses ORDER BY position, name",
+    )
+    .fetch_all(db::pool(cx))
+    .await?;
+
+    if rows.is_empty() {
+        return Ok(domain::Status::defaults());
+    }
+
+    Ok(rows
+        .into_iter()
+        .map(|(name, color, percent)| domain::Status {
+            name,
+            color,
+            percent,
+        })
+        .collect())
+}
+
 /// Who a task can be assigned to.
 ///
 /// The project's members by the name they chose, plus anyone already named on

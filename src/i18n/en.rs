@@ -218,6 +218,12 @@ pub fn of(ja: &str) -> Option<&'static str> {
         "使い方" => "How to use it",
         "取り込めませんでした。" => "Could not import it. ",
 
+        // --- 既定のステータス -----------------------------------------------
+        "既定のステータス" => "Default statuses",
+        "新しいプロジェクトはこの一覧を写して始まります。写したあとはそのプロジェクトのものなので、ここを直しても、既にあるプロジェクトの色や進捗は動きません。" =>
+            "A new project starts from a copy of this list. The copy belongs to that project, so changing it here moves neither the colours nor the progress of any project that already exists.",
+        "手入力のまま" => "left as typed",
+
         _ => return None,
     })
 }

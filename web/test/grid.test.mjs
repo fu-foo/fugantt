@@ -2863,6 +2863,66 @@ await page.reload({ waitUntil: "domcontentloaded" });
 await page.waitForSelector(".fg-grid");
 await settle();
 
+// --- 既定のステータス -------------------------------------------------------------
+
+// 新しいプロジェクトは全体の一覧を写して始まる。写したあとは独立で、あとから
+// 全体を直しても、既にあるプロジェクトの色や進捗は動かない。
+const defaults = await asAdmin(() =>
+  page.evaluate(async () => {
+    const post = (path, body) =>
+      fetch(path, { method: "POST", body: new URLSearchParams(body), redirect: "manual" });
+
+    const beforeExisting = (await (await fetch("/api/projects/test-project/grid")).json()).statuses
+      .map((s) => s.name);
+
+    await post("/admin/statuses", { name: "検収待ち", color: "#fde68a", percent: "90" });
+    await post("/admin/statuses/move", { name: "検収待ち", direction: "up" });
+
+    const name = `既定テスト ${Date.now()}`;
+    await post("/projects", { name });
+
+    const html = await (await fetch("/")).text();
+    const id = [...html.matchAll(/href="\/projects\/([^"]+)"/g)]
+      .map((m) => decodeURIComponent(m[1]))
+      .find((slug) => slug.startsWith("既定テスト-"));
+
+    const fresh = (await (await fetch(`/api/projects/${encodeURIComponent(id)}/grid`)).json()).statuses;
+    const afterExisting = (await (await fetch("/api/projects/test-project/grid")).json()).statuses
+      .map((s) => s.name);
+
+    await post("/admin/statuses/remove", { name: "検収待ち" });
+
+    return {
+      id,
+      fresh: fresh.map((s) => s.name),
+      percent: fresh.find((s) => s.name === "検収待ち")?.percent ?? null,
+      beforeExisting,
+      afterExisting,
+    };
+  }),
+);
+
+check(
+  "新しいプロジェクトは全体の既定を写して始まる",
+  defaults.fresh.includes("検収待ち") && defaults.percent === 90,
+  JSON.stringify(defaults.fresh),
+);
+check(
+  "並べ替えた順もそのまま写る",
+  defaults.fresh.indexOf("検収待ち") === defaults.fresh.length - 2,
+  defaults.fresh.join(","),
+);
+check(
+  "既にあるプロジェクトは動かない",
+  defaults.afterExisting.join(",") === defaults.beforeExisting.join(","),
+  `${defaults.beforeExisting.join(",")} → ${defaults.afterExisting.join(",")}`,
+);
+
+execFileSync("sqlite3", [DB, "DELETE FROM app_statuses"]);
+execFileSync("sqlite3", [DB, "DELETE FROM project_members WHERE project_id LIKE '既定テスト-%'"]);
+execFileSync("sqlite3", [DB, "DELETE FROM project_statuses WHERE project_id LIKE '既定テスト-%'"]);
+execFileSync("sqlite3", [DB, "DELETE FROM projects WHERE name LIKE '既定テスト %'"]);
+
 // --- API トークン ---------------------------------------------------------------
 
 // ブラウザの外から、このプロジェクトだけを読み書きするための鍵。

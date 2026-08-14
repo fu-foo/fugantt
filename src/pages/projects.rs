@@ -133,6 +133,22 @@ async fn create(cx: &Cx, Form(form): Form<NewProject>) -> Result<SeeOther> {
         .execute(&mut *tx)
         .await?;
 
+    // The statuses come across as a copy. From here the project owns them, and
+    // a later change to the installation's list leaves this plan alone.
+    for (position, status) in project::default_statuses(cx).await?.iter().enumerate() {
+        sqlx::query(
+            "INSERT INTO project_statuses (project_id, position, name, color, percent)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+        )
+        .bind(&id)
+        .bind(position as i64)
+        .bind(&status.name)
+        .bind(&status.color)
+        .bind(status.percent)
+        .execute(&mut *tx)
+        .await?;
+    }
+
     tx.commit().await?;
 
     Ok(see_other(&format!("/projects/{id}")))

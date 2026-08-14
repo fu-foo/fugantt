@@ -1009,6 +1009,11 @@ async fn settings(cx: &Cx) -> Result {
                         value: theme.leave.as_str(),
                     )
                     colour_field(
+                        name: "color_today",
+                        label: "今日",
+                        value: theme.today.as_str(),
+                    )
+                    colour_field(
                         name: "color_wait",
                         label: "待ち",
                         value: theme.wait.as_str(),

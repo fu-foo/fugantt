@@ -191,6 +191,11 @@ async fn write_document(
     project::import_project(cx, &project.id, &account, &document).await?;
     record_import(cx, &project.id, &who, document.tasks.len()).await?;
 
+    // Tell the open screens. Without this a plan written through the API sits
+    // in the database until somebody happens to reload, which is the one thing
+    // an automated write cannot ask for.
+    bump_and_announce(cx, &project.id, &who).await?;
+
     let project = fill_in(cx, project).await?;
 
     Ok(Json(project::grid_data(cx, &project).await?))
@@ -1951,6 +1956,7 @@ struct ColourForm {
     color_holiday: String,
     color_leave: String,
     color_wait: String,
+    color_today: String,
 }
 
 #[route(POST "/projects/{project_id}/colors")]
@@ -1971,6 +1977,7 @@ async fn set_colors(cx: &Cx, Form(form): Form<ColourForm>) -> Result<SeeOther> {
         ("color_holiday", &form.color_holiday),
         ("color_leave", &form.color_leave),
         ("color_wait", &form.color_wait),
+        ("color_today", &form.color_today),
     ] {
         let value = value.trim();
 

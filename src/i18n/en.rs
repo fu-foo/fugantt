@@ -100,6 +100,7 @@ pub fn of(ja: &str) -> Option<&'static str> {
         "土曜" => "Saturday",
         "日曜" => "Sunday",
         "祝日" => "Holiday",
+        "今日" => "Today",
         "休暇" => "Leave",
         "進捗" => "Progress",
         "日数" => "Days",

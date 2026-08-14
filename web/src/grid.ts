@@ -57,6 +57,7 @@ interface GridData {
     holiday: string;
     leave: string;
     wait: string;
+  today: string;
   };
   fields: {
     id: string;
@@ -2319,6 +2320,7 @@ class Grid {
     grid.style.setProperty("--fg-bar-soft", this.data.theme.bar);
     grid.style.setProperty("--fg-bar", this.data.theme.done);
     grid.style.setProperty("--fg-actual", this.data.theme.actual);
+    grid.style.setProperty("--fg-today", this.data.theme.today);
     grid.style.setProperty("--fg-summary", this.data.theme.summary);
     grid.style.setProperty("--fg-late", this.data.theme.late);
     grid.style.setProperty("--fg-saturday", this.data.theme.saturday);

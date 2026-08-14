@@ -399,6 +399,10 @@ pub struct Theme {
     pub leave: String,
     /// The days the work was stopped, waiting on somebody else.
     pub wait: String,
+    /// Today's line and the date above it. Its own colour because red is
+    /// already Sunday's, and "is this a holiday or is this now" is not a
+    /// question a chart should ask.
+    pub today: String,
 }
 
 impl Default for Settings {
@@ -446,6 +450,7 @@ impl Default for Theme {
             // the same kind of day off as a weekend or a holiday.
             leave: "#fff7ed".to_owned(),
             wait: "#ede9fe".to_owned(),
+            today: "#ea580c".to_owned(),
         }
     }
 }
@@ -467,6 +472,7 @@ impl Theme {
             ("color_holiday", &mut theme.holiday),
             ("color_leave", &mut theme.leave),
             ("color_wait", &mut theme.wait),
+            ("color_today", &mut theme.today),
         ] {
             if let Some(value) = settings.get(key)
                 && is_hex_colour(value)

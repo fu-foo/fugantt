@@ -38,6 +38,7 @@ html {
   --fg-holiday: #fef2f2;
   --fg-leave: #fff7ed;
   --fg-wait: #ede9fe;
+  --fg-today: #ea580c;
   display: grid;
   grid-template-columns: var(--fg-pane-width) 5px minmax(0, 1fr);
   font-size: 13px;
@@ -332,8 +333,12 @@ html {
   background: var(--fg-holiday);
 }
 .fg-day.is-today .fg-date {
-  color: var(--fg-late);
+  color: #fff;
   font-weight: 700;
+  background: var(--fg-today);
+  border-radius: 999px;
+  padding: 1px 5px;
+  margin: -1px -1px 0;
 }
 .fg-filter-spacer {
   height: var(--fg-filter-height);
@@ -731,8 +736,8 @@ html {
   top: 0;
   bottom: 0;
   width: 1px;
-  background: var(--fg-late);
-  opacity: 0.55;
+  background: var(--fg-today);
+  opacity: 0.7;
   pointer-events: none;
 }
 .fg-grid:focus {

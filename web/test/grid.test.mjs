@@ -837,7 +837,8 @@ check(
 );
 
 // 予定・完了分・実施・集計行・遅延・土曜・日曜・祝日・休暇・待ち。
-check("色の設定が10ある（予定と実施を分けたぶん）", settings.colours === 10, String(settings.colours));
+// 予定・完了分・実施・集計行・遅延・今日・土曜・日曜・祝日・休暇・待ち。
+check("色の設定が11ある（今日を分けたぶん）", settings.colours === 11, String(settings.colours));
 
 // 実際に保存できるか（url-encoded は繰り返しキーを配列にできない）
 const saved = await page.evaluate(async () => {
@@ -3072,6 +3073,40 @@ check(
 );
 check("でたらめなトークンは断られる", api.rubbish === 403, String(api.rubbish));
 check("他のプロジェクトには効かない", api.other === 403, String(api.other));
+
+// API で書いた変更も、開いている画面にその場で届く。届かないと、書いた側は
+// 誰かがリロードするのを待つことしかできない。
+check(
+  "API の書き込みが開いている画面に届く",
+  await page.evaluate(async () => {
+    const res = await fetch("/projects/test-project/tokens", {
+      method: "POST",
+      body: new URLSearchParams({ name: "live", role: "editor" }),
+    });
+    const token = decodeURIComponent((res.url.match(/issued=([^&#]+)/) ?? [])[1] ?? "");
+    const head = { Authorization: `Bearer ${token}` };
+
+    const before = document.querySelector(".fg-name-text")?.textContent;
+
+    const doc = await (await fetch("/api/projects/test-project/document", { headers: head })).json();
+    doc.tasks[0].name = "外から書き換えた行";
+    await fetch("/api/projects/test-project/document", {
+      method: "POST",
+      headers: { ...head, "content-type": "application/json" },
+      body: JSON.stringify(doc),
+    });
+
+    // 画面には触らない。SSE で届くのを待つだけ。
+    for (let at = 0; at < 20; at++) {
+      await new Promise((r) => setTimeout(r, 250));
+      if (document.querySelector(".fg-name-text")?.textContent === "外から書き換えた行") {
+        return `${before} → 外から書き換えた行`;
+      }
+    }
+
+    return `届かなかった（${before} のまま）`;
+  }),
+);
 
 // 後片付け: 作ったトークンを消して、タスクを元に戻す。
 await page.evaluate(async () => {

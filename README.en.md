@@ -38,8 +38,7 @@ fugantt keeps both on one row and works out the rest.
 
 ## Editing
 
-The grid is keyboard-first, because the people replacing a spreadsheet are fast
-in a spreadsheet and will not accept being slowed down.
+The grid is keyboard-first: nobody leaves a spreadsheet for something slower.
 
 Arrows move, Enter opens a cell, Tab goes right, Escape puts it back.
 `⌘Enter` / `Ctrl+Enter` adds a row, `⌥→` / `Alt+→` makes it a child, `⌥↑` / `Alt+↑`
@@ -195,8 +194,6 @@ company.
 
 ## Licence
 
-**Apache License 2.0.** Commercial use, modification and redistribution are all
-permitted, with no obligation to publish your changes, and the patent grant is
-explicit.
+Apache License 2.0
 
 Copyright 2026 Kazunari Fukagawa

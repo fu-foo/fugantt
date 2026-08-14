@@ -43,6 +43,8 @@ scoop bucket add fu-foo https://github.com/fu-foo/scoop-bucket && scoop install 
 docker run -p 3000:3000 -v fugantt:/data ghcr.io/fu-foo/fugantt
 ```
 
+イメージは amd64 のみ。Apple Silicon で動かすなら `--platform linux/amd64` を付ける。
+
 ビルド済みバイナリは [Releases](https://github.com/fu-foo/fugantt/releases) から。
 Fly.io の設定も入っている（`fly.toml`）。
 

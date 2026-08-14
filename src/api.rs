@@ -138,7 +138,10 @@ async fn read_document(cx: &Cx) -> Result<Json<serde_json::Value>> {
 }
 
 #[route(POST "/api/projects/{project_id}/document")]
-async fn write_document(cx: &Cx, Json(document): Json<serde_json::Value>) -> Result<Json<GridData>> {
+async fn write_document(
+    cx: &Cx,
+    Json(document): Json<serde_json::Value>,
+) -> Result<Json<GridData>> {
     let project_id = project::id_from_path(cx)?.to_owned();
     let project = actor_edit(cx, &project_id).await?;
     let l = crate::i18n::lang(cx).await;
@@ -367,7 +370,17 @@ async fn update_task(cx: &Cx, Json(edit): Json<CellEdit>) -> Result<Json<Mutatio
     )
     .await?;
 
-    follow_on(cx, &project_id, &task_id, &user, &name, edit.field, value, &mut progress_now).await?;
+    follow_on(
+        cx,
+        &project_id,
+        &task_id,
+        &user,
+        &name,
+        edit.field,
+        value,
+        &mut progress_now,
+    )
+    .await?;
 
     respond(cx, &project, user.display(), Some(task_id)).await
 }
@@ -456,7 +469,15 @@ async fn follow_on(
             let today = jiff::Zoned::now().date().to_string();
 
             write_cell(cx, task_id, &user.id, "actual_end = ?1", today.clone()).await?;
-            let entry = note(project_id, task_id, name, user.display(), "実施終了", "", &today);
+            let entry = note(
+                project_id,
+                task_id,
+                name,
+                user.display(),
+                "実施終了",
+                "",
+                &today,
+            );
             history::record(cx, entry).await?;
         }
     }
@@ -680,7 +701,8 @@ where
 {
     // `assignment` is a fixed string chosen from a closed set above, never
     // anything a request supplies.
-    let sql = format!("UPDATE tasks SET {assignment}, updated_at = ?2, updated_by = ?3 WHERE id = ?4");
+    let sql =
+        format!("UPDATE tasks SET {assignment}, updated_at = ?2, updated_by = ?3 WHERE id = ?4");
 
     sqlx::query(&sql)
         .bind(value)
@@ -753,7 +775,12 @@ fn normalize_width(value: &str) -> String {
 }
 
 fn trim(value: &str) -> String {
-    value.chars().take(TEXT_LIMIT).collect::<String>().trim().to_owned()
+    value
+        .chars()
+        .take(TEXT_LIMIT)
+        .collect::<String>()
+        .trim()
+        .to_owned()
 }
 
 // --- live updates -----------------------------------------------------------
@@ -976,10 +1003,8 @@ async fn set_leaves(cx: &Cx, Json(form): Json<LeaveList>) -> Result<Json<Mutatio
 
     for leave in &form.leaves {
         let assignee = trim(&leave.assignee);
-        let (Some(start), Some(end)) = (
-            flexible_date(&leave.start),
-            flexible_date(&leave.end),
-        ) else {
+        let (Some(start), Some(end)) = (flexible_date(&leave.start), flexible_date(&leave.end))
+        else {
             return Err(bad_request(l.t("休暇の日付を確認してください。")).into());
         };
 
@@ -1286,7 +1311,11 @@ async fn set_view(
         cx,
         &project_id,
         "quarters",
-        if form.contains_key("quarters") { "1" } else { "0" },
+        if form.contains_key("quarters") {
+            "1"
+        } else {
+            "0"
+        },
     )
     .await?;
 
@@ -1294,7 +1323,11 @@ async fn set_view(
         cx,
         &project_id,
         "japanese_era",
-        if form.contains_key("japanese_era") { "1" } else { "" },
+        if form.contains_key("japanese_era") {
+            "1"
+        } else {
+            ""
+        },
     )
     .await?;
 
@@ -1312,7 +1345,10 @@ async fn set_view(
         cx,
         &project_id,
         "progress_mode",
-        if form.get("progress_mode").is_some_and(|mode| mode == "status") {
+        if form
+            .get("progress_mode")
+            .is_some_and(|mode| mode == "status")
+        {
             "status"
         } else {
             ""
@@ -1525,9 +1561,9 @@ async fn set_field_kind(cx: &Cx, Form(form): Form<FieldKind>) -> Result<SeeOther
     .await?;
 
     if used > 0 {
-        return Err(bad_request(l.t(
-            "入力済みの項目は種類を変えられません。内容を空にしてからにしてください。",
-        ))
+        return Err(bad_request(
+            l.t("入力済みの項目は種類を変えられません。内容を空にしてからにしてください。"),
+        )
         .into());
     }
 
@@ -1597,7 +1633,9 @@ async fn set_columns(
             let key = key.strip_prefix("width_")?;
             let width: u32 = value.trim().parse().ok()?;
 
-            (40..=600).contains(&width).then(|| format!("{key}:{width}"))
+            (40..=600)
+                .contains(&width)
+                .then(|| format!("{key}:{width}"))
         })
         .collect();
 
@@ -1941,7 +1979,11 @@ async fn create_token(cx: &Cx, Form(form): Form<NewToken>) -> Result<SeeOther> {
         return Err(forbidden().into());
     }
 
-    let role = if form.role == "editor" { "editor" } else { "viewer" };
+    let role = if form.role == "editor" {
+        "editor"
+    } else {
+        "viewer"
+    };
     let (token, hash) = crate::tokens::generate();
 
     sqlx::query(
@@ -2210,7 +2252,9 @@ async fn import_json(cx: &Cx, mut form: Multipart) -> Result<SeeOther> {
 
     bump_and_announce(cx, &project_id, user.display()).await?;
 
-    Ok(see_other(&format!("/projects/{project_id}?imported={count}")))
+    Ok(see_other(&format!(
+        "/projects/{project_id}?imported={count}"
+    )))
 }
 
 /// Refuses a date that would put a range back to front.
@@ -2226,9 +2270,17 @@ async fn check_order(cx: &Cx, task_id: &str, field: Field, date: Option<&str>) -
 
     let (column, is_start, message) = match field {
         Field::Start => ("end_date", true, "予定開始は予定終了より後にできません。"),
-        Field::End => ("start_date", false, "予定終了は予定開始より前にできません。"),
+        Field::End => (
+            "start_date",
+            false,
+            "予定終了は予定開始より前にできません。",
+        ),
         Field::ActualStart => ("actual_end", true, "実施開始は実施終了より後にできません。"),
-        Field::ActualEnd => ("actual_start", false, "実施終了は実施開始より前にできません。"),
+        Field::ActualEnd => (
+            "actual_start",
+            false,
+            "実施終了は実施開始より前にできません。",
+        ),
         _ => return Ok(()),
     };
 
@@ -2244,7 +2296,11 @@ async fn check_order(cx: &Cx, task_id: &str, field: Field, date: Option<&str>) -
         return Ok(());
     };
 
-    let inverted = if is_start { date > other.as_str() } else { date < other.as_str() };
+    let inverted = if is_start {
+        date > other.as_str()
+    } else {
+        date < other.as_str()
+    };
 
     if inverted {
         return Err(bad_request(message).into());
@@ -2276,7 +2332,9 @@ fn parse_waits(value: &str, l: crate::i18n::Lang) -> Result<String> {
             .split_once(['〜', '~', '～'])
             .or_else(|| range.split_once(" - "))
             .or_else(|| split_dash_range(&range))
-            .ok_or_else(|| bad_request(l.t("待ちは「8/17〜8/21」のように範囲で入力してください。")))?;
+            .ok_or_else(|| {
+                bad_request(l.t("待ちは「8/17〜8/21」のように範囲で入力してください。"))
+            })?;
 
         let from = wait_date(from, l)?;
         let to = to.trim();
@@ -2351,8 +2409,9 @@ fn parse_date(value: &str, l: crate::i18n::Lang) -> Result<Option<String>> {
         return Ok(None);
     }
 
-    let date = flexible_date(value)
-        .ok_or_else(|| bad_request(l.t("日付は 20260805・8/5・2026-08-05 のように入力してください。")))?;
+    let date = flexible_date(value).ok_or_else(|| {
+        bad_request(l.t("日付は 20260805・8/5・2026-08-05 のように入力してください。"))
+    })?;
 
     Ok(Some(date.to_string()))
 }
@@ -2374,8 +2433,12 @@ pub fn flexible_date(value: &str) -> Option<Date> {
     // Bare digits: eight of them are a whole date, four are a day this year.
     if value.chars().all(|c| c.is_ascii_digit()) {
         return match value.len() {
-            8 => format!("{}-{}-{}", &value[..4], &value[4..6], &value[6..]).parse().ok(),
-            4 => format!("{year}-{}-{}", &value[..2], &value[2..]).parse().ok(),
+            8 => format!("{}-{}-{}", &value[..4], &value[4..6], &value[6..])
+                .parse()
+                .ok(),
+            4 => format!("{year}-{}-{}", &value[..2], &value[2..])
+                .parse()
+                .ok(),
             _ => None,
         };
     }
@@ -2409,7 +2472,10 @@ mod tests {
             "2026-08-17/2026-08-21:他部署"
         );
         // No end: still open.
-        assert_eq!(parse_waits("2026-09-01〜 顧客", crate::i18n::Lang::Ja).unwrap(), "2026-09-01/:顧客");
+        assert_eq!(
+            parse_waits("2026-09-01〜 顧客", crate::i18n::Lang::Ja).unwrap(),
+            "2026-09-01/:顧客"
+        );
         // Everything after the dates is the reason, spaces and all.
         assert_eq!(
             parse_waits("8/17〜8/21 他部署 承認待ち", crate::i18n::Lang::Ja).unwrap(),

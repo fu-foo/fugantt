@@ -137,7 +137,11 @@ impl PasswordRule {
         // Refused if it contains one. Rejecting `password` while allowing
         // `password1` defends the wording of the rule and nothing else.
         let folded = password.to_lowercase();
-        if let Some(word) = self.banned.iter().find(|word| folded.contains(word.as_str())) {
+        if let Some(word) = self
+            .banned
+            .iter()
+            .find(|word| folded.contains(word.as_str()))
+        {
             return Err(format!(
                 "「{word}」を含むパスワードは、真っ先に試されるので使えません。"
             ));
@@ -273,7 +277,11 @@ mod tests {
 
     #[test]
     fn a_password_is_counted_in_characters() {
-        let rule = PasswordRule { min: 8, kinds: vec![], banned: vec![] };
+        let rule = PasswordRule {
+            min: 8,
+            kinds: vec![],
+            banned: vec![],
+        };
 
         // Eight characters, twenty-four bytes. Counting bytes let this pass.
         assert!(rule.check("あいうえおかきく").is_ok());
@@ -301,7 +309,11 @@ mod tests {
 
     #[test]
     fn no_kinds_asked_for_means_no_kinds_checked() {
-        let rule = PasswordRule { min: 8, kinds: vec![], banned: vec![] };
+        let rule = PasswordRule {
+            min: 8,
+            kinds: vec![],
+            banned: vec![],
+        };
 
         assert!(rule.check("aaaaaaaa").is_ok());
     }
@@ -317,7 +329,12 @@ mod tests {
     #[test]
     fn the_rule_says_itself_out_loud() {
         assert_eq!(
-            PasswordRule { min: 12, kinds: vec![], banned: vec![] }.describe(),
+            PasswordRule {
+                min: 12,
+                kinds: vec![],
+                banned: vec![]
+            }
+            .describe(),
             "12文字以上"
         );
         assert_eq!(
@@ -345,7 +362,11 @@ mod tests {
     /// the default list.
     #[test]
     fn an_empty_list_bans_nothing() {
-        let rule = PasswordRule { min: 8, kinds: vec![], banned: banned_words("  \n \n") };
+        let rule = PasswordRule {
+            min: 8,
+            kinds: vec![],
+            banned: banned_words("  \n \n"),
+        };
 
         assert!(rule.check("password").is_ok());
     }

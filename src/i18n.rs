@@ -88,7 +88,11 @@ fn from_browser(cx: &Cx) -> Lang {
         .trim()
         .to_lowercase();
 
-    if first.starts_with("ja") { Lang::Ja } else { Lang::En }
+    if first.starts_with("ja") {
+        Lang::Ja
+    } else {
+        Lang::En
+    }
 }
 
 #[cfg(test)]

@@ -26,7 +26,10 @@ pub struct Token {
 pub fn generate() -> (String, Vec<u8>) {
     let random = Random::random();
 
-    (format!("{PREFIX}{}", random.encode()), random.hash().to_vec())
+    (
+        format!("{PREFIX}{}", random.encode()),
+        random.hash().to_vec(),
+    )
 }
 
 /// The hash a presented token would be stored under.

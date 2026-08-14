@@ -113,20 +113,25 @@ pub fn of(ja: &str) -> Option<&'static str> {
         "担当者の休暇/出社" => "Leave and working days",
 
         // --- banners, confirmations, help text -----------------------------
-        "認証なしで動いています。この URL に届く人は全員が全プロジェクトを読み書きできます。" =>
-            "Running without sign-in. Anyone who can reach this URL can read and edit every project.",
-        "取り込むと、いまのタスクはすべて置き換わります。よろしいですか？" =>
-            "Importing replaces every task in this project. Continue?",
-        "引き継ぎや決めごとなど。改行はそのまま出ます" =>
-            "Handover notes, decisions, anything. Line breaks are kept.",
+        "認証なしで動いています。この URL に届く人は全員が全プロジェクトを読み書きできます。" => {
+            "Running without sign-in. Anyone who can reach this URL can read and edit every project."
+        }
+        "取り込むと、いまのタスクはすべて置き換わります。よろしいですか？" => {
+            "Importing replaces every task in this project. Continue?"
+        }
+        "引き継ぎや決めごとなど。改行はそのまま出ます" => {
+            "Handover notes, decisions, anything. Line breaks are kept."
+        }
         "まだ何も書かれていません。" => "Nothing written yet.",
 
         // --- signing in ---------------------------------------------------
         "最初のアカウントを作る" => "Create the first account",
-        "最初に登録した人が管理者になり、以降のユーザーはその人が作ります。" =>
-            "Whoever registers first becomes the administrator, and makes every account after that.",
-        "画面にはこの名前が出ます。担当者としても選べます。" =>
-            "This is the name shown on screen, and the one you can assign work to.",
+        "最初に登録した人が管理者になり、以降のユーザーはその人が作ります。" => {
+            "Whoever registers first becomes the administrator, and makes every account after that."
+        }
+        "画面にはこの名前が出ます。担当者としても選べます。" => {
+            "This is the name shown on screen, and the one you can assign work to."
+        }
         "山田 太郎" => "Alex Doe",
 
         // --- the project list ---------------------------------------------
@@ -135,46 +140,77 @@ pub fn of(ja: &str) -> Option<&'static str> {
         "まだプロジェクトがありません。" => "No projects yet.",
 
         // --- statistics -----------------------------------------------------
-        "差異は待ちを除いて数えているので、作業の遅れと待ちを足したものが実際のずれです。" =>
-            "Variance is counted with waiting excluded, so the real slippage is the work behind plus the waiting.",
+        "差異は待ちを除いて数えているので、作業の遅れと待ちを足したものが実際のずれです。" => {
+            "Variance is counted with waiting excluded, so the real slippage is the work behind plus the waiting."
+        }
         "平均" => "average",
 
         // --- settings and administration -----------------------------------
         "アプリの名前（左上に出ます）" => "The name of this app (shown top left)",
-        "既定です。自分の設定で選んだ人は、そちらが優先されます。「自動」は、その人のブラウザ（OS）の言語に合わせます。" => "The default. Anyone who picks a language in their own settings keeps that choice. \"Automatic\" follows each person's browser, which follows their operating system.",
-        "1行に「開始日 名称」。新しい元号が決まったら、ここに1行足すだけで済みます。読めない行は無視します。" => "One era per line: start date, then name. When a new era is announced, adding a line here is the whole change. Lines that cannot be read are ignored.",
-        "新しく決めるときだけ効きます。いま使っているパスワードは、次に変えるまでそのまま使えます。" => "This applies when a password is set. Passwords already in use keep working until they are next changed.",
+        "既定です。自分の設定で選んだ人は、そちらが優先されます。「自動」は、その人のブラウザ（OS）の言語に合わせます。" => {
+            "The default. Anyone who picks a language in their own settings keeps that choice. \"Automatic\" follows each person's browser, which follows their operating system."
+        }
+        "1行に「開始日 名称」。新しい元号が決まったら、ここに1行足すだけで済みます。読めない行は無視します。" => {
+            "One era per line: start date, then name. When a new era is announced, adding a line here is the whole change. Lines that cannot be read are ignored."
+        }
+        "新しく決めるときだけ効きます。いま使っているパスワードは、次に変えるまでそのまま使えます。" => {
+            "This applies when a password is set. Passwords already in use keep working until they are next changed."
+        }
         "最低文字数" => "Minimum length",
-        "何もチェックしなければ指定なし。日本語は記号に数えます" => "Tick nothing to require none. Non-Latin characters count as symbols",
+        "何もチェックしなければ指定なし。日本語は記号に数えます" => {
+            "Tick nothing to require none. Non-Latin characters count as symbols"
+        }
         "使わせない語" => "Words to refuse",
-        "1行に1語。これを含むパスワードは断ります（大文字小文字は問いません）。会社名や製品名を足しておくと効きます。空にすれば、この検査はしません。" => "One word per line. A password containing any of them is refused, whatever the case. Adding your company or product name is worth doing. Leave it empty to skip this check.",
-        "会社の暦です。すべてのプロジェクトが、まずここを見ます。現場ごとの違いは、それぞれのプロジェクトの設定で足したり外したりできます。" => "The company calendar. Every project starts from this list, and each one can add to it or opt out of a day in its own settings.",
+        "1行に1語。これを含むパスワードは断ります（大文字小文字は問いません）。会社名や製品名を足しておくと効きます。空にすれば、この検査はしません。" => {
+            "One word per line. A password containing any of them is refused, whatever the case. Adding your company or product name is worth doing. Leave it empty to skip this check."
+        }
+        "会社の暦です。すべてのプロジェクトが、まずここを見ます。現場ごとの違いは、それぞれのプロジェクトの設定で足したり外したりできます。" => {
+            "The company calendar. Every project starts from this list, and each one can add to it or opt out of a day in its own settings."
+        }
         "日本の祝日をまとめて入れる" => "Add a year of Japanese public holidays",
-        "振替休日と国民の休日も計算します。同じ日付が既にあれば残します。" => "Substitute holidays and citizens' holidays are worked out too. A date already on the list is left as it is.",
+        "振替休日と国民の休日も計算します。同じ日付が既にあれば残します。" => {
+            "Substitute holidays and citizens' holidays are worked out too. A date already on the list is left as it is."
+        }
         "創立記念日" => "Founders' Day",
         "担当者の色" => "Assignee colours",
-        "同じ人はどのプロジェクトでも同じ色にします。アカウントの無い名前（協力会社・他部署）も登録できます。" => "One person, one colour, in every project. Names without an account — contractors, other teams — can be listed here too.",
+        "同じ人はどのプロジェクトでも同じ色にします。アカウントの無い名前（協力会社・他部署）も登録できます。" => {
+            "One person, one colour, in every project. Names without an account — contractors, other teams — can be listed here too."
+        }
         "協力会社 A" => "Contractor A",
         "背景色" => "Background",
-        "まだ登録がありません。プロジェクトで使われている名前は、そのまま色なしで出ます。" => "Nothing here yet. Names already used in a project still show, without a colour.",
+        "まだ登録がありません。プロジェクトで使われている名前は、そのまま色なしで出ます。" => {
+            "Nothing here yet. Names already used in a project still show, without a colour."
+        }
         "更新" => "Update",
         " タスク" => " tasks",
         " 行を取り込みました。" => " rows imported.",
-        " 行は読めなかったため飛ばしています。" => " rows could not be read and were skipped.",
-        "日数の数え方は編集者が設定します。" => "How days are counted is set by an editor.",
-        "週の何曜を休みにするかは現場ごと。既定はどれも外しません。" => "Which weekdays are off differs by workplace. By default none of them are.",
+        " 行は読めなかったため飛ばしています。" => {
+            " rows could not be read and were skipped."
+        }
+        "日数の数え方は編集者が設定します。" => {
+            "How days are counted is set by an editor."
+        }
+        "週の何曜を休みにするかは現場ごと。既定はどれも外しません。" => {
+            "Which weekdays are off differs by workplace. By default none of them are."
+        }
         "進捗の入れ方" => "How progress is set",
         "手入力" => "Typed in",
-        "連動しても、進捗を決めていないステータスは手入力のままです。進捗を 100% にすると、実施終了が空なら今日の日付が入ります。" => "Even when linked, a status with no progress of its own leaves the number as typed. Setting progress to 100% fills in today as the actual end, if it is empty.",
+        "連動しても、進捗を決めていないステータスは手入力のままです。進捗を 100% にすると、実施終了が空なら今日の日付が入ります。" => {
+            "Even when linked, a status with no progress of its own leaves the number as typed. Setting progress to 100% fills in today as the actual end, if it is empty."
+        }
         "年度の開始月" => "Business year starts in",
         "月" => "月",
         "固定する列" => "Frozen columns",
         "1日の幅" => "Width of a day",
         "四半期の帯を出す" => "Show the quarter band",
         "年を和暦で表示する" => "Show years as Japanese eras",
-        "表示・幅（px、空欄で自動）・並び順。タスク名は先頭で固定です。↑↓ を押すと、入力中の幅も一緒に保存されます。" => "Shown or hidden, width in pixels (empty means automatic), and order. The task name stays first. Pressing the arrows saves the width you are typing as well.",
+        "表示・幅（px、空欄で自動）・並び順。タスク名は先頭で固定です。↑↓ を押すと、入力中の幅も一緒に保存されます。" => {
+            "Shown or hidden, width in pixels (empty means automatic), and order. The task name stays first. Pressing the arrows saves the width you are typing as well."
+        }
         "自動" => "Automatic",
-        "名前・色・その状態が意味する進捗。進捗を空にすると、その状態では手入力のままになります。" => "Name, colour, and the progress that state implies. Leave the progress empty and that state keeps whatever was typed.",
+        "名前・色・その状態が意味する進捗。進捗を空にすると、その状態では手入力のままになります。" => {
+            "Name, colour, and the progress that state implies. Leave the progress empty and that state keeps whatever was typed."
+        }
         "レビュー中" => "In review",
         "進捗（任意）" => "Progress (optional)",
         "項目名" => "Field name",
@@ -183,8 +219,12 @@ pub fn of(ja: &str) -> Option<&'static str> {
         "選択肢を追加" => "Add a choice",
         "文字" => "Text",
         "背景" => "Background",
-        "メンバーとタスクに入っている名前が並びます。ここに名前を足せば、アカウントの無い人も選べます。色は全員で共通なので「全体の設定」で決めます——同じ人が案件ごとに違う色だと、いくつも開いたときに読めなくなるためです。" => "The names of members and of anyone written on a task. Add a name here and people without an account can be assigned work too. Colours are shared by everyone and live in the installation settings: one person in two colours is unreadable once you have several projects open.",
-        "土日と同じように網かけします。日数の計算は変わりません。日本の祝日は「全体の設定」に入れておくと、どのプロジェクトにも出ます。ここで扱うのは、この現場だけの違いです。" => "Shaded like a weekend; the day count is unaffected. Public holidays belong in the installation settings, where every project picks them up. What you set here is this project's own difference.",
+        "メンバーとタスクに入っている名前が並びます。ここに名前を足せば、アカウントの無い人も選べます。色は全員で共通なので「全体の設定」で決めます——同じ人が案件ごとに違う色だと、いくつも開いたときに読めなくなるためです。" => {
+            "The names of members and of anyone written on a task. Add a name here and people without an account can be assigned work too. Colours are shared by everyone and live in the installation settings: one person in two colours is unreadable once you have several projects open."
+        }
+        "土日と同じように網かけします。日数の計算は変わりません。日本の祝日は「全体の設定」に入れておくと、どのプロジェクトにも出ます。ここで扱うのは、この現場だけの違いです。" => {
+            "Shaded like a weekend; the day count is unaffected. Public holidays belong in the installation settings, where every project picks them up. What you set here is this project's own difference."
+        }
         "日付" => "Date",
         "名称" => "Name",
         "現場の休業日" => "Site closure",
@@ -192,18 +232,24 @@ pub fn of(ja: &str) -> Option<&'static str> {
         "全体" => "Shared",
         "このプロジェクトでは働く" => "Working here",
         "平均 " => "average ",
-        "ここで作った人がログインできます。ベース権限は、そのプロジェクトに名前が無いときに使われる既定です。「無効」にすると、招かれたプロジェクトだけが見えます。" => "Anyone made here can sign in. The base role is what applies to a project that does not name them; \"no access\" means they see only the projects they were added to.",
+        "ここで作った人がログインできます。ベース権限は、そのプロジェクトに名前が無いときに使われる既定です。「無効」にすると、招かれたプロジェクトだけが見えます。" => {
+            "Anyone made here can sign in. The base role is what applies to a project that does not name them; \"no access\" means they see only the projects they were added to."
+        }
         "ベース権限" => "Base role",
         "新しいパスワード（変えるときだけ）" => "New password (only to change it)",
         "そのまま" => "Unchanged",
-        "画面に出る名前です。変えると、担当者に入っている自分の名前も一緒に変わります。" => "The name shown on screen. Changing it also changes your name wherever it is written on a task.",
+        "画面に出る名前です。変えると、担当者に入っている自分の名前も一緒に変わります。" => {
+            "The name shown on screen. Changing it also changes your name wherever it is written on a task."
+        }
 
         // --- API トークン ---------------------------------------------------
         "API トークン" => "API tokens",
-        "ブラウザ以外からこのプロジェクトだけを読み書きするための鍵です。書き出した JSON を読ませて、考えさせて、書き戻す——その往復に使います。" =>
-            "Keys that let something other than a browser read and write this project alone. For the loop of reading the plan, working out what should change, and writing it back.",
-        "いま作ったトークンです。この画面を離れると二度と出ません。" =>
-            "The token you just made. It is not shown again once you leave this page.",
+        "ブラウザ以外からこのプロジェクトだけを読み書きするための鍵です。書き出した JSON を読ませて、考えさせて、書き戻す——その往復に使います。" => {
+            "Keys that let something other than a browser read and write this project alone. For the loop of reading the plan, working out what should change, and writing it back."
+        }
+        "いま作ったトークンです。この画面を離れると二度と出ません。" => {
+            "The token you just made. It is not shown again once you leave this page."
+        }
         "用途" => "What for",
         "週次の見直し" => "Weekly review",
         "読むだけ" => "Read only",
@@ -220,8 +266,9 @@ pub fn of(ja: &str) -> Option<&'static str> {
 
         // --- 既定のステータス -----------------------------------------------
         "既定のステータス" => "Default statuses",
-        "新しいプロジェクトはこの一覧を写して始まります。写したあとはそのプロジェクトのものなので、ここを直しても、既にあるプロジェクトの色や進捗は動きません。" =>
-            "A new project starts from a copy of this list. The copy belongs to that project, so changing it here moves neither the colours nor the progress of any project that already exists.",
+        "新しいプロジェクトはこの一覧を写して始まります。写したあとはそのプロジェクトのものなので、ここを直しても、既にあるプロジェクトの色や進捗は動きません。" => {
+            "A new project starts from a copy of this list. The copy belongs to that project, so changing it here moves neither the colours nor the progress of any project that already exists."
+        }
         "手入力のまま" => "left as typed",
 
         // --- 独自の項目 ------------------------------------------------------
@@ -232,8 +279,9 @@ pub fn of(ja: &str) -> Option<&'static str> {
         "選択" => "Choice",
         "フリー＋選択" => "Free text with choices",
         "数値" => "Number",
-        "入力済みの項目は種類を変えられません。内容を空にしてからにしてください。" =>
-            "A field with values in it cannot change kind. Empty the column first.",
+        "入力済みの項目は種類を変えられません。内容を空にしてからにしてください。" => {
+            "A field with values in it cannot change kind. Empty the column first."
+        }
 
         _ => return None,
     })

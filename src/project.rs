@@ -492,7 +492,10 @@ pub async fn place_task(
     let next = siblings
         .iter()
         .find(|(id, key)| {
-            id != task_id && previous.as_deref().is_none_or(|previous| key.as_str() > previous)
+            id != task_id
+                && previous
+                    .as_deref()
+                    .is_none_or(|previous| key.as_str() > previous)
         })
         .map(|(_, key)| key.clone());
 
@@ -504,19 +507,16 @@ pub async fn place_task(
 }
 
 /// Whether `candidate` sits inside `ancestor`'s subtree.
-async fn is_descendant(
-    cx: &Cx,
-    project_id: &str,
-    candidate: &str,
-    ancestor: &str,
-) -> Result<bool> {
+async fn is_descendant(cx: &Cx, project_id: &str, candidate: &str, ancestor: &str) -> Result<bool> {
     let mut current = candidate.to_owned();
 
     // The tree is shallow in practice, and walking up is bounded by its depth.
     for _ in 0..64 {
         let (parent, _) = task_in_project(cx, project_id, &current).await?;
 
-        let Some(parent) = parent else { return Ok(false) };
+        let Some(parent) = parent else {
+            return Ok(false);
+        };
         if parent == ancestor {
             return Ok(true);
         }
@@ -563,12 +563,7 @@ async fn last_child_key(cx: &Cx, project_id: &str, parent_id: &str) -> Result<Op
     Ok(row.map(|(key,)| key))
 }
 
-async fn reparent(
-    cx: &Cx,
-    task_id: &str,
-    parent_id: Option<&str>,
-    sort_key: &str,
-) -> Result<()> {
+async fn reparent(cx: &Cx, task_id: &str, parent_id: Option<&str>, sort_key: &str) -> Result<()> {
     sqlx::query("UPDATE tasks SET parent_id = ?1, sort_key = ?2, updated_at = ?3 WHERE id = ?4")
         .bind(parent_id)
         .bind(sort_key)
@@ -590,7 +585,6 @@ async fn resort(cx: &Cx, task_id: &str, sort_key: &str) -> Result<()> {
 
     Ok(())
 }
-
 
 /// Records a change to the project, so clients can tell they are behind.
 pub async fn bump_revision(cx: &Cx, project_id: &str) -> Result<()> {
@@ -640,11 +634,10 @@ pub async fn holidays(cx: &Cx, project_id: &str) -> Result<Vec<domain::Holiday>>
 
 /// The shared holidays. This is the list the settings page edits.
 pub async fn app_holidays(cx: &Cx) -> Result<Vec<domain::Holiday>> {
-    let rows = sqlx::query_as::<_, (String, String)>(
-        "SELECT date, name FROM app_holidays ORDER BY date",
-    )
-    .fetch_all(db::pool(cx))
-    .await?;
+    let rows =
+        sqlx::query_as::<_, (String, String)>("SELECT date, name FROM app_holidays ORDER BY date")
+            .fetch_all(db::pool(cx))
+            .await?;
 
     Ok(rows
         .into_iter()
@@ -828,12 +821,10 @@ pub async fn import_project(
     let mut by_label: HashMap<String, String> = HashMap::new();
 
     if let Some(fields) = &document.fields {
-        sqlx::query(
-            "DELETE FROM project_fields WHERE project_id = ?1",
-        )
-        .bind(project_id)
-        .execute(&mut *tx)
-        .await?;
+        sqlx::query("DELETE FROM project_fields WHERE project_id = ?1")
+            .bind(project_id)
+            .execute(&mut *tx)
+            .await?;
 
         let mut key = String::new();
 
@@ -1036,13 +1027,11 @@ pub async fn export_extras(cx: &Cx, project_id: &str) -> Result<crate::interop::
     .fetch_all(db::pool(cx))
     .await?
     .into_iter()
-    .map(
-        |(name, color, background)| crate::interop::json::Assignee {
-            name,
-            color,
-            background,
-        },
-    )
+    .map(|(name, color, background)| crate::interop::json::Assignee {
+        name,
+        color,
+        background,
+    })
     .collect();
 
     Ok(crate::interop::json::Extras {
@@ -1141,12 +1130,14 @@ fn counting(stored: &HashMap<String, String>) -> domain::Counting {
 /// Checks that a field belongs to the project, so one project cannot write
 /// into another's master list by guessing an id.
 pub async fn field_in_project(cx: &Cx, project_id: &str, field_id: &str) -> Result<()> {
-    sqlx::query_as::<_, (String,)>("SELECT id FROM project_fields WHERE id = ?1 AND project_id = ?2")
-        .bind(field_id)
-        .bind(project_id)
-        .fetch_optional(db::pool(cx))
-        .await?
-        .ok_or_not_found()?;
+    sqlx::query_as::<_, (String,)>(
+        "SELECT id FROM project_fields WHERE id = ?1 AND project_id = ?2",
+    )
+    .bind(field_id)
+    .bind(project_id)
+    .fetch_optional(db::pool(cx))
+    .await?
+    .ok_or_not_found()?;
 
     Ok(())
 }
@@ -1361,14 +1352,11 @@ pub async fn fields(cx: &Cx, project_id: &str) -> Result<Vec<domain::Field>> {
 
     let mut by_field: HashMap<String, Vec<domain::Option_>> = HashMap::new();
     for (field_id, value, color, background) in options {
-        by_field
-            .entry(field_id)
-            .or_default()
-            .push(domain::Option_ {
-                value,
-                color,
-                background,
-            });
+        by_field.entry(field_id).or_default().push(domain::Option_ {
+            value,
+            color,
+            background,
+        });
     }
 
     Ok(rows

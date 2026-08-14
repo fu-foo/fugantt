@@ -59,7 +59,11 @@ pub fn check() -> Result<Option<String>, String> {
 
     Ok(Some(format!(
         "認証なしで起動しています。{}に届く人は全員が全プロジェクトを読み書きできます。",
-        if exposed { "このネットワーク" } else { "この端末" }
+        if exposed {
+            "このネットワーク"
+        } else {
+            "この端末"
+        }
     )))
 }
 

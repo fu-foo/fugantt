@@ -80,7 +80,10 @@ fn cell_text(task: &crate::domain::TaskView, key: &str) -> String {
         "days" => task.days.map(|days| days.to_string()).unwrap_or_default(),
         "start_variance" => variance(task.start_variance),
         "end_variance" => variance(task.end_variance),
-        "actual_days" => task.actual_days.map(|days| days.to_string()).unwrap_or_default(),
+        "actual_days" => task
+            .actual_days
+            .map(|days| days.to_string())
+            .unwrap_or_default(),
         "progress" => format!("{}%", task.progress),
         "status" => task.status.clone(),
         "assignee" => task.assignee.clone(),
@@ -126,7 +129,9 @@ pub fn write(
 
     let plain = Format::new();
     let summary = Format::new().set_bold();
-    let late = Format::new().set_font_color(Color::RGB(0x00DC_2626)).set_bold();
+    let late = Format::new()
+        .set_font_color(Color::RGB(0x00DC_2626))
+        .set_bold();
     let date_cell = Format::new().set_align(FormatAlign::Center);
     let percent_cell = Format::new().set_align(FormatAlign::Right);
 
@@ -138,8 +143,12 @@ pub fn write(
     let holiday_heading = day_heading
         .clone()
         .set_background_color(palette(&data.theme.holiday));
-    let saturday_heading = day_heading.clone().set_background_color(palette(&data.theme.saturday));
-    let sunday_heading = day_heading.clone().set_background_color(palette(&data.theme.sunday));
+    let saturday_heading = day_heading
+        .clone()
+        .set_background_color(palette(&data.theme.saturday));
+    let sunday_heading = day_heading
+        .clone()
+        .set_background_color(palette(&data.theme.sunday));
     let done = Format::new().set_background_color(palette(&data.theme.done));
     let planned = Format::new().set_background_color(palette(&data.theme.bar));
     let done_late = Format::new().set_background_color(palette(&data.theme.late));
@@ -325,12 +334,20 @@ pub fn write(
             {
                 &on_leave
             } else if within(actual, date) {
-                if task.has_children { &done_summary } else { &done }
+                if task.has_children {
+                    &done_summary
+                } else {
+                    &done
+                }
             } else if let Some((start, end)) = bar.filter(|_| within(bar, date)) {
                 if actual.is_some() {
                     // With an actual bar in the row, the plan is the outline
                     // behind it rather than a progress gauge.
-                    if task.delayed { &planned_late } else { &planned }
+                    if task.delayed {
+                        &planned_late
+                    } else {
+                        &planned
+                    }
                 } else {
                     let length = span(start, end);
                     // The done part is the leading share of the bar's length.

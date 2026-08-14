@@ -86,10 +86,11 @@ pub async fn list(cx: &Cx, project_id: &str, limit: i64, skip: i64) -> Result<Ve
 
 /// How many changes this project has, so the page can say where it is.
 pub async fn count(cx: &Cx, project_id: &str) -> Result<i64> {
-    let (total,) = sqlx::query_as::<_, (i64,)>("SELECT COUNT(*) FROM changes WHERE project_id = ?1")
-        .bind(project_id)
-        .fetch_one(db::pool(cx))
-        .await?;
+    let (total,) =
+        sqlx::query_as::<_, (i64,)>("SELECT COUNT(*) FROM changes WHERE project_id = ?1")
+            .bind(project_id)
+            .fetch_one(db::pool(cx))
+            .await?;
 
     Ok(total)
 }

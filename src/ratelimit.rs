@@ -138,7 +138,10 @@ mod tests {
         for _ in 0..LIMIT - 1 {
             attempts.record_failure(&keys());
         }
-        assert!(attempts.retry_after(&keys()).is_none(), "まだ開いているはず");
+        assert!(
+            attempts.retry_after(&keys()).is_none(),
+            "まだ開いているはず"
+        );
 
         attempts.record_failure(&keys());
         assert!(attempts.retry_after(&keys()).is_some(), "閉じるはず");
@@ -167,6 +170,10 @@ mod tests {
             attempts.record_failure(&keys());
         }
 
-        assert!(attempts.retry_after(&["email:b@example.com".to_owned()]).is_none());
+        assert!(
+            attempts
+                .retry_after(&["email:b@example.com".to_owned()])
+                .is_none()
+        );
     }
 }

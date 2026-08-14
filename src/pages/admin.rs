@@ -693,7 +693,9 @@ async fn remove_status(cx: &Cx, Form(form): Form<RemoveStatus>) -> Result<SeeOth
 async fn rewrite(cx: &Cx, statuses: &[crate::domain::Status]) -> Result<()> {
     let mut tx = db::pool(cx).begin().await?;
 
-    sqlx::query("DELETE FROM app_statuses").execute(&mut *tx).await?;
+    sqlx::query("DELETE FROM app_statuses")
+        .execute(&mut *tx)
+        .await?;
 
     for (position, status) in statuses.iter().enumerate() {
         sqlx::query(

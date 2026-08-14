@@ -44,12 +44,15 @@ pub async fn connect(path: &str) -> Result<SqlitePool, Box<dyn Error>> {
 /// first administrator gets in — and a window nobody knows about is the kind
 /// that stays open.
 async fn ensure_an_admin(pool: &SqlitePool) -> Result<(), Box<dyn Error>> {
-    let (admins,) = sqlx::query_as::<_, (i64,)>("SELECT COUNT(*) FROM users WHERE base_role = 'admin'")
-        .fetch_one(pool)
-        .await?;
+    let (admins,) =
+        sqlx::query_as::<_, (i64,)>("SELECT COUNT(*) FROM users WHERE base_role = 'admin'")
+            .fetch_one(pool)
+            .await?;
 
     if admins == 0 {
-        eprintln!("管理者がいません。/login で最初のアカウントを作ってください（作った人が管理者になります）。");
+        eprintln!(
+            "管理者がいません。/login で最初のアカウントを作ってください（作った人が管理者になります）。"
+        );
     }
 
     Ok(())
@@ -65,5 +68,7 @@ pub fn now() -> i64 {
 
 /// Converts a session expiry into the same encoding.
 pub fn unix_seconds(time: SystemTime) -> i64 {
-    time.duration_since(UNIX_EPOCH).unwrap_or_default().as_secs() as i64
+    time.duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs() as i64
 }

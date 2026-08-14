@@ -606,8 +606,12 @@ pub fn build(
         today: today.to_string(),
         // A week either side: three days left the first month a sliver wide, and
         // its label printed on top of the next one's.
-        range_start: range_start.saturating_sub(jiff::Span::new().days(7)).to_string(),
-        range_end: range_end.saturating_add(jiff::Span::new().days(7)).to_string(),
+        range_start: range_start
+            .saturating_sub(jiff::Span::new().days(7))
+            .to_string(),
+        range_end: range_end
+            .saturating_add(jiff::Span::new().days(7))
+            .to_string(),
         holidays,
         leaves,
         assignees,
@@ -665,11 +669,7 @@ fn visit<'rows>(
         expected: 0,
         delayed: false,
         has_children,
-        tags: row
-            .tags
-            .split_whitespace()
-            .map(ToOwned::to_owned)
-            .collect(),
+        tags: row.tags.split_whitespace().map(ToOwned::to_owned).collect(),
         values: HashMap::new(),
     });
 
@@ -708,12 +708,12 @@ fn visit<'rows>(
             actual_start,
             actual_end,
             progress: row.progress.clamp(0, 100),
-            start_variance: start
-                .zip(actual_start)
-                .map(|(planned, actual)| difference(calendar, &row.assignee, &spans, planned, actual)),
-            end_variance: end
-                .zip(actual_end)
-                .map(|(planned, actual)| difference(calendar, &row.assignee, &spans, planned, actual)),
+            start_variance: start.zip(actual_start).map(|(planned, actual)| {
+                difference(calendar, &row.assignee, &spans, planned, actual)
+            }),
+            end_variance: end.zip(actual_end).map(|(planned, actual)| {
+                difference(calendar, &row.assignee, &spans, planned, actual)
+            }),
             overdue: match (end, actual_end) {
                 (Some(end), None) if today > end => {
                     difference(calendar, &row.assignee, &spans, end, today)
@@ -766,12 +766,9 @@ fn visit<'rows>(
             // took nothing out of it, and the total below must agree with the
             // per-reason parts.
             let days = match resolved.start.zip(resolved.end) {
-                Some((start, finish)) if wait.from <= finish && end >= start => calendar.days(
-                    &row.assignee,
-                    &[],
-                    wait.from.max(start),
-                    end.min(finish),
-                ),
+                Some((start, finish)) if wait.from <= finish && end >= start => {
+                    calendar.days(&row.assignee, &[], wait.from.max(start), end.min(finish))
+                }
                 _ => 0,
             };
 
@@ -894,7 +891,11 @@ fn difference(
 
     let distance = calendar.between(assignee, waits, from, to);
 
-    if actual > planned { distance } else { -distance }
+    if actual > planned {
+        distance
+    } else {
+        -distance
+    }
 }
 
 /// The share of the task that should be done today, as a percentage.
@@ -1197,9 +1198,15 @@ mod tests {
         };
 
         // Monday to Friday: five days.
-        let plain = build("p", 1, date("2026-08-03"), vec![task.clone()], Settings {
-            ..weekends_off.clone()
-        });
+        let plain = build(
+            "p",
+            1,
+            date("2026-08-03"),
+            vec![task.clone()],
+            Settings {
+                ..weekends_off.clone()
+            },
+        );
         assert_eq!(plain.tasks[0].days, Some(5));
 
         // Plus the Saturday worked: six.
@@ -1317,7 +1324,10 @@ mod tests {
             ("山田", "2026-08-05", "2026-08-12"),
         );
         assert_eq!(away.tasks[0].days, Some(4), "休んでいる8日は数えない");
-        assert!(!away.tasks[0].delayed, "働ける日の半分で50%なら遅れていない");
+        assert!(
+            !away.tasks[0].delayed,
+            "働ける日の半分で50%なら遅れていない"
+        );
     }
 
     /// The leave belongs to a person, not to the project.

@@ -40,7 +40,6 @@ pub const ROLES: [(&str, &str); 4] = [
     ("none", "無効（招かれたプロジェクトだけ）"),
 ];
 
-
 /// Whether nobody has registered yet, which is the one moment the register
 /// form is open.
 pub async fn none_yet(cx: &Cx) -> Result<bool> {

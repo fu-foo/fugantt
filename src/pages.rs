@@ -3,8 +3,8 @@ mod history;
 mod login;
 mod projects;
 mod settings;
-mod users;
 mod stats;
+mod users;
 
 use topcoat::{
     Result,
@@ -270,7 +270,12 @@ async fn drawer_link(href: &str, label: &str) -> Result {
 /// It belongs beside the schedule rather than under it: notes are read while
 /// looking at the plan, not after scrolling past it.
 #[component]
-async fn memo_panel(project: &project::Project, memo: &str, open: bool, l: crate::i18n::Lang) -> Result {
+async fn memo_panel(
+    project: &project::Project,
+    memo: &str,
+    open: bool,
+    l: crate::i18n::Lang,
+) -> Result {
     let action = format!("/projects/{}/memo", project.id);
 
     view! {

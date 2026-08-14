@@ -13,10 +13,10 @@ mod pages;
 mod project;
 mod ratelimit;
 mod session_cookie;
+mod sortkey;
 mod static_files;
 mod tokens;
 mod users;
-mod sortkey;
 
 use std::error::Error;
 

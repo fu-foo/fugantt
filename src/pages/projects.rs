@@ -172,7 +172,6 @@ async fn show(cx: &Cx) -> Result {
 
     let result = query_params::<ImportOutcome>(cx)?;
 
-
     view! {
         if !project.can_edit() {
             <p class="mb-3 text-xs text-slate-500">"閲覧のみの権限です。"</p>

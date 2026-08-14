@@ -1,0 +1,26 @@
+# One machine, one volume, one database.
+#
+# SQLite is the whole storage layer, so this must never scale to two: a second
+# machine would open a second database and quietly become a second project.
+
+app = "fugantt"
+primary_region = "nrt"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  FUGANTT_DB = "/data/fugantt.db"
+
+[[mounts]]
+  source = "fugantt_data"
+  destination = "/data"
+
+[http_service]
+  internal_port = 3000
+  force_https = true
+  # Never zero, never two. Stopping the machine would take the database's only
+  # reader and writer with it; starting a second would split the data.
+  auto_stop_machines = false
+  auto_start_machines = false
+  min_machines_running = 1

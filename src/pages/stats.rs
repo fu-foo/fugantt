@@ -23,7 +23,11 @@ async fn index(cx: &Cx) -> Result {
 
     // Summary rows are sums of their children, so counting them too would count
     // the same work twice.
-    let leaves: Vec<&TaskView> = data.tasks.iter().filter(|task| !task.has_children).collect();
+    let leaves: Vec<&TaskView> = data
+        .tasks
+        .iter()
+        .filter(|task| !task.has_children)
+        .collect();
 
     let total = leaves.len();
     let delayed = leaves.iter().filter(|task| task.delayed).count();
@@ -60,7 +64,11 @@ async fn index(cx: &Cx) -> Result {
 
     // In the order the statuses are configured: that order is how work moves
     // through this particular workplace.
-    let order: Vec<&str> = data.statuses.iter().map(|status| status.name.as_str()).collect();
+    let order: Vec<&str> = data
+        .statuses
+        .iter()
+        .map(|status| status.name.as_str())
+        .collect();
     let colour = |name: &str| {
         data.statuses
             .iter()

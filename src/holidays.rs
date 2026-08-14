@@ -146,9 +146,7 @@ fn add_citizens_holidays(days: &mut Vec<(Date, &'static str)>) {
             continue;
         };
 
-        if existing.contains(&after)
-            && !existing.contains(&gap)
-            && gap.weekday() != Weekday::Sunday
+        if existing.contains(&after) && !existing.contains(&gap) && gap.weekday() != Weekday::Sunday
         {
             extra.push((gap, "国民の休日"));
         }
@@ -202,7 +200,10 @@ mod tests {
     fn a_substitute_skips_over_the_holidays_behind_it() {
         let days = names(2026);
 
-        assert!(days.contains(&("2026-05-06".to_owned(), "振替休日")), "{days:?}");
+        assert!(
+            days.contains(&("2026-05-06".to_owned(), "振替休日")),
+            "{days:?}"
+        );
     }
 
     /// Two days between 敬老の日 and 秋分の日 make the シルバーウィーク run.

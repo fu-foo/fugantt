@@ -302,7 +302,10 @@ mod tests {
 
     fn extras() -> Extras {
         Extras {
-            settings: std::collections::BTreeMap::from([("memo".to_owned(), "覚え書き".to_owned())]),
+            settings: std::collections::BTreeMap::from([(
+                "memo".to_owned(),
+                "覚え書き".to_owned(),
+            )]),
             assignees: vec![Assignee {
                 name: "山田".to_owned(),
                 color: "#1e3a8a".to_owned(),
@@ -320,7 +323,11 @@ mod tests {
 
     #[test]
     fn a_document_survives_the_round_trip() {
-        let text = write("リリース計画", &data(vec![view("要件定義", 0, false)]), extras());
+        let text = write(
+            "リリース計画",
+            &data(vec![view("要件定義", 0, false)]),
+            extras(),
+        );
         let document = read(&text).unwrap();
 
         assert_eq!(document.name, "リリース計画");
@@ -357,7 +364,10 @@ mod tests {
             Some(&"覚え書き".to_owned())
         );
         assert_eq!(
-            document.assignees.as_ref().map(|list| list[0].background.clone()),
+            document
+                .assignees
+                .as_ref()
+                .map(|list| list[0].background.clone()),
             Some("#dbeafe".to_owned())
         );
         // Statuses are written out even when they are the shipped defaults.
@@ -377,7 +387,8 @@ mod tests {
 
     #[test]
     fn an_impossible_indent_is_pulled_back() {
-        let document = read(r#"{"name":"p","tasks":[{"name":"a"},{"name":"b","depth":5}]}"#).unwrap();
+        let document =
+            read(r#"{"name":"p","tasks":[{"name":"a"},{"name":"b","depth":5}]}"#).unwrap();
 
         assert_eq!(document.tasks[1].depth, 1);
     }

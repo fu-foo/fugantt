@@ -123,7 +123,10 @@ mod tests {
             assert!(!file.body.is_empty(), "{} が空", file.name);
         }
 
-        assert!(GRID_JS.contains("fugantt-grid"), "グリッドの JS が入っていない");
+        assert!(
+            GRID_JS.contains("fugantt-grid"),
+            "グリッドの JS が入っていない"
+        );
         assert!(TAILWIND.len() > 1000, "Tailwind の CSS が小さすぎる");
     }
 

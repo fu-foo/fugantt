@@ -149,6 +149,28 @@ async fn create(cx: &Cx, Form(form): Form<NewProject>) -> Result<SeeOther> {
         .await?;
     }
 
+    // One empty row to start on. A plan that opens as a blank page reads as
+    // something that failed to load, and the first thing anybody does here is
+    // type a task name anyway.
+    sqlx::query(
+        "INSERT INTO tasks (id, project_id, sort_key, name, status, updated_at, updated_by)
+         VALUES (?1, ?2, ?3, '', ?4, ?5, ?6)",
+    )
+    .bind(uuid::Uuid::new_v4().to_string())
+    .bind(&id)
+    .bind(crate::sortkey::between(None, None))
+    .bind(
+        project::default_statuses(cx)
+            .await?
+            .first()
+            .map(|status| status.name.clone())
+            .unwrap_or_default(),
+    )
+    .bind(now)
+    .bind(&user.id)
+    .execute(&mut *tx)
+    .await?;
+
     tx.commit().await?;
 
     Ok(see_other(&format!("/projects/{id}")))

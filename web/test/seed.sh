@@ -28,10 +28,10 @@ DELETE FROM projects WHERE id = 'test-project';
 -- 走らせるたびに増えていく使い捨てのプロジェクト。名前で作った ID なので、
 -- 名前で片付けられる。
 DELETE FROM project_members WHERE project_id IN
-  (SELECT id FROM projects WHERE name LIKE 'テスト計画 %' OR name LIKE '全体テスト %' OR name LIKE '既定テスト %');
+  (SELECT id FROM projects WHERE name LIKE 'テスト計画 %' OR name LIKE '全体テスト %' OR name LIKE '既定テスト %' OR name LIKE '空行テスト %');
 DELETE FROM project_statuses WHERE project_id IN
-  (SELECT id FROM projects WHERE name LIKE 'テスト計画 %' OR name LIKE '全体テスト %' OR name LIKE '既定テスト %');
-DELETE FROM projects WHERE name LIKE 'テスト計画 %' OR name LIKE '全体テスト %' OR name LIKE '既定テスト %';
+  (SELECT id FROM projects WHERE name LIKE 'テスト計画 %' OR name LIKE '全体テスト %' OR name LIKE '既定テスト %' OR name LIKE '空行テスト %');
+DELETE FROM projects WHERE name LIKE 'テスト計画 %' OR name LIKE '全体テスト %' OR name LIKE '既定テスト %' OR name LIKE '空行テスト %';
 
 DELETE FROM leaves;
 DELETE FROM app_holidays;

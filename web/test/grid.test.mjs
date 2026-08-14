@@ -670,6 +670,23 @@ const ids = await page.evaluate(async () => {
   return { first, again, slug };
 });
 
+// まっさらな画面は「読み込みに失敗した」ように見える。最初の1行は空でも要る。
+check(
+  "作ったばかりのプロジェクトに空の行が1つある",
+  await page.evaluate(async () => {
+    const name = `空行テスト ${Date.now()}`;
+    await fetch("/projects", { method: "POST", body: new URLSearchParams({ name }), redirect: "manual" });
+
+    const html = await (await fetch("/")).text();
+    const id = [...html.matchAll(/href="\/projects\/([^"]+)"/g)]
+      .map((m) => decodeURIComponent(m[1]))
+      .find((slug) => slug.startsWith("空行テスト-"));
+
+    const grid = await (await fetch(`/api/projects/${encodeURIComponent(id)}/grid`)).json();
+    return grid.tasks.length === 1 && grid.tasks[0].name === "" && !grid.tasks[0].start;
+  }),
+);
+
 check("プロジェクト名から読める ID を作る", ids.slug.some((s) => s.startsWith("テスト計画-")), ids.slug.join(", "));
 check("同じ名前は作れない", ids.again === 400, String(ids.again));
 check("UUID の既存プロジェクトも残る", ids.slug.includes("test-project"));

@@ -55,7 +55,7 @@ async fn authorize_edit(cx: &Cx, user_id: &str, project_id: &str) -> Result<proj
 /// A `Authorization: Bearer fug_…` token stands for one project and one role,
 /// which is the whole point: something automated can be given the plan it needs
 /// and nothing else. Without one this falls back to the signed-in person.
-async fn actor(cx: &Cx, project_id: &str) -> Result<project::Project> {
+async fn actor(cx: &Cx, project_id: &str) -> Result<(project::Project, String)> {
     let bearer = headers(cx)
         .get("authorization")
         .and_then(|value| value.to_str().ok())
@@ -64,51 +64,82 @@ async fn actor(cx: &Cx, project_id: &str) -> Result<project::Project> {
         .filter(|token| !token.is_empty());
 
     if let Some(token) = bearer {
-        let Some((owner, role)) = crate::tokens::resolve(cx, token).await? else {
+        let Some(opened) = crate::tokens::resolve(cx, token).await? else {
             return Err(forbidden().into());
         };
 
         // A token for another project is not a token for this one.
-        if owner != project_id {
+        if opened.project_id != project_id {
             return Err(forbidden().into());
         }
 
-        return Ok(project::Project {
-            id: owner,
-            name: String::new(),
-            revision: 0,
-            role,
-        });
+        return Ok((
+            project::Project {
+                id: opened.project_id,
+                name: String::new(),
+                revision: 0,
+                role: opened.role,
+            },
+            opened.who,
+        ));
     }
 
     // Not a redirect to the sign-in page: this is an API, and something waiting
     // for JSON has no use for a login form with a 200 on it.
     let user = crate::auth::current_user(cx).await?.ok_or_else(forbidden)?;
 
-    project::authorize(cx, &user.id, project_id).await
+    Ok((
+        project::authorize(cx, &user.id, project_id).await?,
+        user.display().to_owned(),
+    ))
 }
 
 /// The same, for something that intends to write.
-async fn actor_edit(cx: &Cx, project_id: &str) -> Result<project::Project> {
-    let project = actor(cx, project_id).await?;
+async fn actor_edit(cx: &Cx, project_id: &str) -> Result<(project::Project, String)> {
+    let (project, who) = actor(cx, project_id).await?;
 
     if !project.can_edit() {
         return Err(forbidden().into());
     }
 
-    Ok(project)
+    Ok((project, who))
 }
 
 #[route(GET "/api/projects/{project_id}/grid")]
 async fn grid(cx: &Cx) -> Result<Json<GridData>> {
     let project_id = project::id_from_path(cx)?.to_owned();
-    let project = actor(cx, &project_id).await?;
+    let (project, _) = actor(cx, &project_id).await?;
 
     // A token carries a role but no name, so the rest is filled in — without
     // touching the role it came with.
     let project = fill_in(cx, project).await?;
 
     Ok(Json(project::grid_data(cx, &project).await?))
+}
+
+/// Notes an import in the history.
+///
+/// One line rather than one per row: a file replaces the plan, and a hundred
+/// rows of "changed" says less than "this arrived, from here". `who` is the
+/// person, or which token it was — a change nobody can attribute is a change
+/// nobody can ask about.
+async fn record_import(cx: &Cx, project_id: &str, who: &str, rows: usize) -> Result<()> {
+    history::record(
+        cx,
+        history::Entry {
+            project_id,
+            task_id: None,
+            // Not a task: the whole plan arrived at once. Left blank, the page
+            // reads it as an unnamed task and says so.
+            task_name: "プロジェクト全体",
+            action: "取り込み",
+            field: "",
+            before: "",
+            after: &format!("{rows} 行"),
+            actor: who,
+        },
+    )
+    .await
 }
 
 /// Fills in what a token does not carry, leaving the role exactly as it was.
@@ -128,7 +159,7 @@ async fn fill_in(cx: &Cx, mut project: project::Project) -> Result<project::Proj
 #[route(GET "/api/projects/{project_id}/document")]
 async fn read_document(cx: &Cx) -> Result<Json<serde_json::Value>> {
     let project_id = project::id_from_path(cx)?.to_owned();
-    let project = fill_in(cx, actor(cx, &project_id).await?).await?;
+    let project = fill_in(cx, actor(cx, &project_id).await?.0).await?;
 
     let data = project::grid_data(cx, &project).await?;
     let extras = project::export_extras(cx, &project.id).await?;
@@ -143,20 +174,22 @@ async fn write_document(
     Json(document): Json<serde_json::Value>,
 ) -> Result<Json<GridData>> {
     let project_id = project::id_from_path(cx)?.to_owned();
-    let project = actor_edit(cx, &project_id).await?;
+    let (project, who) = actor_edit(cx, &project_id).await?;
     let l = crate::i18n::lang(cx).await;
 
     let document = crate::interop::json::read(&document.to_string())
         .map_err(|message| bad_request(l.t("取り込めませんでした。").to_owned() + &message))?;
 
     // `updated_by` points at a real account, and a token has no person behind
-    // it. Left empty rather than blamed on whoever happens to be signed in.
-    let who = match crate::auth::current_user(cx).await? {
+    // it. Left empty rather than blamed on whoever happens to be signed in;
+    // which token it was goes in the history instead.
+    let account = match crate::auth::current_user(cx).await? {
         Some(user) => user.id,
         None => String::new(),
     };
 
-    project::import_project(cx, &project.id, &who, &document).await?;
+    project::import_project(cx, &project.id, &account, &document).await?;
+    record_import(cx, &project.id, &who, document.tasks.len()).await?;
 
     let project = fill_in(cx, project).await?;
 
@@ -2235,20 +2268,7 @@ async fn import_json(cx: &Cx, mut form: Multipart) -> Result<SeeOther> {
 
     project::import_project(cx, &project_id, &user.id, &document).await?;
 
-    history::record(
-        cx,
-        history::Entry {
-            project_id: &project_id,
-            task_id: None,
-            task_name: "",
-            action: "取り込み",
-            field: "",
-            before: "",
-            after: &format!("{count} 行"),
-            actor: user.display(),
-        },
-    )
-    .await?;
+    record_import(cx, &project_id, user.display(), count).await?;
 
     bump_and_announce(cx, &project_id, user.display()).await?;
 

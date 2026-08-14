@@ -155,9 +155,9 @@ curl -X POST -H "Authorization: Bearer fug_…" \
   https://example.com/api/projects/release-plan/document
 ```
 
-A token for another project is refused, a read-only token cannot write, and a
-change made with a token carries no person's name in the history — nobody did
-that work.
+A token for another project is refused, and a read-only token cannot write. A
+change made with a token is recorded as **`API <what the token is for>`** — no
+person's name, because nobody did that work, but never anonymous either.
 
 ## Running it safely
 

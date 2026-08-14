@@ -3037,6 +3037,22 @@ check(
 check("読むだけのトークンは読めて書けない", api.viewerReads === 200 && api.viewerWrites === 403,
   `${api.viewerReads} / ${api.viewerWrites}`);
 check("鍵もクッキーも無ければ断られる", api.noToken === 403, String(api.noToken));
+
+// トークンで書いた変更は、どの鍵でやったのかが履歴に残る。人の名前は付かない。
+check(
+  "API の変更は、どのトークンかが履歴に出る",
+  await page.evaluate(async () => {
+    const html = await (await fetch("/projects/test-project/history")).text();
+    const rows = [...new DOMParser().parseFromString(html, "text/html").querySelectorAll("ul li")]
+      .map((li) => li.textContent.replace(/\s+/g, " "));
+    return rows.some((row) => row.includes("API 検査 editor") && row.includes("取り込み"));
+  }),
+  await page.evaluate(async () => {
+    const html = await (await fetch("/projects/test-project/history")).text();
+    return (new DOMParser().parseFromString(html, "text/html").querySelector("ul li")?.textContent ?? "なし")
+      .replace(/\s+/g, " ");
+  }),
+);
 check("でたらめなトークンは断られる", api.rubbish === 403, String(api.rubbish));
 check("他のプロジェクトには効かない", api.other === 403, String(api.other));
 

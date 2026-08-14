@@ -39,17 +39,27 @@ pub fn digest(token: &str) -> Option<Vec<u8>> {
     Random::decode(body).ok().map(|token| token.hash().to_vec())
 }
 
+/// What a presented token opens.
+#[derive(Debug, Clone)]
+pub struct Opened {
+    pub project_id: String,
+    pub role: String,
+    /// Which token this was, for the history. Its name if it has one, and the
+    /// front of its id if not — never the token itself.
+    pub who: String,
+}
+
 /// The project and role a token opens, or nothing.
 ///
 /// Records that it was used on the way past: a list of tokens nobody can date
 /// is a list nobody dares revoke.
-pub async fn resolve(cx: &Cx, token: &str) -> Result<Option<(String, String)>> {
+pub async fn resolve(cx: &Cx, token: &str) -> Result<Option<Opened>> {
     let Some(hash) = digest(token) else {
         return Ok(None);
     };
 
-    let found = sqlx::query_as::<_, (String, String)>(
-        "SELECT project_id, role FROM api_tokens WHERE token_hash = ?1",
+    let found = sqlx::query_as::<_, (String, String, String, String)>(
+        "SELECT project_id, role, name, id FROM api_tokens WHERE token_hash = ?1",
     )
     .bind(&hash[..])
     .fetch_optional(db::pool(cx))
@@ -63,7 +73,15 @@ pub async fn resolve(cx: &Cx, token: &str) -> Result<Option<(String, String)>> {
             .await?;
     }
 
-    Ok(found)
+    Ok(found.map(|(project_id, role, name, id)| Opened {
+        project_id,
+        role,
+        who: if name.trim().is_empty() {
+            format!("API {}", id.chars().take(8).collect::<String>())
+        } else {
+            format!("API {}", name.trim())
+        },
+    }))
 }
 
 /// The tokens a project has, newest first. Never the tokens themselves.

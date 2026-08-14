@@ -30,7 +30,7 @@ struct Member {
 }
 
 /// A timestamp as a day. When a token was last used matters; the minute does not.
-fn used_on(at: i64) -> String {
+pub(super) fn used_on(at: i64) -> String {
     jiff::Timestamp::from_second(at)
         .map(|stamp| {
             stamp

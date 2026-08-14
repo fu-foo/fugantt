@@ -2934,6 +2934,82 @@ await page.reload({ waitUntil: "domcontentloaded" });
 await page.waitForSelector(".fg-grid");
 await settle();
 
+// --- 横断の API -------------------------------------------------------------------
+
+// プロジェクト単位の鍵では「どの計画があるか」すら訊けない。案件をまたいだ数字は
+// 管理者が出す1本の鍵で見る。
+const across = await asAdmin(() =>
+  page.evaluate(async () => {
+    // 比べる相手が要る: 鍵の効く範囲の話なので、計画が2つ無いと確かめられない。
+    await fetch("/projects", {
+      method: "POST",
+      body: new URLSearchParams({ name: `横断テスト ${Date.now()}` }),
+    });
+
+    const wide = await fetch("/admin/tokens", {
+      method: "POST",
+      body: new URLSearchParams({ name: "横断集計", role: "viewer" }),
+    });
+    const token = decodeURIComponent((wide.url.match(/issued=([^&#]+)/) ?? [])[1] ?? "");
+    const head = { Authorization: `Bearer ${token}` };
+
+    // 1つの計画にしか効かない鍵と比べる。redirect を追わないと、発行された
+    // トークンが載っている URL が読めない（空の Bearer は無いのと同じで、
+    // ログイン中のセッションで通ってしまう）。
+    const narrow = await fetch("/projects/test-project/tokens", {
+      method: "POST",
+      body: new URLSearchParams({ name: "1つだけ", role: "viewer" }),
+    });
+    const one = decodeURIComponent((narrow.url.match(/issued=([^&#]+)/) ?? [])[1] ?? "");
+
+    const list = await (await fetch("/api/projects", { headers: head })).json();
+    const mine = await (await fetch("/api/projects", { headers: { Authorization: `Bearer ${one}` } })).json();
+    const summary = await (await fetch("/api/summary", { headers: head })).json();
+    const release = summary.find((s) => s.id === "test-project");
+
+    // 読むだけの鍵は書けない
+    const doc = await (await fetch("/api/projects/test-project/document", { headers: head })).json();
+    const wrote = await fetch("/api/projects/test-project/document", {
+      method: "POST",
+      headers: { ...head, "content-type": "application/json" },
+      body: JSON.stringify(doc),
+    });
+
+    // 後片付け
+    for (const [url, form] of [["/admin", '/admin/tokens/remove'],
+                               ["/projects/test-project/settings?open=tokens", "/projects/test-project/tokens/remove"]]) {
+      const html = await (await fetch(url)).text();
+      for (const input of new DOMParser().parseFromString(html, "text/html")
+        .querySelectorAll(`form[action$="${form.split("/").pop()}"] input[name="id"]`)) {
+        await fetch(form, { method: "POST", body: new URLSearchParams({ id: input.value }) });
+      }
+    }
+
+    return {
+      wide: list.length,
+      narrow: mine.map((p) => p.id),
+      release,
+      wrote: wrote.status,
+      hasNumbers: release && ["tasks", "delayed", "progress", "late_days", "wait_days", "slipped"]
+        .every((key) => key in release),
+    };
+  }),
+);
+
+check("全プロジェクトの鍵は全部の計画を返す", across.wide > 1, String(across.wide));
+check(
+  "1つだけの鍵はその1つしか見えない",
+  across.narrow.length === 1 && across.narrow[0] === "test-project",
+  across.narrow.join(","),
+);
+check(
+  "案件ごとの数字が出る",
+  across.hasNumbers && across.release.tasks > 0 && across.release.slipped ===
+    across.release.late_days + across.release.wait_days,
+  JSON.stringify(across.release),
+);
+check("読むだけの鍵では書けない", across.wrote === 403, String(across.wrote));
+
 // --- 既定のステータス -------------------------------------------------------------
 
 // 新しいプロジェクトは全体の一覧を写して始まる。写したあとは独立で、あとから

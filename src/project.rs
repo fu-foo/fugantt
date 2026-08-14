@@ -101,6 +101,119 @@ pub async fn from_url(cx: &Cx, user_id: &str) -> Option<Project> {
     authorize(cx, user_id, id).await.ok()
 }
 
+/// Which projects a caller may see.
+pub enum Reach {
+    /// One project, named by a token.
+    One(String),
+    /// Every project: a token issued for all of them.
+    Everything,
+    /// Whatever this person is allowed, which is what `authorize` decides.
+    Person(String),
+}
+
+/// A project, as it appears in a list.
+#[derive(Debug, serde::Serialize, sqlx::FromRow)]
+pub struct Summary {
+    pub id: String,
+    pub name: String,
+    pub revision: i64,
+}
+
+/// One project's numbers, for looking across several at once.
+#[derive(Debug, serde::Serialize)]
+pub struct Numbers {
+    pub id: String,
+    pub name: String,
+    /// Leaf tasks. Summary rows are their children added up, so counting them
+    /// too would count the same work twice.
+    pub tasks: usize,
+    pub delayed: usize,
+    pub progress: i64,
+    /// Days past the plan, not counting the days spent waiting.
+    pub late_days: i64,
+    pub wait_days: i64,
+    /// The two added together: how far the plan actually slipped.
+    pub slipped: i64,
+}
+
+/// The projects a caller can reach, by name.
+pub async fn summaries(cx: &Cx, reach: &Reach) -> Result<Vec<Summary>> {
+    let rows = match reach {
+        Reach::One(id) => {
+            sqlx::query_as::<_, Summary>("SELECT id, name, revision FROM projects WHERE id = ?1")
+                .bind(id)
+                .fetch_all(db::pool(cx))
+                .await?
+        }
+        Reach::Everything => {
+            sqlx::query_as::<_, Summary>("SELECT id, name, revision FROM projects ORDER BY name")
+                .fetch_all(db::pool(cx))
+                .await?
+        }
+        // The same rule the project list page uses: named on the project, or a
+        // base role that is not `none`.
+        Reach::Person(user_id) => {
+            sqlx::query_as::<_, Summary>(
+                "SELECT projects.id, projects.name, projects.revision
+                   FROM projects
+                   JOIN users ON users.id = ?1
+                   LEFT JOIN project_members
+                     ON project_members.project_id = projects.id
+                    AND project_members.user_id = ?1
+                  WHERE project_members.role IS NOT NULL OR users.base_role <> 'none'
+                  ORDER BY projects.name",
+            )
+            .bind(user_id)
+            .fetch_all(db::pool(cx))
+            .await?
+        }
+    };
+
+    Ok(rows)
+}
+
+/// One project's numbers, worked out the way the statistics page works them out.
+pub async fn numbers(cx: &Cx, project: &Project) -> Result<Numbers> {
+    let data = grid_data(cx, project).await?;
+    let leaves: Vec<&domain::TaskView> = data
+        .tasks
+        .iter()
+        .filter(|task| !task.has_children)
+        .collect();
+
+    let tasks = leaves.len();
+    let delayed = leaves.iter().filter(|task| task.delayed).count();
+
+    let progress = if tasks == 0 {
+        0
+    } else {
+        leaves.iter().map(|task| task.progress).sum::<i64>() / tasks as i64
+    };
+
+    // A finished task knows how late it was; one still running is late by
+    // however far it has already overrun.
+    let late_days: i64 = leaves
+        .iter()
+        .map(|task| match task.end_variance {
+            Some(variance) => variance.max(0),
+            None => task.overdue.max(0),
+        })
+        .sum();
+
+    let wait_days: i64 = leaves.iter().map(|task| task.wait_days).sum();
+
+    Ok(Numbers {
+        id: project.id.clone(),
+        name: project.name.clone(),
+        tasks,
+        delayed,
+        progress,
+        late_days,
+        wait_days,
+        slipped: late_days + wait_days,
+    })
+}
+
 /// The name and revision of a project whose access has already been settled.
 ///
 /// Deliberately not a `Project`: a caller that already holds a role — an access

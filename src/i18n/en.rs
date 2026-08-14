@@ -284,6 +284,12 @@ pub fn of(ja: &str) -> Option<&'static str> {
             "A field with values in it cannot change kind. Empty the column first."
         }
 
+        // --- 全プロジェクトのトークン ---------------------------------------
+        "全プロジェクトの API トークン" => "API tokens for every project",
+        "すべてのプロジェクトを読める鍵です。案件をまたいだ集計に使います。1つのプロジェクトだけでよいなら、そのプロジェクトの設定で発行してください。" =>
+            "A key that reads every project, for numbers gathered across them. If one project is enough, issue the token in that project's settings.",
+        "全案件の遅延を集める" => "Collecting lateness across projects",
+
         _ => return None,
     })
 }

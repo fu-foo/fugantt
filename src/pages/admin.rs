@@ -12,6 +12,12 @@ use topcoat::{
 
 use crate::{app_settings, auth::require_user, db, project};
 
+/// A token, shown once, on the way back from making one.
+#[topcoat::router::query_params(error = not_found())]
+struct Issued {
+    issued: Option<String>,
+}
+
 /// Settings that belong to the installation. Only an administrator sees this.
 #[page("/admin")]
 async fn index(cx: &Cx) -> Result {
@@ -31,6 +37,18 @@ async fn index(cx: &Cx) -> Result {
         .unwrap_or_else(|| "auto".to_owned());
     let rule = app_settings::password_rule(cx).await;
     let banned = app_settings::banned_text(cx).await;
+    let tokens = crate::tokens::wide(cx).await?;
+    let issued = topcoat::router::query_params::<Issued>(cx)?
+        .issued
+        .clone()
+        .unwrap_or_default();
+
+    let usage = concat!(
+        "curl -H 'Authorization: Bearer fug_…' https://…/api/projects\n",
+        "curl -H 'Authorization: Bearer fug_…' https://…/api/summary",
+    )
+    .to_owned();
+
     let statuses = project::default_statuses(cx).await?;
     let holidays = project::app_holidays(cx).await?;
     let assignees = project::assignee_master(cx).await?;
@@ -175,6 +193,93 @@ async fn index(cx: &Cx) -> Result {
                         (l.t("保存"))
                     </button>
                 </form>
+            </section>
+
+            // --- installation-wide tokens -----------------------------------
+
+            <section id="tokens" class="mt-6 rounded-xl border border-slate-200 bg-white p-6">
+                <h2 class="text-lg font-semibold">(l.t("全プロジェクトの API トークン"))</h2>
+                <p class="mt-1 text-sm text-slate-500">
+                    (l.t("すべてのプロジェクトを読める鍵です。案件をまたいだ集計に使います。1つのプロジェクトだけでよいなら、そのプロジェクトの設定で発行してください。"))
+                </p>
+
+                if !issued.is_empty() {
+                    <div class="mt-4 rounded-lg border border-blue-200 bg-blue-50 p-4">
+                        <p class="text-sm font-medium text-blue-900">
+                            (l.t("いま作ったトークンです。この画面を離れると二度と出ません。"))
+                        </p>
+                        <code class="mt-2 block w-full break-all rounded-lg border border-blue-200 bg-white px-3 py-2 font-mono text-sm">
+                            (&issued)
+                        </code>
+                    </div>
+                }
+
+                <form method="POST" action="/admin/tokens" class="mt-4 flex flex-wrap items-end gap-3">
+                    <div class="flex flex-1 flex-col gap-1">
+                        <label for="wide-name" class="text-xs font-medium text-slate-500">
+                            (l.t("用途"))
+                        </label>
+                        <input
+                            id="wide-name"
+                            name="name"
+                            placeholder=(l.t("全案件の遅延を集める"))
+                            class="w-full rounded-lg border border-slate-300 px-3 py-2"
+                        >
+                    </div>
+
+                    <div class="flex flex-col gap-1">
+                        <label for="wide-role" class="text-xs font-medium text-slate-500">
+                            (l.t("権限"))
+                        </label>
+                        <select
+                            id="wide-role"
+                            name="role"
+                            class="rounded-lg border border-slate-300 px-3 py-2"
+                        >
+                            <option value="viewer">(l.t("読むだけ"))</option>
+                            <option value="editor">(l.t("読み書き"))</option>
+                        </select>
+                    </div>
+
+                    <button class="rounded-lg bg-blue-600 px-4 py-2 font-medium text-white hover:bg-blue-500">
+                        (l.t("発行"))
+                    </button>
+                </form>
+
+                if tokens.is_empty() {
+                    <p class="mt-6 text-sm text-slate-400">(l.t("まだありません。"))</p>
+                } else {
+                    <ul class="mt-6 divide-y divide-slate-100 border-t border-slate-100">
+                        for token in &tokens {
+                            <li class="flex items-center gap-4 py-2.5">
+                                <span class="text-sm">
+                                    if token.name.is_empty() { (l.t("（名前なし）")) } else { (&token.name) }
+                                </span>
+                                <span class="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs text-slate-600">
+                                    if token.role == "editor" { (l.t("読み書き")) } else { (l.t("読むだけ")) }
+                                </span>
+                                <span class="text-xs text-slate-400">
+                                    match token.last_used {
+                                        Some(at) => (&format!("{} {}", l.t("最終利用"), super::settings::used_on(at))),
+                                        None => (l.t("未使用")),
+                                    }
+                                </span>
+
+                                <form method="POST" action="/admin/tokens/remove" class="ml-auto">
+                                    <input type="hidden" name="id" value=(&token.id)>
+                                    <button class="text-sm text-slate-400 hover:text-red-600">
+                                        (l.t("失効"))
+                                    </button>
+                                </form>
+                            </li>
+                        }
+                    </ul>
+                }
+
+                <details class="mt-6">
+                    <summary class="cursor-pointer text-sm text-slate-500">(l.t("使い方"))</summary>
+                    <pre class="mt-3 overflow-x-auto rounded-lg bg-slate-50 p-3 font-mono text-xs">(&usage)</pre>
+                </details>
             </section>
 
             // --- default statuses -------------------------------------------
@@ -555,6 +660,61 @@ async fn require_admin(cx: &Cx) -> Result<()> {
     let user = require_user(cx).await?;
     user.is_admin().then_some(()).ok_or_not_found()?;
     Ok(())
+}
+
+#[derive(Deserialize)]
+struct NewToken {
+    name: String,
+    role: String,
+}
+
+/// Issues a token that reaches every project.
+///
+/// The wide one is the administrator's to give: it opens plans its holder was
+/// never added to, including ones that do not exist yet.
+#[route(POST "/admin/tokens")]
+async fn create_token(cx: &Cx, Form(form): Form<NewToken>) -> Result<SeeOther> {
+    let user = require_user(cx).await?;
+    user.is_admin().then_some(()).ok_or_not_found()?;
+
+    let role = if form.role == "editor" {
+        "editor"
+    } else {
+        "viewer"
+    };
+    let (token, hash) = crate::tokens::generate();
+
+    sqlx::query(
+        "INSERT INTO api_tokens (id, project_id, name, role, token_hash, created_at, created_by)
+         VALUES (?1, NULL, ?2, ?3, ?4, ?5, ?6)",
+    )
+    .bind(uuid::Uuid::new_v4().to_string())
+    .bind(form.name.trim())
+    .bind(role)
+    .bind(&hash[..])
+    .bind(db::now())
+    .bind(&user.id)
+    .execute(db::pool(cx))
+    .await?;
+
+    Ok(see_other(&format!("/admin?issued={token}#tokens")))
+}
+
+#[derive(Deserialize)]
+struct RemoveToken {
+    id: String,
+}
+
+#[route(POST "/admin/tokens/remove")]
+async fn remove_token(cx: &Cx, Form(form): Form<RemoveToken>) -> Result<SeeOther> {
+    require_admin(cx).await?;
+
+    sqlx::query("DELETE FROM api_tokens WHERE id = ?1 AND project_id IS NULL")
+        .bind(form.id.trim())
+        .execute(db::pool(cx))
+        .await?;
+
+    Ok(see_other("/admin#tokens"))
 }
 
 #[derive(Deserialize)]

@@ -68,14 +68,16 @@ async fn actor(cx: &Cx, project_id: &str) -> Result<(project::Project, String)> 
             return Err(forbidden().into());
         };
 
-        // A token for another project is not a token for this one.
-        if opened.project_id != project_id {
+        // A token for another project is not a token for this one. One issued
+        // for all of them is a token for every project, including the ones made
+        // after it.
+        if !opened.covers(project_id) {
             return Err(forbidden().into());
         }
 
         return Ok((
             project::Project {
-                id: opened.project_id,
+                id: project_id.to_owned(),
                 name: String::new(),
                 revision: 0,
                 role: opened.role,
@@ -103,6 +105,71 @@ async fn actor_edit(cx: &Cx, project_id: &str) -> Result<(project::Project, Stri
     }
 
     Ok((project, who))
+}
+
+/// Every project the caller can reach.
+///
+/// A token opens one project by name, so nothing could ask "which plans are
+/// there". This is the answer, and the starting point for anything that wants
+/// to look across them.
+#[route(GET "/api/projects")]
+async fn list_projects(cx: &Cx) -> Result<Json<Vec<project::Summary>>> {
+    let reach = reach(cx).await?;
+
+    Ok(Json(project::summaries(cx, &reach).await?))
+}
+
+/// The numbers, for every project at once.
+///
+/// The same arithmetic the statistics page does, per project rather than per
+/// task: which plans are late, by how much, and how much of that was waiting on
+/// somebody else. Counting this a project at a time is what a person does when
+/// a tool will not do it for them.
+#[route(GET "/api/summary")]
+async fn summary(cx: &Cx) -> Result<Json<Vec<project::Numbers>>> {
+    let reach = reach(cx).await?;
+    let mut numbers = Vec::new();
+
+    for summary in project::summaries(cx, &reach).await? {
+        let project = project::Project {
+            id: summary.id.clone(),
+            name: summary.name.clone(),
+            revision: summary.revision,
+            role: "viewer".to_owned(),
+        };
+
+        numbers.push(project::numbers(cx, &project).await?);
+    }
+
+    Ok(Json(numbers))
+}
+
+/// Which projects this caller may see at all.
+///
+/// A token for one project sees that one; a token for all of them, or a signed
+/// in person, sees what they are allowed to.
+async fn reach(cx: &Cx) -> Result<project::Reach> {
+    let bearer = headers(cx)
+        .get("authorization")
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.strip_prefix("Bearer "))
+        .map(str::trim)
+        .filter(|token| !token.is_empty());
+
+    if let Some(token) = bearer {
+        let Some(opened) = crate::tokens::resolve(cx, token).await? else {
+            return Err(forbidden().into());
+        };
+
+        return Ok(match opened.project_id {
+            Some(id) => project::Reach::One(id),
+            None => project::Reach::Everything,
+        });
+    }
+
+    let user = crate::auth::current_user(cx).await?.ok_or_else(forbidden)?;
+
+    Ok(project::Reach::Person(user.id))
 }
 
 #[route(GET "/api/projects/{project_id}/grid")]

@@ -42,7 +42,8 @@ pub fn digest(token: &str) -> Option<Vec<u8>> {
 /// What a presented token opens.
 #[derive(Debug, Clone)]
 pub struct Opened {
-    pub project_id: String,
+    /// The one project it is for, or `None` when it reaches all of them.
+    pub project_id: Option<String>,
     pub role: String,
     /// Which token this was, for the history. Its name if it has one, and the
     /// front of its id if not — never the token itself.
@@ -58,7 +59,7 @@ pub async fn resolve(cx: &Cx, token: &str) -> Result<Option<Opened>> {
         return Ok(None);
     };
 
-    let found = sqlx::query_as::<_, (String, String, String, String)>(
+    let found = sqlx::query_as::<_, (Option<String>, String, String, String)>(
         "SELECT project_id, role, name, id FROM api_tokens WHERE token_hash = ?1",
     )
     .bind(&hash[..])
@@ -82,6 +83,29 @@ pub async fn resolve(cx: &Cx, token: &str) -> Result<Option<Opened>> {
             format!("API {}", name.trim())
         },
     }))
+}
+
+impl Opened {
+    /// Whether this token opens `project_id`.
+    pub fn covers(&self, project_id: &str) -> bool {
+        match &self.project_id {
+            Some(own) => own == project_id,
+            // Every project, including ones made after the token was issued.
+            None => true,
+        }
+    }
+}
+
+/// The tokens that reach every project. Only an administrator makes these.
+pub async fn wide(cx: &Cx) -> Result<Vec<Token>> {
+    Ok(sqlx::query_as::<_, Token>(
+        "SELECT id, name, role, last_used
+           FROM api_tokens
+          WHERE project_id IS NULL
+          ORDER BY created_at DESC",
+    )
+    .fetch_all(db::pool(cx))
+    .await?)
 }
 
 /// The tokens a project has, newest first. Never the tokens themselves.

@@ -1,0 +1,16 @@
+{
+  "name": "fugantt-grid",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "esbuild src/grid.ts --bundle --format=iife --target=es2020 --outfile=dist/grid.js",
+    "watch": "npm run build -- --watch",
+    "typecheck": "tsc --noEmit",
+    "test": "node test/grid.test.mjs"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.0",
+    "puppeteer-core": "^24.0.0",
+    "typescript": "^5.7.0"
+  }
+}

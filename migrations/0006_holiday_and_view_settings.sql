@@ -1,0 +1,11 @@
+-- Nothing structural: the new settings live in `project_settings`, which is
+-- exactly why it was made a key/value table. This migration only records that
+-- the following keys are now meaningful:
+--
+--   workdays_only     "1" to leave weekends and holidays out of the day count
+--   color_weekend     the weekend column shade
+--   color_holiday     the holiday column shade
+--   hidden_columns    space-separated built-in column keys to leave out
+--
+-- SQLite has no no-op statement, so this touches nothing.
+SELECT 1;

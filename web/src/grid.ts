@@ -1,0 +1,3772 @@
+import "./grid.css";
+
+/** One row as the server resolved it. Nothing here is recomputed in the browser. */
+interface Task {
+  id: string;
+  depth: number;
+  name: string;
+  start: string | null;
+  end: string | null;
+  actual_start: string | null;
+  actual_end: string | null;
+  progress: number;
+  days: number | null;
+  actual_days: number | null;
+  start_variance: number | null;
+  end_variance: number | null;
+  status: string;
+  assignee: string;
+  note: string;
+  waits: { start: string; end: string; reason: string; open: boolean; days: number }[];
+  wait_days: number;
+  expected: number;
+  delayed: boolean;
+  has_children: boolean;
+  tags: string[];
+  values: Record<string, string>;
+}
+
+interface GridData {
+  project_id: string;
+  revision: number;
+  /// The language, decided by the server from the person's own setting, the
+  /// installation's, and the browser's.
+  language: string;
+  today: string;
+  range_start: string;
+  range_end: string;
+  holidays: { date: string; name: string }[];
+  leaves: {
+    id: string;
+    assignee: string;
+    start: string;
+    end: string;
+    note: string;
+    kind: string;
+  }[];
+  assignees: { name: string; color: string; background: string }[];
+  statuses: { name: string; color: string; percent: number | null }[];
+  theme: {
+    bar: string;
+    done: string;
+  actual: string;
+    summary: string;
+    late: string;
+    saturday: string;
+    sunday: string;
+    holiday: string;
+    leave: string;
+    wait: string;
+  };
+  fields: {
+    id: string;
+    label: string;
+    kind: string;
+    options: { value: string; color: string; background: string }[];
+  }[];
+  hidden_columns: string[];
+  column_order: string[];
+  column_widths: Record<string, number>;
+  frozen_columns: number;
+  counting: {
+    monday: boolean;
+    tuesday: boolean;
+    wednesday: boolean;
+    thursday: boolean;
+    friday: boolean;
+    saturday: boolean;
+    sunday: boolean;
+    holidays: boolean;
+    leave: boolean;
+  };
+  fiscal_year_start: number;
+  japanese_era: boolean;
+  quarters: boolean;
+  eras: { from: string; name: string }[];
+  day_width: number;
+  can_edit: boolean;
+  tasks: Task[];
+}
+
+interface Mutation {
+  grid: GridData;
+  task_id: string | null;
+  /** Why a request that succeeded still changed nothing. */
+  note?: string;
+}
+
+/** A column in the left pane: a built-in one, or one the project defined. */
+interface ColumnDef {
+  key: string;
+  label: string;
+  kind:
+    | "name"
+    | "date"
+    | "days"
+    | "variance"
+    | "progress"
+    | "status"
+    | "text"
+    | "number"
+    | "select"
+    /** Free text with the project's master list offered as candidates. */
+    | "suggest";
+  /** Set for project-defined columns; the built-ins live on the task itself. */
+  fieldId?: string;
+  options?: { value: string; color: string; background: string }[];
+}
+
+const BASE_COLUMNS: ColumnDef[] = [
+  { key: "name", label: "タスク", kind: "name" },
+  { key: "start", label: "予定開始", kind: "date" },
+  { key: "end", label: "予定終了", kind: "date" },
+  { key: "actual_start", label: "実施開始", kind: "date" },
+  { key: "actual_end", label: "実施終了", kind: "date" },
+  { key: "days", label: "予定日数", kind: "days" },
+  // Days actually worked. Counted up to today while it is still running.
+  { key: "actual_days", label: "実作業日数", kind: "days" },
+  { key: "start_variance", label: "開始差異", kind: "variance" },
+  { key: "end_variance", label: "終了差異", kind: "variance" },
+  { key: "progress", label: "進捗", kind: "progress" },
+  { key: "status", label: "ステータス", kind: "status" },
+  { key: "assignee", label: "担当者", kind: "text" },
+  { key: "note", label: "コメント", kind: "text" },
+  { key: "waits", label: "待ち", kind: "text" },
+];
+
+/** Columns a summary row takes from its children rather than its own row. */
+const ROLLED_UP: readonly string[] = [
+  "actual_days",
+  "start",
+  "end",
+  "actual_start",
+  "actual_end",
+  "days",
+  "start_variance",
+  "end_variance",
+  "progress",
+];
+
+
+/**
+ * Columns whose filter is a bound, not a substring, and which way a bare value
+ * points.
+ *
+ * A date column filtered by text is nearly useless — nobody wants the rows
+ * whose start date happens to contain "08". What they want is everything from
+ * a day onwards, or up to one. A start reads as "at least" and an end as "at
+ * most", which is also how the two are asked for out loud. Writing the other
+ * word (or `<=`) after the value turns any of them around.
+ */
+/**
+ * A filter's direction, and on progress a question that needs no number.
+ *
+ * `behind` / `ahead` compare the progress against where today says it should
+ * be. "Only the rows that are behind" is what people actually want to see, and
+ * there is no number to type for it.
+ */
+type Bound = "gte" | "lte" | "eq" | "gt" | "lt" | "behind" | "ahead";
+
+const BOUND_LABEL: Record<Bound, string> = {
+  gte: "以上",
+  lte: "以下",
+  eq: "一致",
+  gt: "超過",
+  lt: "未満",
+  behind: "遅れ",
+  ahead: "順調",
+};
+
+/**
+ * What the button itself shows.
+ *
+ * Spelled out, the words are two characters wide, and in a narrow column that
+ * leaves no room for the number they apply to. The signs say the same thing in
+ * one character; the words are on the button's tooltip.
+ */
+const BOUND_MARK: Record<Bound, string> = {
+  gte: "≧",
+  lte: "≦",
+  eq: "＝",
+  gt: "＞",
+  lt: "＜",
+  behind: "遅れ",
+  ahead: "順調",
+};
+
+/** What one column's button offers, in the order it offers it. */
+const BOUND_CHOICES: Record<string, Bound[]> = {
+  // Progress is more often asked as "only what is behind" than as a percentage,
+  // and there is no number to type for that.
+  progress: ["gte", "lte", "eq", "gt", "lt", "behind", "ahead"],
+};
+
+const BOUND_DEFAULT: Bound[] = ["gte", "lte", "eq", "gt", "lt"];
+
+const FILTER_BOUND: Record<string, Bound> = {
+  progress: "gte",
+  start: "gte",
+  actual_start: "gte",
+  end: "lte",
+  actual_end: "lte",
+  days: "gte",
+  start_variance: "gte",
+  end_variance: "gte",
+};
+
+/**
+ * The island's wording. The key is the original Japanese, and anything without a
+ * translation comes out in Japanese.
+ *
+ * The same idea as `src/i18n/en.rs` on the server. What is deliberately absent
+ * is anything the users chose — status names, their own fields, assignees —
+ * because that is data, not wording.
+ */
+const EN: Record<string, string> = {
+  // columns
+  "タスク": "Task",
+  "予定開始": "Planned start",
+  "予定終了": "Planned end",
+  "実施開始": "Actual start",
+  "実施終了": "Actual end",
+  "予定日数": "Planned days",
+  "実作業日数": "Actual days",
+  "表示": "Show",
+  "チャートに出すものを選びます": "Choose what to draw on the chart",
+  "実際に動いた日数。終わっていなければ今日まで数えます":
+    "Days actually worked; counted up to today while it is still running",
+  "開始差異": "Start variance",
+  "終了差異": "End variance",
+  "進捗": "Progress",
+  "ステータス": "Status",
+  "担当者": "Assignee",
+  "コメント": "Note",
+  "待ち": "Waiting",
+
+  // filtering
+  "以上": "at least",
+  "以下": "at most",
+  "一致": "equals",
+  "超過": "more than",
+  "未満": "less than",
+  "遅れ": "behind",
+  "順調": "on track",
+  "解除": "Clear",
+  "絞り込み": "Filter",
+  "20260805・8/5・2026-08-05 のどれでも。左のボタンで向きを変えられます":
+    "20260805, 8/5 or 2026-08-05 all work. The button on the left changes the comparison.",
+  "左のボタンで「以上」「以下」を切り替えられます":
+    "The button on the left switches between at least and at most.",
+  "カレンダーから選ぶ": "Pick from a calendar",
+
+  // calendar and units
+  "休業日": "Closed",
+  "日": "d",
+  "営業日": "working days",
+  "元": "was",
+
+  // dialogs
+  "休み": "Away",
+  "出社": "Working",
+  "メモ（任意）": "Note (optional)",
+  "削除": "Delete",
+  "＋ 休暇を追加": "+ Add leave",
+  "保存": "Save",
+  "キャンセル": "Cancel",
+  "担当者の休暇 / 出社": "Leave and working days",
+  "担当者の休暇/出社": "Leave and working days",
+  "休みの日はその人のタスクの日数にも遅れの判定にも入りません。逆に「出社」は、土日祝でもその日を数えます。":
+    "Days away count towards neither the day count nor the delay of that person's tasks. Working days do the opposite: they count even on a weekend or a holiday.",
+  "予定は人につくので、ここでの登録はその人が出ている全部のプロジェクトに効きます。":
+    "Leave belongs to the person, so what you record here applies to every project they are on.",
+  "継続中": "still open",
+  "理由（任意）": "Reason (optional)",
+  "＋ 期間を追加": "+ Add a period",
+  "待ちの期間を登録する": "Record the waiting periods",
+  "終わりを空にすると「まだ待っている」になり、今日まで数え続けます。待ちの日数は日数からも遅れの判定からも外れます。":
+    "Leave the end empty for work that is still waiting; it counts up to today. Waiting days are excluded from the day count and from the delay.",
+  "（継続中）": "(still waiting)",
+  "予定の期間の外なので日数には効きません": "Outside the planned dates, so it changes nothing",
+  "8/17〜8/21 他部署（終わり省略で継続中）":
+    "8/17-8/21 another team (omit the end while it is still waiting)",
+
+  // the grid
+  "（無題）": "(untitled)",
+  "無題のタスク": "Untitled task",
+  "保存できませんでした。接続を確認してください。": "Could not save. Check the connection.",
+  "閉じる": "Close",
+  "タスクがありません。": "No tasks yet.",
+  "最初のタスクを追加": "Add the first task",
+  "閲覧のみ": "Read only",
+  "行を追加": "Add a row",
+  "行を削除": "Delete the row",
+  "誰がいつ休み、いつ出るか。日数の数え方に効きます":
+    "Who is away and who is in. It changes how days are counted.",
+  "土日・祝日を除いた営業日で数えています": "Counted in working days, weekends and holidays excluded",
+  "条件に合う行がありません。": "Nothing matches.",
+  "集計行の日付と進捗は子タスクから決まります。":
+    "A summary row's dates and progress come from its children.",
+  "子タスクのずれを足したものです（この行の日付の差ではありません）":
+    "The sum of the children's slippage, not the difference between this row's own dates",
+  "ドラッグで移動": "Drag to move",
+  "展開する": "Expand",
+  "折りたたむ": "Collapse",
+  "セルの入力": "Cell editor",
+  "ドラッグで進捗を変える": "Drag to change the progress",
+  "ドラッグで幅を変える": "Drag to resize",
+  "子タスクにする": "Make it a child",
+  "階層を戻す": "Move it back out",
+  "上へ移動": "Move up",
+  "下へ移動": "Move down",
+  "下に行を追加": "Add a row below",
+  "スケジュールを読み込めませんでした。再読み込みしてください。":
+    "Could not load the schedule. Please reload.",
+};
+
+/** Which language to draw in. The server says so on every load. */
+let LANG: "ja" | "en" = "ja";
+
+function t(ja: string): string {
+  return LANG === "en" ? (EN[ja] ?? ja) : ja;
+}
+
+const WEEKDAYS_EN = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const WEEKDAYS = ["日", "月", "火", "水", "木", "金", "土"];
+
+/** Weekdays are one character in Japanese and three in English, so they get
+    their own table rather than a dictionary entry. */
+function weekday(at: number): string {
+  return (LANG === "en" ? WEEKDAYS_EN[at] : WEEKDAYS[at]) ?? "";
+}
+
+const DAY_MS = 86_400_000;
+const PAGE_ROWS = 10;
+/** How close to an end counts as grabbing it rather than the whole bar. */
+const GRIP_WIDTH = 7;
+
+/**
+ * Parses `YYYY-MM-DD` at UTC midnight.
+ *
+ * The chart only ever measures whole days, and local parsing would shift a
+ * date across a boundary for anyone east or west of the server.
+ */
+function parseDate(text: string): number {
+  const [year, month, day] = text.split("-").map(Number);
+  return Date.UTC(year ?? 1970, (month ?? 1) - 1, day ?? 1);
+}
+
+function dayIndex(date: string, origin: number): number {
+  return Math.round((parseDate(date) - origin) / DAY_MS);
+}
+
+/** The `YYYY-MM-DD` that sits `offset` days after the chart's first day. */
+function shiftDate(origin: number, offset: number): string {
+  return new Date(origin + offset * DAY_MS).toISOString().slice(0, 10);
+}
+
+function element<K extends keyof HTMLElementTagNameMap>(
+  tag: K,
+  className?: string,
+  text?: string,
+): HTMLElementTagNameMap[K] {
+  const node = document.createElement(tag);
+  if (className) node.className = className;
+  if (text !== undefined) node.textContent = text;
+  return node;
+}
+
+/**
+ * Folds full-width digits and separators onto ASCII.
+ *
+ * A Japanese keyboard left in kana mode types "２０２６－０９－０１", which is
+ * the same date entered the same way. Doing this here as well as on the server
+ * keeps the optimistic redraw honest.
+ */
+/**
+ * Reads `100以上`, `50以下`, `>=3`, `<=2026-08-31` — or a bare value on a column
+ * that has a direction of its own.
+ *
+ * Returns null when the box holds plain text, which is the signal to fall back
+ * to matching by substring.
+ */
+function parseBound(
+  text: string,
+  fallback?: Bound,
+): { at: Bound; limit: string } | null {
+
+  // Full-width digits and signs arrive whenever the IME is on, which is most
+  // of the time here; a filter that ignored them would look broken.
+  const value = normalizeWidth(text).trim();
+  if (!value) return null;
+
+  const SIGNS: Record<string, Bound> = {
+    ">=": "gte", "=>": "gte", "≧": "gte", "≥": "gte",
+    "<=": "lte", "=<": "lte", "≦": "lte", "≤": "lte",
+    ">": "gt", "＞": "gt",
+    "<": "lt", "＜": "lt",
+    "=": "eq", "＝": "eq",
+  };
+
+  const written = /^(>=|<=|=>|=<|≧|≥|≦|≤|＞|＜|＝|>|<|=)\s*(.*)$/.exec(value);
+  if (written) {
+    return { at: SIGNS[written[1]!] ?? "eq", limit: written[2]!.trim() };
+  }
+
+  // The spoken forms. 「超」 is tested after 「以上」, which contains no such
+  // character, so the longer word wins where both could match.
+  const WORDS: [RegExp, Bound][] = [
+    [/(以上|以降|いじょう|いこう)$/, "gte"],
+    [/(以下|以前|まで|いか|いぜん)$/, "lte"],
+    [/(超過|超|より後|より大きい)$/, "gt"],
+    [/(未満|より前|より小さい)$/, "lt"],
+    [/(と同じ|一致|ちょうど)$/, "eq"],
+  ];
+
+  for (const [pattern, at] of WORDS) {
+    if (pattern.test(value)) return { at, limit: value.replace(pattern, "").trim() };
+  }
+
+  return fallback ? { at: fallback, limit: value } : null;
+}
+
+/** One comparison, whichever way the column is asking. */
+function compare<T extends number | string>(at: Bound, left: T, right: T): boolean {
+  switch (at) {
+    case "gte":
+      return left >= right;
+    case "lte":
+      return left <= right;
+    case "gt":
+      return left > right;
+    case "lt":
+      return left < right;
+    default:
+      // Behind and on track never get here: they are answered before a value
+      // is read at all.
+      return left === right;
+  }
+}
+
+/**
+ * A date however somebody typed it, or null when it is not one.
+ *
+ * The same readings the server takes: `20260805`, `0805`, `8/5`, `2026年8月5日`.
+ * A half-written date like `2026-08` comes back null on purpose — the filter
+ * falls back to comparing it as a prefix, which is what half a date means.
+ */
+function flexibleDate(text: string): string | null {
+  const value = normalizeWidth(text)
+    .trim()
+    .replace(/[/.年月]/g, "-")
+    .replace(/日/g, "")
+    .replace(/-+$/, "");
+
+  const year = new Date().getUTCFullYear();
+  let iso: string | null = null;
+
+  if (/^\d+$/.test(value)) {
+    if (value.length === 8) iso = `${value.slice(0, 4)}-${value.slice(4, 6)}-${value.slice(6)}`;
+    else if (value.length === 4) iso = `${year}-${value.slice(0, 2)}-${value.slice(2)}`;
+  } else {
+    const parts = value.split("-").filter(Boolean);
+    const pad = (part: string, width: number) => part.padStart(width, "0");
+
+    if (parts.length === 2) iso = `${year}-${pad(parts[0]!, 2)}-${pad(parts[1]!, 2)}`;
+    else if (parts.length === 3) iso = `${pad(parts[0]!, 4)}-${pad(parts[1]!, 2)}-${pad(parts[2]!, 2)}`;
+  }
+
+  if (!iso || !/^\d{4}-\d{2}-\d{2}$/.test(iso)) return null;
+
+  // `2026-13-99` parses into next year somewhere; only a date that survives the
+  // round trip is a date.
+  const parsed = new Date(`${iso}T00:00:00Z`);
+  return Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== iso ? null : iso;
+}
+
+/** `2026-08-17` as `8/17`: the year is nearly always the one on screen. */
+function short(iso: string): string {
+    const [, month, day] = iso.split("-");
+    return month && day ? `${Number(month)}/${Number(day)}` : iso;
+}
+
+function normalizeWidth(text: string): string {
+  return text
+    .replace(/[０-９ａ-ｚＡ-Ｚ]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0xfee0))
+    .replace(/[－ー−‐]/g, "-")
+    .replace(/／/g, "/")
+    .replace(/％/g, "%")
+    .replace(/　/g, " ");
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
+}
+
+/**
+ * This browser's identity for the session.
+ *
+ * The server publishes a change before the response to it arrives, so a client
+ * cannot tell its own echo from someone else's edit by revision alone. It sends
+ * this on every write and ignores the events that carry it back.
+ */
+const CLIENT_ID = randomId();
+
+/**
+ * A per-session identifier.
+ *
+ * Not `crypto.randomUUID()`: that one only exists in a secure context, so on a
+ * plain-HTTP LAN it is undefined and the whole island dies on the first line.
+ * This value only has to be different from the other tabs', never unguessable.
+ */
+function randomId(): string {
+  const bytes = new Uint8Array(16);
+
+  if (globalThis.crypto?.getRandomValues) {
+    globalThis.crypto.getRandomValues(bytes);
+  } else {
+    for (let i = 0; i < bytes.length; i++) bytes[i] = Math.floor(Math.random() * 256);
+  }
+
+  return [...bytes].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+/**
+ * Modifier names as this machine spells them.
+ *
+ * The handlers already accept either key — `ctrlKey || metaKey` — so only the
+ * labels need to know which platform they are on.
+ */
+const ON_MAC = /Mac|iPhone|iPad/.test(navigator.userAgent);
+const MOD = ON_MAC ? "⌘" : "Ctrl+";
+const ALT = ON_MAC ? "⌥" : "Alt+";
+
+const collapsedKey = (projectId: string) => `fugantt:collapsed:${projectId}`;
+
+/** Folded rows survive a reload. Private browsing may refuse storage; that is fine. */
+function loadCollapsed(projectId: string): Set<string> {
+  try {
+    const stored = window.localStorage.getItem(collapsedKey(projectId));
+    return new Set(stored ? (JSON.parse(stored) as string[]) : []);
+  } catch {
+    return new Set();
+  }
+}
+
+function saveCollapsed(projectId: string, collapsed: Set<string>): void {
+  try {
+    window.localStorage.setItem(collapsedKey(projectId), JSON.stringify([...collapsed]));
+  } catch {
+    // Nothing to do: the fold state is a convenience, not data worth an error.
+  }
+}
+
+/** How wide each kind of column wants to be, as a grid track. */
+const TRACKS: Record<ColumnDef["kind"], string> = {
+  name: "minmax(11rem, 1.6fr)",
+  date: "6.5rem",
+  // These three carry a direction button in the filter row as well as their
+  // own short values, and a 3.4rem column has no room for both.
+  days: "5.2rem",
+  variance: "4.8rem",
+  progress: "4.6rem",
+  status: "5.5rem",
+  text: "minmax(5rem, 0.8fr)",
+  suggest: "minmax(5rem, 0.8fr)",
+  number: "4.5rem",
+  select: "minmax(5rem, 0.6fr)",
+};
+
+const PANE_KEY = "fugantt:pane-width";
+const SHOWS_KEY = "fugantt:chart-shows";
+
+/** What gets drawn over the chart. More of it says more, and reads worse. */
+type Shows = { start: boolean; end: boolean; worked: boolean };
+
+function loadShows(): Shows {
+  const stored = window.localStorage.getItem(SHOWS_KEY);
+  const shows: Shows = { start: true, end: true, worked: true };
+
+  if (!stored) return shows;
+
+  try {
+    return { ...shows, ...(JSON.parse(stored) as Partial<Shows>) };
+  } catch {
+    // Broken settings fall back to the default: a screen that will not draw
+    // because of a preference has its priorities backwards.
+    return shows;
+  }
+}
+
+function loadPaneWidth(): number {
+  const stored = Number(window.localStorage.getItem(PANE_KEY));
+  return Number.isFinite(stored) && stored > 0 ? clamp(stored, 160, 1200) : 0;
+}
+
+/**
+ * Keeps the rows that match, and the ancestors that hold them.
+ *
+ * Dropping a parent because its own text does not match would orphan the
+ * children that do, and the indentation would then be a lie.
+ */
+function keepMatches(tasks: Task[], hit: (task: Task) => boolean): Task[] {
+  const matches = tasks.map(hit);
+  const keep = new Array<boolean>(tasks.length).fill(false);
+
+  for (const [index, task] of tasks.entries()) {
+    if (!matches[index]) continue;
+
+    keep[index] = true;
+
+    // Everything above this row that is shallower is an ancestor of it.
+    let depth = task.depth;
+    for (let i = index - 1; i >= 0 && depth > 0; i--) {
+      const candidate = tasks[i];
+      if (candidate && candidate.depth < depth) {
+        keep[i] = true;
+        depth = candidate.depth;
+      }
+    }
+  }
+
+  return tasks.filter((_, index) => keep[index]);
+}
+
+function rowText(task: Task): string {
+  return [
+    task.name,
+    task.status,
+    task.assignee,
+    task.note,
+    ...task.tags,
+    ...Object.values(task.values),
+  ]
+    .join(" ")
+    .toLowerCase();
+}
+
+/** The grid: selection, keyboard editing, and the chart beside it. */
+class Grid {
+  /** Width of one day column. Comes from the project's settings. */
+  private get dayWidth(): number {
+    return this.data.day_width || 26;
+  }
+
+  private row = 0;
+  private column = 0;
+  private editing = false;
+  /** The character that opened the editor, so typing does not lose the keystroke. */
+  private seed: string | null = null;
+  private error: string | null = null;
+  /** True while an IME conversion is open, so nothing may re-render under it. */
+  private composing = false;
+  /** A passing line about someone else's change, not a problem to fix. */
+  private notice: string | null = null;
+  private noticeTimer = 0;
+  private busy = false;
+  private scrollLeft = 0;
+
+  /**
+   * The summary rows whose subtrees are folded away.
+   *
+   * Folding is how one person is reading the plan right now, not something
+   * about the plan, so it stays in this browser rather than on the server
+   * where it would fold everyone else's view too.
+   */
+  private readonly collapsed: Set<string>;
+
+  /** `data.tasks` minus everything inside a folded row. All indices are into this. */
+  private visible: Task[] = [];
+  /** One filter per column, ANDed together. Empty entries are ignored. */
+  private filters = new Map<string, string>();
+  /**
+   * The direction each bounded column is asking in, where it is not the
+   * default. Chosen by clicking, rather than by remembering what to type.
+   */
+  private bounds = new Map<string, Bound>();
+  /** What to draw over the chart: this person's view of it, not the project's
+      setting. */
+  private shows: Shows = loadShows();
+  /** The column whose filter box the caret is in, across a re-render. */
+  private filterFocus: { key: string; caret: number | null } | null = null;
+  /** How much of the width the left pane takes, dragged by the splitter. */
+  private paneWidth = loadPaneWidth();
+  /** Whether the table pane still needs holding back to half the window. */
+  private capPaneWidth = false;
+  /** The last cell pressed, for spotting a double-click ourselves. */
+  private lastPress: { row: number; column: number; at: number } | null = null;
+
+  constructor(
+    private readonly root: HTMLElement,
+    private readonly projectId: string,
+    private data: GridData,
+  ) {
+    this.collapsed = loadCollapsed(projectId);
+    LANG = data.language === "en" ? "en" : "ja";
+    this.computeVisible();
+    this.root.addEventListener("keydown", (event) => this.onKeyDown(event));
+    // Every column moves when the window does, and a column pinned to where it
+    // used to be sits on top of its neighbour.
+    window.addEventListener("resize", () => this.pinColumns());
+
+    this.listen();
+    this.render();
+  }
+
+  /**
+   * Follows other people's changes.
+   *
+   * The event carries only a revision, so a client that hears one refetches
+   * rather than trying to apply someone else's edit. Our own writes come back
+   * too, but by then we already hold that revision, so they fall through.
+   */
+  private listen(): void {
+    const source = new EventSource(
+      `/api/projects/${encodeURIComponent(this.projectId)}/live`,
+    );
+
+    source.addEventListener("change", (event) => {
+      const change = JSON.parse((event as MessageEvent<string>).data) as {
+        revision: number;
+        actor: string;
+        client: string | null;
+      };
+
+      // Our own write, arriving before its own response.
+      if (change.client === CLIENT_ID) return;
+      if (change.revision <= this.data.revision) return;
+
+      void this.refresh(change.actor);
+    });
+  }
+
+  /** Reloads the grid after someone else changed it, keeping the cursor put. */
+  private async refresh(actor: string): Promise<void> {
+    // Refetching mid-edit would throw away what is being typed — including a
+    // conversion that has not been committed yet.
+    if (this.editing || this.composing) return;
+
+    const here = this.selected?.id;
+
+    try {
+      const response = await fetch(
+        `/api/projects/${encodeURIComponent(this.projectId)}/grid`,
+      );
+      if (!response.ok) return;
+
+      this.setData((await response.json()) as GridData);
+
+      const moved = here ? this.tasks.findIndex((task) => task.id === here) : -1;
+      this.select(moved >= 0 ? moved : this.row, this.column);
+
+      this.showNotice(`${actor} が更新しました`);
+    } catch {
+      // A failed refresh leaves the stale grid in place, which is better than
+      // an error banner for something the user did not do.
+    }
+  }
+
+  // --- data ----------------------------------------------------------------
+
+  private get tasks(): Task[] {
+    return this.visible;
+  }
+
+  private setData(grid: GridData): void {
+    this.data = grid;
+    // The server decides the language every time. The island draws; it does
+    // not judge.
+    LANG = grid.language === "en" ? "en" : "ja";
+    this.computeVisible();
+  }
+
+  /**
+   * Drops every row that sits under a folded one.
+   *
+   * The server already hands the tree back flattened depth-first, so a folded
+   * row's whole subtree is exactly the run of deeper rows that follows it.
+   */
+  private computeVisible(): void {
+    const visible: Task[] = [];
+    let foldedAt = -1;
+
+    for (const task of this.data.tasks) {
+      if (foldedAt >= 0) {
+        if (task.depth > foldedAt) continue;
+        foldedAt = -1;
+      }
+
+      visible.push(task);
+
+      if (task.has_children && this.collapsed.has(task.id)) foldedAt = task.depth;
+    }
+
+    if (!this.filtering) {
+      this.visible = visible;
+      return;
+    }
+
+    // Every filled-in box must match: conditions narrow, they do not widen.
+    // A direction like "behind" is a condition in itself, empty box or not.
+    const keys = new Set([...this.filters.keys(), ...this.stateColumns.map((c) => c.key)]);
+
+    const conditions = [...keys]
+      .map((key) => ({
+        column: this.columns.find((column) => column.key === key),
+        needle: this.filters.get(key) ?? "",
+      }))
+      .filter((condition) => condition.column !== undefined);
+
+    this.visible = keepMatches(visible, (task) =>
+      conditions.every(({ column, needle }) => this.matches(task, column!, needle)),
+    );
+  }
+
+  /** Wires the header's filter box, which lives outside the island's markup. */
+  private updateFilterCount(): void {
+    const label = document.getElementById("fugantt-filter-count");
+    if (!label) return;
+
+    label.textContent = "";
+
+    if (!this.filtering) return;
+
+    label.append(
+      element("span", "fg-filter-count", `絞り込み中 ${this.tasks.length} / ${this.data.tasks.length} 行`),
+    );
+
+    // Filtering hides rows, and a hidden row is easy to forget about; the way
+    // out belongs next to the count that says rows are missing.
+    const clear = element("button", "fg-filter-clear", t("解除"));
+    clear.type = "button";
+    clear.addEventListener("click", () => this.clearFilters());
+    label.append(clear);
+  }
+
+  /** Empties every filter box. */
+  private clearFilters(): void {
+    this.filters.clear();
+    // The directions go back to the ones the columns were born with: a "behind"
+    // left behind would keep filtering after every box had been emptied.
+    this.bounds.clear();
+    this.filterFocus = null;
+    this.computeVisible();
+    this.render();
+    this.updateFilterCount();
+  }
+
+  private get filtering(): boolean {
+    return (
+      [...this.filters.values()].some((value) => value !== "") || this.stateColumns.length > 0
+    );
+  }
+
+  /** Which way a column's filter points, once the user has had a say. */
+  private boundFor(column: ColumnDef): Bound | undefined {
+    const chosen = this.bounds.get(column.key) ?? FILTER_BOUND[column.key];
+    if (chosen) return chosen;
+
+    // A project's own field compares the same way when it holds a date or a
+    // number. Only a free-text field is about containing characters; filtering a
+    // column of dates for "contains 08" means nothing.
+    return column.fieldId && (column.kind === "date" || column.kind === "number")
+      ? "gte"
+      : undefined;
+  }
+
+  /** Bounds that are a condition on their own, with nothing to type. */
+  private get stateColumns(): ColumnDef[] {
+    return this.columns.filter((column) => {
+      const bound = this.boundFor(column);
+      return bound === "behind" || bound === "ahead";
+    });
+  }
+
+  private setBound(column: ColumnDef, at: Bound): void {
+    this.bounds.set(column.key, at);
+    // The box is rebuilt with the row; without this, changing the direction
+    // half way through typing a date throws the caret out of it.
+    this.filterFocus = { key: column.key, caret: null };
+    this.computeVisible();
+    this.render();
+    this.updateFilterCount();
+  }
+
+  /**
+   * The list of comparisons a column can be asked in.
+   *
+   * Five of them (seven on progress) is past what a button can cycle through:
+   * from the first to the last would be four clicks, and nothing on screen would
+   * say what is coming next.
+   */
+  private openBoundMenu(column: ColumnDef, chip: HTMLElement): void {
+    const choices = BOUND_CHOICES[column.key] ?? BOUND_DEFAULT;
+    const current = this.boundFor(column);
+    const anchor = chip.getBoundingClientRect();
+
+    const menu = element("div", "fg-menu fg-bound-menu");
+    menu.style.left = `${anchor.left}px`;
+    menu.style.top = `${anchor.bottom + 2}px`;
+
+    const close = (event?: Event) => {
+      if (event && menu.contains(event.target as Node)) return;
+
+      menu.remove();
+      document.removeEventListener("mousedown", close);
+      document.removeEventListener("keydown", onEscape);
+    };
+
+    const onEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") close();
+    };
+
+    for (const at of choices) {
+      const button = element("button", "fg-menu-item");
+      button.type = "button";
+      button.dataset["bound"] = at;
+      if (at === current) button.classList.add("is-current");
+      button.append(
+        element("span", undefined, BOUND_LABEL[at]),
+        element("kbd", undefined, BOUND_MARK[at]),
+      );
+      button.addEventListener("mousedown", (event) => event.preventDefault());
+      button.addEventListener("click", () => {
+        close();
+        this.setBound(column, at);
+      });
+      menu.append(button);
+    }
+
+    this.root.append(menu);
+
+    const box = menu.getBoundingClientRect();
+    if (box.right > window.innerWidth) menu.style.left = `${window.innerWidth - box.width - 8}px`;
+    if (box.bottom > window.innerHeight) menu.style.top = `${anchor.top - box.height - 2}px`;
+
+    setTimeout(() => {
+      document.addEventListener("mousedown", close);
+      document.addEventListener("keydown", onEscape);
+    });
+  }
+
+  private setFilter(key: string, text: string, caret: number | null): void {
+    const value = text.trim().toLowerCase();
+
+    if (value) this.filters.set(key, value);
+    else this.filters.delete(key);
+
+    this.filterFocus = { key, caret };
+    this.computeVisible();
+    this.select(this.row, this.column);
+    this.render();
+  }
+
+  /**
+   * A filter box per column, so conditions combine.
+   *
+   * One box over the whole row can only ever answer "does this row mention X";
+   * asking about two columns at once — a person and a status — needs one box
+   * each.
+   */
+  private renderFilterRow(tracks: string): HTMLElement {
+    const row = element("div", "fg-row fg-filters");
+    row.style.gridTemplateColumns = tracks;
+
+    this.columns.forEach((column, index) => {
+      // Same per-column class as everywhere else, so the pinned name column
+      // pins here too and the boxes stay over their columns. The index comes
+      // from the loop: `columns` builds a fresh array on every read, so
+      // `indexOf` finds nothing for a column it rebuilt and pins the wrong one.
+      const cell = element("div", `fg-cell fg-cell-${column.key}`);
+      if (index < this.data.frozen_columns) cell.classList.add("is-frozen");
+
+      const current = this.filters.get(column.key) ?? "";
+
+      const choices = this.choicesFor(column);
+
+      if (choices) {
+        const select = element("select", "fg-filter");
+        if (current) select.classList.add("is-on");
+        select.dataset["column"] = column.key;
+        select.append(element("option", undefined, ""));
+        for (const choice of choices) {
+          const option = element("option", undefined, choice);
+          option.value = choice.toLowerCase();
+          select.append(option);
+        }
+        select.value = current;
+        select.addEventListener("change", () => this.setFilter(column.key, select.value, null));
+        cell.append(select);
+      } else {
+        const bound = this.boundFor(column);
+
+        // A direction is a choice, not a property of the column: a planned
+        // start is asked about both ways depending on the day. The chip says
+        // which way it points and changes it, so nobody has to know that typing
+        // the word works — and it keeps saying so after a value is typed, which
+        // a placeholder cannot.
+        if (bound) {
+          const choices = BOUND_CHOICES[column.key] ?? BOUND_DEFAULT;
+          const chip = element("button", "fg-filter-op", BOUND_MARK[bound]);
+          chip.type = "button";
+          chip.tabIndex = -1;
+          chip.title = `いまは「${BOUND_LABEL[bound]}」。クリックで ${choices
+            .map((at) => BOUND_LABEL[at])
+            .join("・")} から選べます`;
+          chip.addEventListener("mousedown", (event) => event.preventDefault());
+          chip.addEventListener("click", () => this.openBoundMenu(column, chip));
+          cell.append(chip);
+
+          // Behind and on track answer on their own; a box beside them would
+          // have nothing to take.
+          if (bound === "behind" || bound === "ahead") {
+            chip.classList.add("is-wide", "is-on");
+            row.append(cell);
+            return;
+          }
+        }
+
+        const input = element("input", "fg-filter");
+        input.type = "search";
+        input.value = current;
+        if (current) input.classList.add("is-on");
+        // The row is otherwise a line of empty boxes that reads as a blank task.
+        input.placeholder = column.kind === "name" ? t("絞り込み") : "";
+
+        // The funnel only where nothing else says what the box is: beside the
+        // direction chip it lands on top of it and reads as ▼以.
+        if (!input.placeholder && !bound) input.classList.add("has-funnel");
+        if (bound) {
+          input.classList.add("has-op");
+          input.title =
+            column.kind === "date"
+              ? t("20260805・8/5・2026-08-05 のどれでも。左のボタンで向きを変えられます")
+              : t("左のボタンで「以上」「以下」を切り替えられます");
+        }
+        input.dataset["column"] = column.key;
+        // Filtering rebuilds the grid, and rebuilding the box the IME is
+        // composing into tears the composition apart — typing ふ comes out as
+        // "fう". Nothing happens until the conversion is confirmed.
+        input.addEventListener("input", (event) => {
+          if ((event as InputEvent).isComposing) return;
+
+          // Eight digits become a date here too: the box takes what a cell
+          // takes, and shows it back the way it will be compared.
+          const digits = normalizeWidth(input.value).trim();
+          if (column.kind === "date" && /^\d{8}$/.test(digits)) {
+            input.value = flexibleDate(digits) ?? input.value;
+          }
+
+          this.setFilter(column.key, input.value, input.selectionStart);
+        });
+        input.addEventListener("compositionend", () =>
+          this.setFilter(column.key, input.value, input.selectionStart),
+        );
+        // The grid's own keys must not fire while a filter is being typed.
+        input.addEventListener("keydown", (event) => event.stopPropagation());
+        cell.append(input);
+
+        // A date is easier to point at than to type, here as much as in a cell.
+        if (column.kind === "date") {
+          const picker = element("input", "fg-datepicker fg-filter-picker");
+          picker.type = "date";
+          picker.tabIndex = -1;
+          picker.title = t("カレンダーから選ぶ");
+          picker.addEventListener("click", () => {
+            try {
+              picker.showPicker();
+            } catch {
+              // Older browsers open it from the indicator on their own.
+            }
+          });
+          picker.addEventListener("change", () => {
+            if (picker.value) this.setFilter(column.key, picker.value, null);
+          });
+          input.classList.add("has-picker");
+          cell.append(picker);
+        }
+      }
+
+      row.append(cell);
+    });
+
+    return row;
+  }
+
+  /**
+   * What the calendar has to say about one day: the holiday's name, and who is
+   * away. Both are the kind of thing someone checks by pointing at the date.
+   */
+  private dayNote(iso: string): string {
+    const holiday = this.holidayOn(iso);
+    const away = this.data.leaves
+      .filter((leave) => leave.start <= iso && iso <= leave.end)
+      .map((leave) => (leave.note ? `${leave.assignee}（${leave.note}）` : leave.assignee));
+
+    return [
+      holiday ? holiday.name || t("休業日") : "",
+      away.length ? `休み: ${[...new Set(away)].join("、")}` : "",
+    ]
+      .filter(Boolean)
+      .join("\n");
+  }
+
+  /**
+   * The business year and quarter a date falls in.
+   *
+   * A fiscal year starting in April means 2026-04-01 is the first day of
+   * 2026年度 Q1, and 2026-03-31 is the last day of 2025年度 Q4.
+   */
+  private quarterOf(date: Date): { key: string; label: string } {
+    const start = this.data.fiscal_year_start || 4;
+    const month = date.getUTCMonth() + 1;
+    const offset = (month - start + 12) % 12;
+    const year = date.getUTCFullYear() - (month < start ? 1 : 0);
+    const quarter = Math.floor(offset / 3) + 1;
+
+    return {
+      key: `${year}-${quarter}`,
+      label: `${this.yearLabel(new Date(Date.UTC(year, start - 1, 1)))}年度 Q${quarter}`,
+    };
+  }
+
+  private monthLabel(date: Date): string {
+    return `${this.yearLabel(date)}年${date.getUTCMonth() + 1}月`;
+  }
+
+  /**
+   * The year as this project writes it.
+   *
+   * The era table comes from the server rather than the code: an era is
+   * announced about a month before it begins, which is no time at all to get a
+   * new build onto every machine running this.
+   */
+  private yearLabel(date: Date): string {
+    const year = date.getUTCFullYear();
+    if (!this.data.japanese_era) return String(year);
+
+    // Newest first, so the first era that has already begun is the one in force.
+    const iso = date.toISOString().slice(0, 10);
+    const era = this.data.eras.find((entry) => entry.from <= iso);
+    if (!era) return String(year);
+
+    const nth = year - Number(era.from.slice(0, 4)) + 1;
+    return `${era.name}${nth === 1 ? t("元") : nth}`;
+  }
+
+  /**
+   * A difference in days, written with the unit it was counted in.
+   *
+   * The chart measures the gap between two bars in calendar days, so a number
+   * counted in working days will not match the pixels beside it. Saying which
+   * unit it is costs three characters and removes the whole question.
+   */
+  private varianceText(days: number): string {
+    if (days === 0) return "±0";
+
+    const unit = LANG === "en"
+      ? ` ${this.workdayBased ? "working days" : "days"}`
+      : this.workdayBased ? "営業日" : "日";
+
+    return days > 0 ? `+${days}${unit}` : `${days}${unit}`;
+  }
+
+  /**
+   * The same number, said the way the row means it.
+   *
+   * A summary row's variance is the sum of what its children slipped, not how
+   * far this bar moved — the bar's own ends are the earliest and the latest of
+   * the subtree, and reading the number off them would be wrong.
+   */
+  private varianceLabel(task: Task, days: number): string {
+    const text = this.varianceText(days);
+    return task.has_children ? `トータル ${text}` : text;
+  }
+
+  /** Whether the day count leaves out weekends or holidays. */
+  private get workdayBased(): boolean {
+    const counting = this.data.counting;
+    // Not `leave`: that only takes days off one person's own tasks, which does
+    // not make the project's days into working days.
+    return (
+      counting.monday ||
+      counting.tuesday ||
+      counting.wednesday ||
+      counting.thursday ||
+      counting.friday ||
+      counting.saturday ||
+      counting.sunday ||
+      counting.holidays
+    );
+  }
+
+  /** The closed set a column offers, or null when it takes free text. */
+  private choicesFor(column: ColumnDef): string[] | null {
+    if (column.kind === "status") return this.data.statuses.map((status) => status.name);
+    return column.kind === "select"
+      ? (column.options?.map((option) => option.value) ?? null)
+      : null;
+  }
+
+  private holidayOn(iso: string): { date: string; name: string } | undefined {
+    return this.data.holidays.find((holiday) => holiday.date === iso);
+  }
+
+  /** How many rows a folded summary is hiding. */
+  private hiddenCount(task: Task): number {
+    const all = this.data.tasks;
+    const index = all.indexOf(task);
+    let count = 0;
+
+    for (let i = index + 1; i < all.length && (all[i]?.depth ?? 0) > task.depth; i++) count++;
+
+    return count;
+  }
+
+  private toggleCollapse(task: Task): void {
+    if (!task.has_children) return;
+
+    if (this.collapsed.has(task.id)) this.collapsed.delete(task.id);
+    else this.collapsed.add(task.id);
+
+    saveCollapsed(this.projectId, this.collapsed);
+    this.computeVisible();
+
+    // Folding the row the cursor sits inside would strand the selection, so
+    // keep it on a row that still exists.
+    this.select(this.row, this.column);
+    this.render();
+  }
+
+  /**
+   * Folds or unfolds the current row.
+   *
+   * Folding a leaf jumps to its parent instead, which is what pressing "close
+   * this" on a row with nothing to close is asking for.
+   */
+  private fold(close: boolean): void {
+    const task = this.selected;
+    if (!task) return;
+
+    if (task.has_children && this.collapsed.has(task.id) !== close) {
+      this.toggleCollapse(task);
+      return;
+    }
+
+    if (!close) return;
+
+    // Walk up to the enclosing summary row and select it.
+    for (let i = this.row - 1; i >= 0; i--) {
+      const candidate = this.tasks[i];
+      if (candidate && candidate.depth < task.depth) {
+        this.select(i, this.column);
+        this.repaintSelection();
+        return;
+      }
+    }
+  }
+
+  /** Unfolds whatever is hiding `taskId`, so a moved row does not vanish. */
+  private reveal(taskId: string): void {
+    const all = this.data.tasks;
+    const index = all.findIndex((task) => task.id === taskId);
+    if (index < 0) return;
+
+    let depth = all[index]?.depth ?? 0;
+    let changed = false;
+
+    for (let i = index - 1; i >= 0 && depth > 0; i--) {
+      const candidate = all[i];
+      if (!candidate || candidate.depth >= depth) continue;
+
+      depth = candidate.depth;
+      changed = this.collapsed.delete(candidate.id) || changed;
+    }
+
+    if (changed) {
+      saveCollapsed(this.projectId, this.collapsed);
+      this.computeVisible();
+    }
+  }
+
+  private get selected(): Task | undefined {
+    return this.tasks[this.row];
+  }
+
+  /** The built-in columns followed by whatever the project added. */
+  private get columns(): ColumnDef[] {
+    const hidden = new Set(this.data.hidden_columns);
+
+    const all = [
+      // The name column carries the outline, so it is never optional.
+      ...BASE_COLUMNS.filter((column) => column.kind === "name" || !hidden.has(column.key)).map(
+        // The assignee is a menu of the people on the project rather than free
+        // text: 山田 and 山田さん are one person to everyone but a computer.
+        (column) =>
+          column.key === "assignee"
+            ? {
+                ...column,
+                kind: "select" as const,
+                options: this.data.assignees.map((person) => ({
+                  value: person.name,
+                  color: person.color,
+                  background: person.background,
+                })),
+              }
+            : column,
+      ),
+      ...this.data.fields.map((field) => ({
+        key: field.id,
+        label: field.label,
+        kind: field.kind as ColumnDef["kind"],
+        fieldId: field.id,
+        options: field.options,
+      })),
+    ];
+
+    // The stored order need not mention every column: one that is missing keeps
+    // its place at the end, so a new column shows up without a settings visit.
+    const order = this.data.column_order;
+    const rank = (column: ColumnDef) => {
+      const at = order.indexOf(column.key);
+      return at < 0 ? order.length + all.indexOf(column) : at;
+    };
+
+    return all.sort((a, b) => rank(a) - rank(b));
+  }
+
+  private get selectedColumn(): ColumnDef {
+    return this.columns[this.column] ?? BASE_COLUMNS[0]!;
+  }
+
+  /** Whether one cell satisfies one filter box. */
+  private matches(task: Task, column: ColumnDef, needle: string): boolean {
+    const text = this.cellText(task, column);
+    const at = this.boundFor(column);
+
+    // Behind and on track only compare against what should have been done by
+    // today — the same test the chart's band makes, so the filtered list and the
+    // picture never disagree.
+    if (at === "behind" || at === "ahead") {
+      const behind = task.progress < task.expected;
+      return at === "behind" ? behind : !behind;
+    }
+
+    const bound = parseBound(needle, at);
+
+    if (!bound) return text.toLowerCase().includes(needle.toLowerCase());
+    // A bare direction word is somebody mid-sentence, not a condition.
+    if (!bound.limit) return true;
+
+    const value = normalizeWidth(text).trim();
+
+    // A bound asks a question an empty cell cannot answer.
+    if (!value) return false;
+
+    if (column.kind === "days" || column.kind === "number" || column.kind === "variance"
+      || column.kind === "progress") {
+      const left = Number(value.replace(/[^0-9-]/g, ""));
+      const right = Number(bound.limit.replace(/[^0-9-]/g, ""));
+
+      if (!Number.isFinite(left) || !Number.isFinite(right)) return false;
+
+      return compare(bound.at, left, right);
+    }
+
+    // The box takes a date the same way a cell does; a half-written one stays as
+    // it is and compares as a prefix — "equals 2026-08" is the whole month.
+    const limit = column.kind === "date" ? (flexibleDate(bound.limit) ?? bound.limit) : bound.limit;
+    const cut = value.slice(0, limit.length);
+
+    return compare(bound.at, cut, limit);
+  }
+
+  private cellText(task: Task, column: ColumnDef): string {
+    if (column.fieldId) return task.values[column.fieldId] ?? "";
+
+    switch (column.key) {
+      case "name":
+        return task.name;
+      case "start":
+        return task.start ?? "";
+      case "end":
+        return task.end ?? "";
+      case "actual_start":
+        return task.actual_start ?? "";
+      case "actual_end":
+        return task.actual_end ?? "";
+      case "start_variance":
+        return task.start_variance === null ? "" : String(task.start_variance);
+      case "end_variance":
+        return task.end_variance === null ? "" : String(task.end_variance);
+      case "days":
+        return task.days === null ? "" : String(task.days);
+      case "actual_days":
+        return task.actual_days === null ? "" : String(task.actual_days);
+      case "progress":
+        return String(task.progress);
+      case "status":
+        return task.status;
+      case "assignee":
+        return task.assignee;
+      case "waits":
+        // The same shape read or written: `8/17〜8/21, 9/1〜9/3`.
+        return task.waits.map((span) => `${short(span.start)}〜${short(span.end)}`).join(", ");
+      default:
+        return task.note;
+    }
+  }
+
+  /** What a cell shows when it is not being edited. */
+  private cellDisplay(task: Task, column: ColumnDef): string {
+    const text = this.cellText(task, column);
+
+    if (column.key === "progress") return `${task.progress}%`;
+
+    // A variance reads as a direction, not a number: "+3" is three days late.
+    if (column.kind === "variance") {
+      if (!text) return "—";
+      return this.varianceText(Number(text));
+    }
+
+    if (column.kind === "days" || column.kind === "date") return text || "—";
+
+    return text;
+  }
+
+  private editable(task: Task, column: ColumnDef): boolean {
+    if (!this.data.can_edit) return false;
+    // The day count comes from the dates; nothing writes to it.
+    if (column.kind === "days") return false;
+
+    // A summary row takes its schedule from its children; writing to it would
+    // be discarded on the next read.
+    return !(task.has_children && ROLLED_UP.includes(column.key));
+  }
+
+  // --- selection -----------------------------------------------------------
+
+  private select(row: number, column: number): void {
+    this.row = clamp(row, 0, Math.max(0, this.tasks.length - 1));
+    this.column = clamp(column, 0, this.columns.length - 1);
+  }
+
+  private move(rows: number, columns: number): void {
+    this.select(this.row + rows, this.column + columns);
+    this.repaintSelection();
+  }
+
+  /** Tab and Shift+Tab run past the end of a row onto the next one. */
+  private step(delta: number): void {
+    const width = this.columns.length;
+    let index = this.row * width + this.column + delta;
+    index = clamp(index, 0, this.tasks.length * width - 1);
+
+    this.row = Math.floor(index / width);
+    this.column = index % width;
+    this.repaintSelection();
+  }
+
+  /**
+   * Moves the highlight without rebuilding the grid.
+   *
+   * Navigation is the most frequent thing anyone does here and it changes two
+   * cells, but a full re-render costs ~40ms at 500 rows — well past a frame,
+   * and felt as lag on every arrow key. Everything else still re-renders.
+   */
+  private repaintSelection(): void {
+    const grid = this.root.querySelector<HTMLElement>(".fg-grid");
+    if (!grid) {
+      this.render();
+      return;
+    }
+
+    for (const marked of grid.querySelectorAll(".is-selected, .is-current")) {
+      marked.classList.remove("is-selected", "is-current");
+    }
+
+    const rows = grid.querySelectorAll<HTMLElement>(".fg-pane-left .fg-row.fg-data");
+    const barRows = grid.querySelectorAll<HTMLElement>(".fg-bar-row");
+
+    const row = rows[this.row];
+    row?.classList.add("is-current");
+    barRows[this.row]?.classList.add("is-current");
+
+    const cell = row?.children[this.column];
+    cell?.classList.add("is-selected");
+    // `inline` as well as `block`: a narrowed pane clips the right-hand columns,
+    // and moving to one that stays off-screen looks exactly like a dead cell.
+    cell?.scrollIntoView({ block: "nearest", inline: "nearest" });
+
+    // Carry the caret to the new cell rather than rebuilding it.
+    const typist = grid.querySelector<HTMLInputElement>(".fg-editor.is-typist");
+    if (typist && cell) {
+      typist.value = "";
+      cell.append(typist);
+      typist.focus({ preventScroll: true });
+    } else {
+      grid.focus({ preventScroll: true });
+    }
+  }
+
+  // --- editing -------------------------------------------------------------
+
+  private startEdit(seed: string | null): void {
+    const task = this.selected;
+    if (!task) return;
+
+    if (!this.editable(task, this.selectedColumn)) {
+      this.fail(t("集計行の日付と進捗は子タスクから決まります。"));
+      return;
+    }
+
+    // A wait is a list of ranges, which one line in a cell cannot hold. This is
+    // the one place with a dialog.
+    if (this.selectedColumn.key === "waits") {
+      this.openWaits(task);
+      return;
+    }
+
+    this.editing = true;
+    this.seed = seed;
+    this.render();
+  }
+
+  /**
+   * Leave, by assignee.
+   *
+   * Ordinary work — somebody says they are off next week — so it belongs on the
+   * schedule rather than in the project's settings, where it started out.
+   *
+   * The list itself is company-wide: a person is away from every plan at once.
+   * What the dialog shows, and what saving replaces, is the part of it that
+   * belongs to the people on this plan.
+   */
+  private openLeaves(): void {
+    const dialog = element("dialog", "fg-dialog") as HTMLDialogElement;
+    const rows = element("div", "fg-dialog-rows");
+
+    const addRow = (leave?: {
+      assignee: string;
+      start: string;
+      end: string;
+      note: string;
+      kind: string;
+    }) => {
+      const row = element("div", "fg-dialog-row");
+
+      const kind = element("select", "fg-dialog-kind") as HTMLSelectElement;
+      for (const [value, label] of [
+        ["off", t("休み")],
+        // A day worked on a weekend or a holiday: counted rather than skipped.
+        ["on", t("出社")],
+      ]) {
+        const option = element("option", undefined, label) as HTMLOptionElement;
+        option.value = value!;
+        kind.append(option);
+      }
+      kind.value = leave?.kind === "on" ? "on" : "off";
+
+      const who = element("select", "fg-dialog-who") as HTMLSelectElement;
+      who.append(element("option", undefined, ""));
+      for (const person of this.data.assignees) {
+        const option = element("option", undefined, person.name) as HTMLOptionElement;
+        option.value = person.name;
+        who.append(option);
+      }
+      who.value = leave?.assignee ?? "";
+
+      const start = element("input", "fg-dialog-date") as HTMLInputElement;
+      start.type = "date";
+      start.value = leave?.start ?? "";
+
+      const end = element("input", "fg-dialog-date") as HTMLInputElement;
+      end.type = "date";
+      end.value = leave?.end ?? "";
+
+      const note = element("input", "fg-dialog-reason") as HTMLInputElement;
+      note.type = "text";
+      note.placeholder = t("メモ（任意）");
+      note.value = leave?.note ?? "";
+
+      const remove = element("button", "fg-dialog-remove", t("削除")) as HTMLButtonElement;
+      remove.type = "button";
+      remove.addEventListener("click", () => row.remove());
+
+      row.append(who, kind, start, element("span", "fg-dialog-tilde", "〜"), end, note, remove);
+      rows.append(row);
+      return who;
+    };
+
+    for (const leave of this.data.leaves) addRow(leave);
+    if (this.data.leaves.length === 0) addRow();
+
+    const add = element("button", "fg-dialog-add", t("＋ 休暇を追加")) as HTMLButtonElement;
+    add.type = "button";
+    add.addEventListener("click", () => addRow().focus());
+
+    const save = element("button", "fg-dialog-save", t("保存")) as HTMLButtonElement;
+    const cancel = element("button", "fg-dialog-cancel", t("キャンセル")) as HTMLButtonElement;
+    cancel.type = "button";
+    cancel.addEventListener("click", () => dialog.close());
+
+    save.addEventListener("click", async () => {
+      const leaves = [...rows.querySelectorAll(".fg-dialog-row")]
+        .map((row) => {
+          const [start, end] = [...row.querySelectorAll<HTMLInputElement>(".fg-dialog-date")];
+          return {
+            assignee: row.querySelector<HTMLSelectElement>(".fg-dialog-who")?.value ?? "",
+            kind: row.querySelector<HTMLSelectElement>(".fg-dialog-kind")?.value ?? "off",
+            start: start?.value ?? "",
+            end: end?.value ?? "",
+            note: row.querySelector<HTMLInputElement>(".fg-dialog-reason")?.value ?? "",
+          };
+        })
+        // A row with nothing in it is a row somebody added and did not use.
+        .filter((leave) => leave.assignee && leave.start && leave.end);
+
+      dialog.close();
+
+      await this.send(`/api/projects/${encodeURIComponent(this.projectId)}/leaves`, {
+        method: "POST",
+        body: { leaves },
+      });
+    });
+
+    dialog.append(
+      element("h2", "fg-dialog-title", t("担当者の休暇 / 出社")),
+      element(
+        "p",
+        "fg-dialog-help",
+        t("休みの日はその人のタスクの日数にも遅れの判定にも入りません。逆に「出社」は、土日祝でもその日を数えます。") +
+          t("予定は人につくので、ここでの登録はその人が出ている全部のプロジェクトに効きます。"),
+      ),
+      rows,
+      add,
+    );
+
+    const buttons = element("div", "fg-dialog-buttons");
+    buttons.append(cancel, save);
+    dialog.append(buttons);
+
+    dialog.addEventListener("keydown", (event) => event.stopPropagation());
+    dialog.addEventListener("close", () => {
+      dialog.remove();
+      this.root.querySelector<HTMLElement>(".fg-grid")?.focus({ preventScroll: true });
+    });
+
+    // Not `this.root`: the island replaces its own children on every render,
+    // and a dialog parked there vanishes the moment anything redraws.
+    document.body.append(dialog);
+    dialog.showModal();
+    rows.querySelector<HTMLSelectElement>(".fg-dialog-who")?.focus();
+  }
+
+  /**
+   * Editing the waits.
+   *
+   * A cell holds one line, and a wait is a list of ranges with reasons — asking
+   * for that as text works for whoever wrote the parser and for nobody else.
+   * The dialog is the interface; the text form stays as what it sends.
+   */
+  private openWaits(task: Task): void {
+    const dialog = element("dialog", "fg-dialog") as HTMLDialogElement;
+    const rows = element("div", "fg-dialog-rows");
+
+    const addRow = (wait?: { start: string; end: string; reason: string; open: boolean }) => {
+      const row = element("div", "fg-dialog-row");
+
+      const start = element("input", "fg-dialog-date") as HTMLInputElement;
+      start.type = "date";
+      start.required = true;
+      start.value = wait?.start ?? "";
+
+      const end = element("input", "fg-dialog-date") as HTMLInputElement;
+      end.type = "date";
+      // Empty means still waiting, and the days keep counting up to today.
+      end.value = wait && !wait.open ? wait.end : "";
+      end.placeholder = t("継続中");
+
+      const reason = element("input", "fg-dialog-reason") as HTMLInputElement;
+      reason.type = "text";
+      reason.placeholder = t("理由（任意）");
+      reason.value = wait?.reason ?? "";
+
+      const remove = element("button", "fg-dialog-remove", t("削除")) as HTMLButtonElement;
+      remove.type = "button";
+      remove.addEventListener("click", () => row.remove());
+
+      row.append(start, element("span", "fg-dialog-tilde", "〜"), end, reason, remove);
+      rows.append(row);
+      return start;
+    };
+
+    for (const wait of task.waits) addRow(wait);
+    if (task.waits.length === 0) addRow();
+
+    const add = element("button", "fg-dialog-add", t("＋ 期間を追加")) as HTMLButtonElement;
+    add.type = "button";
+    add.addEventListener("click", () => addRow().focus());
+
+    const save = element("button", "fg-dialog-save", t("保存")) as HTMLButtonElement;
+    const cancel = element("button", "fg-dialog-cancel", t("キャンセル")) as HTMLButtonElement;
+    cancel.type = "button";
+    cancel.addEventListener("click", () => dialog.close());
+
+    save.addEventListener("click", async () => {
+      const lines: string[] = [];
+
+      for (const row of rows.querySelectorAll(".fg-dialog-row")) {
+        const [start, end] = [...row.querySelectorAll<HTMLInputElement>(".fg-dialog-date")];
+        const reason = row.querySelector<HTMLInputElement>(".fg-dialog-reason")?.value.trim() ?? "";
+
+        if (!start?.value) continue;
+
+        const range = `${start.value}〜${end?.value ?? ""}`;
+        lines.push(reason ? `${range} ${reason}` : range);
+      }
+
+      dialog.close();
+
+      await this.send(`/api/projects/${encodeURIComponent(this.projectId)}/tasks/${task.id}`, {
+        method: "POST",
+        body: { field: "waits", value: lines.join("\n") },
+        follow: task.id,
+      });
+    });
+
+    dialog.append(
+      element("h2", "fg-dialog-title", `待ち — ${task.name || t("（無題）")}`),
+      element(
+        "p",
+        "fg-dialog-help",
+        t("終わりを空にすると「まだ待っている」になり、今日まで数え続けます。待ちの日数は日数からも遅れの判定からも外れます。"),
+      ),
+      rows,
+      add,
+    );
+
+    const buttons = element("div", "fg-dialog-buttons");
+    buttons.append(cancel, save);
+    dialog.append(buttons);
+
+    // The grid's own keys must not fire while the dialog is up.
+    dialog.addEventListener("keydown", (event) => event.stopPropagation());
+    dialog.addEventListener("close", () => {
+      dialog.remove();
+      this.root.querySelector<HTMLElement>(".fg-grid")?.focus({ preventScroll: true });
+    });
+
+    // Not `this.root`: the island replaces its own children on every render,
+    // and a dialog parked there vanishes the moment anything redraws.
+    document.body.append(dialog);
+    dialog.showModal();
+    rows.querySelector<HTMLInputElement>(".fg-dialog-date")?.focus();
+  }
+
+  private cancelEdit(): void {
+    this.editing = false;
+    this.seed = null;
+    this.render();
+  }
+
+  private async commitEdit(raw: string, after: "down" | "right" | "stay"): Promise<void> {
+    const task = this.selected;
+    const column = this.selectedColumn;
+
+    // Dates and numbers accept what a Japanese keyboard produces in kana mode,
+    // and a date is written back the one way it is stored: type 20260801 and
+    // the cell reads 2026-08-01, the same as any other date field.
+    const value =
+      column.kind === "date"
+        ? (flexibleDate(raw) ?? normalizeWidth(raw).trim())
+        : column.kind === "progress" || column.kind === "number"
+          ? normalizeWidth(raw).trim()
+          : raw;
+
+    this.editing = false;
+    this.seed = null;
+
+    if (after === "down") this.select(this.row + 1, this.column);
+    if (after === "right") this.step(1);
+
+    if (!task || value === this.cellText(task, column)) {
+      this.render();
+      return;
+    }
+
+    // Snapshot before touching anything: the optimistic write goes through the
+    // live task objects, so a copy taken afterwards would already hold the new
+    // value and roll back to nothing.
+    const rollback = structuredClone(this.data);
+
+    // Show the typed value straight away. The server owns the derived numbers,
+    // so ancestors stay stale for the length of one round trip.
+    this.applyLocally(task, column, value);
+    this.render();
+
+    await this.send(`/api/projects/${encodeURIComponent(this.projectId)}/tasks/${task.id}`, {
+      method: "POST",
+      body: column.fieldId
+        ? { field: "custom", field_id: column.fieldId, value }
+        : { field: column.key, value },
+      rollback,
+    });
+  }
+
+  private applyLocally(task: Task, column: ColumnDef, value: string): void {
+    if (column.fieldId) {
+      task.values[column.fieldId] = value;
+      return;
+    }
+
+    switch (column.key) {
+      case "name":
+        task.name = value;
+        break;
+      case "start":
+        task.start = value || null;
+        break;
+      case "end":
+        task.end = value || null;
+        break;
+      case "progress": {
+        const parsed = Number(value);
+        if (Number.isFinite(parsed)) task.progress = clamp(Math.round(parsed), 0, 100);
+        break;
+      }
+      case "status":
+        task.status = value;
+        break;
+      case "assignee":
+        task.assignee = value;
+        break;
+      default:
+        task.note = value;
+    }
+  }
+
+  // --- rows ----------------------------------------------------------------
+
+  private async insertRow(): Promise<void> {
+    if (!this.data.can_edit) return;
+
+    const after = this.selected?.id ?? null;
+
+    const result = await this.send(
+      `/api/projects/${encodeURIComponent(this.projectId)}/tasks`,
+      { method: "POST", body: { after } },
+    );
+
+    if (!result?.task_id) return;
+
+    const index = this.tasks.findIndex((task) => task.id === result.task_id);
+    if (index >= 0) {
+      this.select(index, 0);
+      this.startEdit(null);
+    }
+  }
+
+  /**
+   * Moves the row through the outline.
+   *
+   * At the edges the server changes nothing and answers with the grid as it
+   * stands, the way an outliner swallows the keystroke instead of complaining.
+   */
+  private async moveRow(action: "indent" | "outdent" | "up" | "down"): Promise<void> {
+    const task = this.selected;
+    if (!task || !this.data.can_edit) return;
+
+    // Clear any leftover explanation, so a stale one is never mistaken for the
+    // answer to the move being made now.
+    this.notice = null;
+
+    const result = await this.send(
+      `/api/projects/${encodeURIComponent(this.projectId)}/tasks/${task.id}/move`,
+      { method: "POST", body: { action }, follow: task.id },
+    );
+
+    // The server refused for a reason. Saying it is the difference between
+    // "this rule does not apply here" and "this app is broken".
+    if (result?.note) this.showNotice(result.note);
+    else this.render();
+  }
+
+  private async deleteRow(): Promise<void> {
+    const task = this.selected;
+    if (!task || !this.data.can_edit) return;
+
+    const label = task.name || t("無題のタスク");
+    const question = task.has_children
+      ? `「${label}」と、その子タスクをすべて削除します。よろしいですか？`
+      : `「${label}」を削除します。よろしいですか？`;
+
+    if (!window.confirm(question)) return;
+
+    await this.send(
+      `/api/projects/${encodeURIComponent(this.projectId)}/tasks/${task.id}`,
+      { method: "DELETE" },
+    );
+
+    this.select(this.row, this.column);
+    this.render();
+  }
+
+  // --- server --------------------------------------------------------------
+
+  private async send(
+    url: string,
+    options: {
+      method: string;
+      body?: unknown;
+      /** State from before an optimistic edit, to restore if the server says no. */
+      rollback?: GridData;
+      /** Keep this task selected even if the response moved it to another row. */
+      follow?: string;
+    },
+  ): Promise<Mutation | null> {
+    // Callers that edited optimistically pass the state from before the edit;
+    // the rest have not touched anything yet.
+    const before = options.rollback ?? this.data;
+    this.busy = true;
+
+    try {
+      const headers: Record<string, string> = { "x-fugantt-client": CLIENT_ID };
+      if (options.body) headers["content-type"] = "application/json";
+
+      const response = await fetch(url, {
+        method: options.method,
+        headers,
+        body: options.body ? JSON.stringify(options.body) : undefined,
+      });
+
+      if (!response.ok) {
+        // The server refused the value, so the optimistic edit was a lie.
+        this.setData(before);
+        this.fail(await this.reason(response));
+        return null;
+      }
+
+      const result = (await response.json()) as Mutation;
+      this.setData(result.grid);
+      this.error = null;
+
+      // A move changes which row the task sits on, so follow the task rather
+      // than staying on a row number that now means something else. Indenting
+      // into a folded parent would otherwise hide the row that just moved.
+      if (options.follow) this.reveal(options.follow);
+
+      const moved = options.follow
+        ? this.tasks.findIndex((task) => task.id === options.follow)
+        : -1;
+
+      this.select(moved >= 0 ? moved : this.row, this.column);
+
+      return result;
+    } catch {
+      this.setData(before);
+      this.fail(t("保存できませんでした。接続を確認してください。"));
+      return null;
+    } finally {
+      this.busy = false;
+      this.render();
+    }
+  }
+
+  private async reason(response: Response): Promise<string> {
+    if (response.status === 403) return t("集計行の日付と進捗は子タスクから決まります。");
+
+    // The framework prefixes its own status text; the message is what matters.
+    const text = (await response.text()).replace(/^bad request:\s*/i, "").trim();
+    return text || `保存できませんでした（${response.status}）。`;
+  }
+
+  private fail(message: string): void {
+    this.error = message;
+    this.render();
+  }
+
+  /** A passing line that clears itself. Not an error, so not the error bar. */
+  private showNotice(message: string): void {
+    this.notice = message;
+    this.render();
+
+    window.clearTimeout(this.noticeTimer);
+    this.noticeTimer = window.setTimeout(() => {
+      this.notice = null;
+      this.render();
+    }, 4000);
+  }
+
+  // --- keyboard ------------------------------------------------------------
+
+  private onKeyDown(event: KeyboardEvent): void {
+    // A key pressed while an IME is converting belongs to the IME. The Enter
+    // that confirms 「やまだ→山田」 arrives here too, and taking it as "commit
+    // and move down" hands the rest of the conversion to the next row.
+    if (event.isComposing || event.keyCode === 229) return;
+
+    if (this.editing) {
+      this.onEditKeyDown(event);
+      return;
+    }
+
+    const meta = event.ctrlKey || event.metaKey;
+
+    // Alt turns the arrows into outline moves, the way every outliner does it.
+    // On Windows, Alt+Left/Right is browser back/forward, so the preventDefault
+    // at the end of this branch is load-bearing rather than tidy.
+    if (event.altKey) {
+      switch (event.key) {
+        case "ArrowRight":
+          void this.moveRow("indent");
+          break;
+        case "ArrowLeft":
+          void this.moveRow("outdent");
+          break;
+        case "ArrowUp":
+          void this.moveRow("up");
+          break;
+        case "ArrowDown":
+          void this.moveRow("down");
+          break;
+        default:
+          return;
+      }
+
+      event.preventDefault();
+      return;
+    }
+
+    switch (event.key) {
+      case "ArrowUp":
+        this.move(-1, 0);
+        break;
+      case "ArrowDown":
+        this.move(1, 0);
+        break;
+      case "ArrowLeft":
+        if (meta) this.fold(true);
+        else this.move(0, -1);
+        break;
+      case "ArrowRight":
+        if (meta) this.fold(false);
+        else this.move(0, 1);
+        break;
+      case "Tab":
+        this.step(event.shiftKey ? -1 : 1);
+        break;
+      // Enter opens the cell rather than stepping past it: the reason to be on
+      // a cell is almost always to change it, and ↓ already moves down.
+      case "Enter":
+        if (meta) void this.insertRow();
+        else this.startEdit(null);
+        break;
+      case "F2":
+        this.startEdit(null);
+        break;
+      case "Home":
+        if (meta) this.select(0, 0);
+        else this.select(this.row, 0);
+        this.repaintSelection();
+        break;
+      case "End":
+        if (meta) this.select(this.tasks.length - 1, this.columns.length - 1);
+        else this.select(this.row, this.columns.length - 1);
+        this.repaintSelection();
+        break;
+      case "PageUp":
+        this.move(-PAGE_ROWS, 0);
+        break;
+      case "PageDown":
+        this.move(PAGE_ROWS, 0);
+        break;
+      case "Delete":
+      case "Backspace":
+        if (meta) void this.deleteRow();
+        else void this.commitEdit("", "stay");
+        break;
+      default:
+        // Printable keys, including anything an IME is converting, land in the
+        // typist field and open the editor from there.
+        return;
+    }
+
+    event.preventDefault();
+  }
+
+  private onEditKeyDown(event: KeyboardEvent): void {
+    const input = event.target as HTMLInputElement | HTMLSelectElement;
+
+    switch (event.key) {
+      case "Enter":
+        void this.commitEdit(input.value, "down");
+        break;
+      case "Tab":
+        void this.commitEdit(input.value, event.shiftKey ? "stay" : "right");
+        break;
+      case "Escape":
+        this.cancelEdit();
+        break;
+      default:
+        return;
+    }
+
+    event.preventDefault();
+  }
+
+  // --- rendering -----------------------------------------------------------
+
+  private render(): void {
+    const chart = this.root.querySelector<HTMLElement>(".fg-pane-chart");
+    if (chart) this.scrollLeft = chart.scrollLeft;
+
+    const typing = this.filterFocus;
+    this.filterFocus = null;
+
+    const parts: HTMLElement[] = [];
+
+    if (this.error) {
+      const banner = element("div", "fg-error");
+      banner.append(element("span", undefined, this.error));
+
+      const dismiss = element("button", "fg-error-close", t("閉じる"));
+      dismiss.type = "button";
+      dismiss.addEventListener("click", () => {
+        this.error = null;
+        this.render();
+      });
+      banner.append(dismiss);
+
+      parts.push(banner);
+    }
+
+    if (this.notice) {
+      parts.push(element("div", "fg-notice", this.notice));
+    }
+
+    // Only a project with no tasks at all gets the empty state. Filtering down
+    // to nothing must keep the filter row on screen, or there is no way back.
+    parts.push(this.data.tasks.length === 0 ? this.renderEmpty() : this.renderGrid());
+    parts.push(this.renderToolbar());
+
+    this.root.replaceChildren(...parts);
+
+    this.updateFilterCount();
+
+    // Put the caret back where it was: the filter row is rebuilt with the rest
+    // of the grid, and losing it would send the next keystroke into a cell.
+    if (typing) {
+      const box = this.root.querySelector<HTMLInputElement>(
+        `.fg-filter[data-column="${typing.key}"]`,
+      );
+
+      if (box) {
+        box.focus();
+        if (typing.caret !== null) box.setSelectionRange(typing.caret, typing.caret);
+        return;
+      }
+    }
+
+    this.restoreFocus();
+  }
+
+  private renderEmpty(): HTMLElement {
+    const empty = element("div", "fg-empty");
+    empty.append(element("p", undefined, t("タスクがありません。")));
+
+    if (this.data.can_edit) {
+      const add = element("button", "fg-button", t("最初のタスクを追加"));
+      add.type = "button";
+      add.addEventListener("click", () => void this.insertRow());
+      empty.append(add);
+    }
+
+    return empty;
+  }
+
+  private renderToolbar(): HTMLElement {
+    const bar = element("div", "fg-toolbar");
+
+
+    if (!this.data.can_edit) {
+      bar.append(element("span", "fg-hint", t("閲覧のみ")));
+      return bar;
+    }
+
+    const add = element("button", "fg-button", t("行を追加"));
+    add.type = "button";
+    add.disabled = this.busy;
+    add.addEventListener("click", () => void this.insertRow());
+
+    const remove = element("button", "fg-button fg-button-quiet", t("行を削除"));
+    remove.type = "button";
+    remove.disabled = this.busy || this.tasks.length === 0;
+    remove.addEventListener("click", () => void this.deleteRow());
+
+    const leaves = element("button", "fg-button", t("担当者の休暇/出社"));
+    leaves.type = "button";
+    leaves.title = t("誰がいつ休み、いつ出るか。日数の数え方に効きます");
+    leaves.addEventListener("click", () => this.openLeaves());
+
+    bar.append(add, remove, leaves);
+
+    return bar;
+  }
+
+  private renderGrid(): HTMLElement {
+    const origin = parseDate(this.data.range_start);
+    const days = Math.max(1, dayIndex(this.data.range_end, origin) + 1);
+
+    const left = element("div", "fg-pane-left");
+    // One box around every row, so they all take their width from the same
+    // place. Sized to its widest row, it is what lets a pinned column travel
+    // the full scroll — and what stops each row from sizing its own columns.
+    const table = element("div", "fg-table");
+    left.append(table);
+
+    // The columns are data now, so the track list has to be too: a fixed one
+    // sends the extra columns onto a second, implicit row.
+    const tracks = this.columns
+      .map((column) => {
+        const width = this.data.column_widths[column.key];
+        return width ? `${width}px` : TRACKS[column.kind];
+      })
+      .join(" ");
+
+    const headings = element("div", "fg-row fg-heading");
+    headings.style.gridTemplateColumns = tracks;
+    this.columns.forEach((column, index) => {
+      // Headings are translated as they are drawn. BASE_COLUMNS is built once at
+      // load, so translating there would freeze the wording before the language
+      // is known. A project's own field names are the users' words: not in the
+      // dictionary, and shown as they are.
+      const heading = element("div", `fg-cell fg-cell-${column.key}`, t(column.label));
+      if (this.workdayBased && (column.kind === "days" || column.kind === "variance")) {
+        heading.title = t("土日・祝日を除いた営業日で数えています");
+      }
+      if (index < this.data.frozen_columns) heading.classList.add("is-frozen");
+      headings.append(heading);
+    });
+    // Filters above the headings, so the labels sit directly over the data.
+    table.append(this.renderFilterRow(tracks), headings);
+
+    const chart = element("div", "fg-pane-chart");
+    const canvas = element("div", "fg-canvas");
+    canvas.style.width = `${days * this.dayWidth}px`;
+    canvas.append(this.renderHeader(origin, days));
+
+    const body = element("div", "fg-bars");
+
+    // Day columns sit behind the bars: the week rhythm is what makes a chart
+    // readable, and the bars are positioned elements so they paint over this.
+    const columns = element("div", "fg-columns");
+    for (let i = 0; i < days; i++) {
+      const date = new Date(origin + i * DAY_MS);
+      const iso = date.toISOString().slice(0, 10);
+      const holiday = this.holidayOn(iso);
+      const column = element("div", "fg-column");
+
+      const note = this.dayNote(iso);
+      if (note) column.title = note;
+
+      if (holiday) {
+        column.classList.add("is-holiday");
+      } else if (date.getUTCDay() === 6) {
+        column.classList.add("is-saturday");
+      } else if (date.getUTCDay() === 0) {
+        column.classList.add("is-sunday");
+      }
+
+      columns.append(column);
+    }
+    body.append(columns);
+
+    if (this.tasks.length === 0) {
+      table.append(element("div", "fg-nomatch", t("条件に合う行がありません。")));
+    }
+
+    this.tasks.forEach((task, index) => {
+      const row = this.renderRow(task, index);
+      row.style.gridTemplateColumns = tracks;
+      table.append(row);
+      body.append(this.renderBar(task, origin, index));
+    });
+
+    const todayIndex = dayIndex(this.data.today, origin);
+    if (todayIndex >= 0 && todayIndex < days) {
+      const marker = element("div", "fg-today");
+      marker.style.left = `${todayIndex * this.dayWidth}px`;
+      body.append(marker);
+    }
+
+    canvas.append(body);
+    chart.append(canvas);
+
+    const grid = element("div", "fg-grid");
+    grid.tabIndex = 0;
+    this.syncPanes(left, chart);
+    if (this.paneWidth) {
+      grid.style.setProperty("--fg-pane-width", `${this.paneWidth}px`);
+    } else {
+      // Untouched, the table takes whatever its columns add up to, which with
+      // every column on leaves the chart a sliver. Half the window is the most
+      // it gets before somebody drags the splitter themselves.
+      this.capPaneWidth = true;
+    }
+
+    // The palette is per project, so it arrives with the data rather than
+    // living in the stylesheet.
+    grid.style.setProperty("--fg-bar-soft", this.data.theme.bar);
+    grid.style.setProperty("--fg-bar", this.data.theme.done);
+    grid.style.setProperty("--fg-actual", this.data.theme.actual);
+    grid.style.setProperty("--fg-summary", this.data.theme.summary);
+    grid.style.setProperty("--fg-late", this.data.theme.late);
+    grid.style.setProperty("--fg-saturday", this.data.theme.saturday);
+    grid.style.setProperty("--fg-sunday", this.data.theme.sunday);
+    grid.style.setProperty("--fg-holiday", this.data.theme.holiday);
+    grid.style.setProperty("--fg-leave", this.data.theme.leave);
+    grid.style.setProperty("--fg-wait", this.data.theme.wait);
+
+    grid.append(left, this.renderSplitter(grid), chart);
+
+    // A schedule opened at the far left rarely shows the part anyone cares
+    // about, so bring today into view the first time.
+    const target =
+      this.scrollLeft || (todayIndex >= 0 ? Math.max(0, (todayIndex - 5) * this.dayWidth) : 0);
+    requestAnimationFrame(() => {
+      chart.scrollLeft = target;
+
+      // Measured rather than guessed: the columns are sized by their content,
+      // so their total is only knowable once they are on the page.
+      if (this.capPaneWidth) {
+        // The chart is the point of the app, so it keeps a usable strip no
+        // matter how many columns are on. Anything past that scrolls.
+        const cap = Math.max(320, grid.clientWidth - 480);
+        if (left.scrollWidth > cap) grid.style.setProperty("--fg-pane-width", `${cap}px`);
+      }
+
+      // A frame later: the pane width above changes every track, and pinning
+      // to widths measured before it lands leaves the columns overlapping.
+      requestAnimationFrame(() => this.pinColumns());
+    });
+
+    return grid;
+  }
+
+  /**
+   * Parks each frozen column where the ones before it end.
+   *
+   * The offsets are measured rather than computed from the track list: the
+   * tracks are relative units, so their pixels only exist once the grid is on
+   * the page — and they move again whenever the pane does.
+   */
+  private pinColumns(): void {
+    const left = this.root.querySelector<HTMLElement>(".fg-pane-left");
+    if (!left) return;
+
+    const heads = [...left.querySelectorAll<HTMLElement>(".fg-heading .fg-cell")];
+    let offset = 0;
+
+    for (let i = 0; i < this.data.frozen_columns && i < heads.length; i++) {
+      for (const cell of left.querySelectorAll<HTMLElement>(`.fg-row > :nth-child(${i + 1})`)) {
+        cell.style.left = `${offset}px`;
+      }
+      offset += heads[i]!.getBoundingClientRect().width;
+    }
+  }
+
+  private renderRow(task: Task, index: number): HTMLElement {
+    // `fg-data` marks the rows that hold tasks: the heading and the filter row
+    // are also `.fg-row`, and picking them up shifts every index by one.
+    const row = element("div", "fg-row fg-data");
+    if (task.delayed) row.classList.add("is-delayed");
+    if (index === this.row) row.classList.add("is-current");
+
+    this.columns.forEach((column, columnIndex) => {
+      const cell = element("div", `fg-cell fg-cell-${column.key}`);
+      const isSelected = index === this.row && columnIndex === this.column;
+
+      if (isSelected) cell.classList.add("is-selected");
+
+      // Hatching means "this row's value comes from its children", not merely
+      // "read-only" — otherwise the always-derived day count would stripe every
+      // row and the signal would stop meaning anything.
+      if (task.has_children && ROLLED_UP.includes(column.key)) {
+        cell.classList.add("is-derived");
+      }
+
+      // The indent belongs to the cell, not to its contents, so the editor
+      // opens exactly where the text was.
+      if (column.kind === "name") {
+        cell.style.paddingLeft = `${12 + task.depth * 16}px`;
+        if (task.has_children) cell.classList.add("is-summary");
+      }
+
+      // The twisty stays put while the name is being edited, so the text does
+      // not slide sideways when the editor opens.
+      if (column.kind === "name") {
+        if (this.data.can_edit) cell.append(this.renderHandle(task, index));
+        cell.append(this.renderTwisty(task));
+      }
+
+      if (isSelected && this.editing) {
+        cell.classList.add("is-editing");
+        cell.append(this.renderEditor(task, column));
+        if (column.kind === "date") cell.append(this.renderDatePicker());
+      } else if (column.kind === "name") {
+        const text = element("span", "fg-name-text", task.name || t("（無題）"));
+        if (!task.name) text.classList.add("is-placeholder");
+        cell.append(text);
+
+        if (task.has_children && this.collapsed.has(task.id)) {
+          cell.append(element("span", "fg-folded", `+${this.hiddenCount(task)}`));
+        }
+
+        for (const tag of task.tags) cell.append(element("span", "fg-tag", tag));
+      } else if (column.kind === "status") {
+        if (task.status) {
+          const pill = element("span", "fg-status", task.status);
+          // The colour comes with the state rather than from a rule per name:
+          // the names are the project's to choose.
+          const colour = this.data.statuses.find((status) => status.name === task.status)?.color;
+          if (colour) pill.style.background = colour;
+          cell.append(pill);
+        }
+      } else if (column.kind === "select") {
+        // A master list is a set of states as much as the status column is, so
+        // an entry that was given colours is drawn with them.
+        const value = this.cellText(task, column);
+        const option = column.options?.find((entry) => entry.value === value);
+
+        if (value && (option?.color || option?.background)) {
+          const pill = element("span", "fg-status", value);
+          if (option.color) pill.style.color = option.color;
+          if (option.background) pill.style.background = option.background;
+          cell.append(pill);
+        } else if (value) {
+          cell.append(element("span", undefined, value));
+        }
+      } else if (column.key === "waits") {
+        // The button comes first: the cell clips what runs past its width, and
+        // a row with two waits in it would push the way in off the edge.
+        if (this.editable(task, column)) {
+          const open = element("button", "fg-wait-edit", task.waits.length === 0 ? "＋" : "✎");
+          open.type = "button";
+          open.title = t("待ちの期間を登録する");
+          open.addEventListener("mousedown", (event) => event.stopPropagation());
+          open.addEventListener("click", () => {
+            this.select(index, columnIndex);
+            this.openWaits(task);
+          });
+          cell.append(open);
+        }
+
+        // A wait is a state: stopped. Without a colour it reads as quiet, having
+        // none of the red that lateness gets. Ones still open read darker, with a
+        // trailing 〜.
+        for (const wait of task.waits) {
+          const label = wait.open
+            ? `${short(wait.start)}〜`
+            : `${short(wait.start)}〜${short(wait.end)}`;
+
+          const pill = element("span", "fg-wait-pill", label);
+          if (wait.open) pill.classList.add("is-open");
+          // Entered, but outside the task's own dates: it counts for nothing,
+          // and saying so is better than looking like it worked.
+          if (wait.days === 0 && task.start && task.end) pill.classList.add("is-idle");
+          if (wait.reason) {
+            pill.append(element("span", "fg-wait-why", wait.reason));
+          }
+          pill.title = [
+            wait.reason || t("待ち"),
+            wait.open ? t("（継続中）") : "",
+            wait.days === 0 && task.start && task.end ? t("予定の期間の外なので日数には効きません") : "",
+          ]
+            .filter(Boolean)
+            .join(" ");
+          cell.append(pill);
+        }
+
+      } else if (column.kind === "variance") {
+        const span = element("span", undefined, this.cellDisplay(task, column));
+        if (task.has_children) {
+          cell.title = t("子タスクのずれを足したものです（この行の日付の差ではありません）");
+        }
+        const days = column.key === "start_variance" ? task.start_variance : task.end_variance;
+        if (days !== null && days > 0) span.classList.add("is-late");
+        if (days !== null && days < 0) span.classList.add("is-early");
+        cell.append(span);
+      } else {
+        cell.append(element("span", undefined, this.cellDisplay(task, column)));
+      }
+
+      // The selected cell always carries a real text field, even when it looks
+      // like plain text. An IME has no way to start composing into a focused
+      // `div`, so without this, typing Japanese into a cell does nothing at all.
+      if (isSelected && !this.editing) cell.append(this.renderTypist());
+
+      if (columnIndex < this.data.frozen_columns) cell.classList.add("is-frozen");
+
+      cell.addEventListener("mousedown", (event) => {
+        if (this.editing) return;
+        event.preventDefault();
+
+        // The browser never raises `dblclick` here: the first click rebuilds
+        // the cell, so the two clicks land on different elements and Chrome
+        // has nothing to raise it on. Timing the pair is what works.
+        const now = Date.now();
+        const again =
+          this.lastPress?.row === index &&
+          this.lastPress.column === columnIndex &&
+          now - this.lastPress.at < 400;
+
+        this.lastPress = { row: index, column: columnIndex, at: now };
+
+        this.select(index, columnIndex);
+        this.repaintSelection();
+
+        // Same as Enter: the reason to point at a cell is usually to change it.
+        if (again) this.startEdit(null);
+      });
+
+      cell.addEventListener("contextmenu", (event) => {
+        event.preventDefault();
+        this.select(index, columnIndex);
+        this.repaintSelection();
+        this.openMenu(event.clientX, event.clientY);
+      });
+
+      row.append(cell);
+    });
+
+    return row;
+  }
+
+  /**
+   * The grip that starts a row drag.
+   *
+   * Dragging from the cell itself would fight text selection and the click that
+   * moves the cursor, so the gesture gets its own small target.
+   */
+  private renderHandle(task: Task, index: number): HTMLElement {
+    // Drawn in CSS, with no text of its own: a glyph here would end up in the
+    // row's text content, and so in anything copied or read aloud.
+    const handle = element("span", "fg-handle");
+    handle.title = t("ドラッグで移動");
+    handle.setAttribute("aria-hidden", "true");
+    handle.addEventListener("pointerdown", (event) => this.beginRowDrag(event, task, index));
+    return handle;
+  }
+
+  /**
+   * Drags a row to a new place in the outline.
+   *
+   * Vertical movement picks the gap to drop into; horizontal movement picks the
+   * depth, clamped to what the surrounding rows allow. Showing both as a line
+   * before the drop is the whole point — the keyboard moves are faster but give
+   * no preview, which is what made them hard to trust.
+   */
+  private beginRowDrag(event: PointerEvent, task: Task, index: number): void {
+    if (event.button !== 0 || !this.data.can_edit) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+
+    const grid = this.root.querySelector<HTMLElement>(".fg-grid");
+    const rows = [
+      ...this.root.querySelectorAll<HTMLElement>(".fg-pane-left .fg-row.fg-data"),
+    ];
+    if (!grid) return;
+
+    // The dragged row takes its subtree along, so neither it nor its
+    // descendants are candidates for the drop.
+    const subtree = this.subtreeLength(index);
+    const excluded = new Set<number>();
+    for (let i = index; i < index + subtree; i++) excluded.add(i);
+
+    const indicator = element("div", "fg-drop");
+    grid.append(indicator);
+    rows[index]?.classList.add("is-dragging");
+
+    const startX = event.clientX;
+    let target: { at: number; depth: number } | null = null;
+
+    const preview = (move: PointerEvent) => {
+      // The gap the pointer is nearest to, counted in visible rows.
+      let at = rows.length;
+      for (const [i, row] of rows.entries()) {
+        const box = row.getBoundingClientRect();
+        if (move.clientY < box.top + box.height / 2) {
+          at = i;
+          break;
+        }
+      }
+
+      // Landing anywhere inside the dragged subtree means "stay put".
+      while (excluded.has(at) && at < rows.length) at++;
+
+      const previous = this.tasks[at - 1];
+      const next = this.tasks[at];
+
+      // Deeper than the row above plus one would have no parent; shallower than
+      // the row below would orphan it.
+      const maxDepth = previous ? previous.depth + 1 : 0;
+      const minDepth = next && !excluded.has(at) ? next.depth : 0;
+      const wanted = task.depth + Math.round((move.clientX - startX) / 16);
+      const depth = clamp(wanted, Math.min(minDepth, maxDepth), maxDepth);
+
+      target = { at, depth };
+
+      const edge = rows[at] ?? rows[rows.length - 1];
+      if (!edge) return;
+
+      const box = edge.getBoundingClientRect();
+      const gridBox = grid.getBoundingClientRect();
+
+      indicator.style.top = `${(at < rows.length ? box.top : box.bottom) - gridBox.top}px`;
+      indicator.style.left = `${12 + depth * 16}px`;
+    };
+
+    const finish = async () => {
+      detach();
+      indicator.remove();
+      rows[index]?.classList.remove("is-dragging");
+
+      if (!target) return;
+
+      const drop = this.dropTarget(target.at, target.depth, excluded);
+      if (drop.parent === (task.id as string | null)) return;
+
+      await this.send(
+        `/api/projects/${encodeURIComponent(this.projectId)}/tasks/${task.id}/place`,
+        { method: "POST", body: drop, follow: task.id },
+      );
+    };
+
+    const cancel = () => {
+      detach();
+      indicator.remove();
+      rows[index]?.classList.remove("is-dragging");
+    };
+
+    function detach(): void {
+      window.removeEventListener("pointermove", preview);
+      window.removeEventListener("pointerup", finish);
+      window.removeEventListener("pointercancel", cancel);
+    }
+
+    // On the window, not the grip: anything that re-renders mid-drag — an SSE
+    // update from someone else, say — would detach the grip and the gesture
+    // would die without a sound.
+    window.addEventListener("pointermove", preview);
+    window.addEventListener("pointerup", finish);
+    window.addEventListener("pointercancel", cancel);
+  }
+
+  /**
+   * Drags the boundary between the done and planned parts of a bar.
+   *
+   * Percent is what the column holds, so the bar's width is the scale: the
+   * pointer's position along it is the number.
+   */
+  private beginProgressDrag(
+    event: PointerEvent,
+    task: Task,
+    bar: HTMLElement,
+    box: DOMRect,
+    index: number,
+  ): void {
+    event.preventDefault();
+    event.stopPropagation();
+
+    this.select(index, 0);
+    this.repaintSelection();
+
+    const fill = bar.querySelector<HTMLElement>(".fg-bar-fill");
+    let progress = task.progress;
+
+    bar.classList.add("is-dragging");
+
+    const preview = (move: PointerEvent) => {
+      progress = clamp(Math.round(((move.clientX - box.left) / box.width) * 100), 0, 100);
+      if (fill) fill.style.width = `${progress}%`;
+      bar.title = `${task.name} — ${progress}%`;
+    };
+
+    const finish = async () => {
+      detach();
+      bar.classList.remove("is-dragging");
+
+      if (progress === task.progress) {
+        this.render();
+        return;
+      }
+
+      const rollback = structuredClone(this.data);
+      task.progress = progress;
+      this.render();
+
+      await this.send(`/api/projects/${encodeURIComponent(this.projectId)}/tasks/${task.id}`, {
+        method: "POST",
+        body: { field: "progress", value: String(progress) },
+        rollback,
+        follow: task.id,
+      });
+    };
+
+    const cancel = () => {
+      detach();
+      bar.classList.remove("is-dragging");
+      this.render();
+    };
+
+    function detach(): void {
+      window.removeEventListener("pointermove", preview);
+      window.removeEventListener("pointerup", finish);
+      window.removeEventListener("pointercancel", cancel);
+    }
+
+    window.addEventListener("pointermove", preview);
+    window.addEventListener("pointerup", finish);
+    window.addEventListener("pointercancel", cancel);
+  }
+
+  /** How many visible rows the row at `index` owns, itself included. */
+  private subtreeLength(index: number): number {
+    const depth = this.tasks[index]?.depth ?? 0;
+    let length = 1;
+
+    while (this.tasks[index + length] && (this.tasks[index + length]?.depth ?? 0) > depth) {
+      length++;
+    }
+
+    return length;
+  }
+
+  /**
+   * Turns "this gap, at this depth" into the parent and preceding sibling the
+   * server needs.
+   */
+  private dropTarget(
+    at: number,
+    depth: number,
+    excluded: Set<number>,
+  ): { parent: string | null; after: string | null } {
+    let parent: string | null = null;
+    let after: string | null = null;
+
+    for (let i = at - 1; i >= 0; i--) {
+      if (excluded.has(i)) continue;
+
+      const row = this.tasks[i];
+      if (!row) continue;
+
+      if (after === null && row.depth === depth) after = row.id;
+
+      if (row.depth < depth) {
+        parent = row.id;
+        break;
+      }
+    }
+
+    return { parent, after };
+  }
+
+  /**
+   * The fold control. Leaf rows get an empty one of the same width so names
+   * stay on a single left edge within a level.
+   */
+  private renderTwisty(task: Task): HTMLElement {
+    if (!task.has_children) return element("span", "fg-twisty is-leaf");
+
+    const folded = this.collapsed.has(task.id);
+    const button = element("button", "fg-twisty");
+    button.type = "button";
+    button.textContent = folded ? "▶" : "▼";
+    button.title = folded ? t("展開する") : t("折りたたむ");
+    button.setAttribute("aria-expanded", folded ? "false" : "true");
+    button.tabIndex = -1;
+
+    // mousedown, so the cell's own handler does not select and re-render first.
+    button.addEventListener("mousedown", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      this.toggleCollapse(task);
+    });
+
+    return button;
+  }
+
+  /**
+   * The invisible field that holds the caret while a cell is merely selected.
+   *
+   * Typing turns it into the editor in place — the same element, so an IME
+   * composition already in flight is never interrupted. Recreating the input at
+   * that moment would drop the characters being converted.
+   */
+  private renderTypist(): HTMLInputElement {
+    const input = element("input", "fg-editor is-typist");
+    input.type = "text";
+    input.value = "";
+    input.autocomplete = "off";
+    input.setAttribute("aria-label", t("セルの入力"));
+
+    input.addEventListener("compositionstart", () => {
+      this.composing = true;
+      this.beginTyping(input);
+    });
+    input.addEventListener("compositionend", () => {
+      this.composing = false;
+    });
+    input.addEventListener("input", () => {
+      if (!this.editing) this.beginTyping(input);
+    });
+    input.addEventListener("blur", () => {
+      // Only commit if this field became the editor. F2 opens a fresh editor
+      // and re-renders, which blurs this one out of existence — committing its
+      // empty value there would wipe the cell being opened.
+      if (this.editing && !input.classList.contains("is-typist")) {
+        void this.commitEdit(input.value, "stay");
+      }
+    });
+
+    return input;
+  }
+
+  /**
+   * Turns the typist into the editor without re-rendering.
+   *
+   * Typing replaces a cell's contents the way it does in a spreadsheet, so the
+   * field starting empty is already the right value — nothing to transfer.
+   */
+  private beginTyping(input: HTMLInputElement): void {
+    const task = this.selected;
+    const column = this.selectedColumn;
+
+    if (!task || !this.editable(task, column)) {
+      input.value = "";
+      this.startEdit(null);
+      return;
+    }
+
+    // A closed set of values is a menu; typing at it opens the menu instead.
+    if (column.kind === "status" || column.kind === "select") {
+      input.value = "";
+      this.startEdit(null);
+      return;
+    }
+
+    this.editing = true;
+    this.seed = null;
+    input.classList.remove("is-typist");
+    input.closest(".fg-cell")?.classList.add("is-editing");
+  }
+
+  /**
+   * The calendar beside a date editor.
+   *
+   * A real `type="date"` field would bring its own, but at the cost of typing
+   * the date straight through, so the picker gets its own hidden field.
+   */
+  private renderDatePicker(): HTMLElement {
+    const picker = element("input", "fg-datepicker");
+    picker.type = "date";
+    picker.tabIndex = -1;
+    picker.title = t("カレンダーから選ぶ");
+
+    picker.addEventListener("mousedown", (event) => event.stopPropagation());
+
+    // Chrome only opens the calendar from its own indicator, and the click that
+    // reaches it has already blurred the editor beside it — which used to
+    // commit, re-render, and take this element away before the picker opened.
+    picker.addEventListener("click", () => {
+      try {
+        picker.showPicker();
+      } catch {
+        // Older browsers open it from the indicator on their own.
+      }
+    });
+    picker.addEventListener("change", () => {
+      const editor = picker
+        .closest(".fg-cell")
+        ?.querySelector<HTMLInputElement>("input.fg-editor");
+
+      if (editor) editor.value = picker.value;
+      void this.commitEdit(picker.value, "stay");
+    });
+
+    return picker;
+  }
+
+  private renderEditor(task: Task, column: ColumnDef): HTMLElement {
+    // A closed set of values is a menu, not a text field: typing a status by
+    // hand is slower and can be wrong.
+    const choices = this.choicesFor(column);
+
+    if (choices) {
+      const select = element("select", "fg-editor");
+      // A blank entry is how a select value gets cleared.
+      if (column.kind !== "status") select.append(element("option", undefined, ""));
+
+      for (const choice of choices) {
+        const option = element("option", undefined, choice);
+        option.value = choice;
+        select.append(option);
+      }
+      select.value = this.cellText(task, column);
+
+      // Focus alone leaves the list closed, which reads as "no choices here".
+      requestAnimationFrame(() => {
+        try {
+          select.showPicker();
+        } catch {
+          // Older browsers just leave it closed; the arrow keys still work.
+        }
+      });
+
+      // Choosing from the menu is the whole interaction; commit on change.
+      select.addEventListener("change", () => void this.commitEdit(select.value, "stay"));
+      select.addEventListener("blur", () => {
+        if (this.editing) void this.commitEdit(select.value, "stay");
+      });
+
+      return select;
+    }
+
+    const input = element("input", "fg-editor");
+    input.type = "text";
+    input.value = this.seed ?? this.cellText(task, column);
+
+    // Same idea for the project's own free-text-with-choices columns.
+    if (column.kind === "suggest" && column.options?.length) {
+      const list = element("datalist");
+      list.id = `fg-list-${column.key}`;
+      for (const choice of column.options) {
+        const option = element("option") as HTMLOptionElement;
+        option.value = choice.value;
+        list.append(option);
+      }
+      input.setAttribute("list", list.id);
+      this.root.querySelector(".fg-grid")?.append(list);
+    }
+
+    // The syntax is the whole interface here, so the field says it.
+    if (column.key === "waits") {
+      input.placeholder = t("8/17〜8/21 他部署（終わり省略で継続中）");
+    }
+
+    if (column.kind === "date") {
+      // Deliberately not `type="date"`: that field takes input segment by
+      // segment, so "2026-08-03" can no longer be typed straight through, and
+      // it swallows Escape. The calendar comes from the button beside it.
+      input.placeholder = "20260805 / 8-5";
+      input.inputMode = "numeric";
+
+      // Eight digits become a date as they are typed, so the field reads the
+      // way it will be stored before anything is committed.
+      input.addEventListener("input", () => {
+        const digits = normalizeWidth(input.value).trim();
+        if (!/^\d{8}$/.test(digits)) return;
+
+        const iso = flexibleDate(digits);
+        if (iso) {
+          input.value = iso;
+          input.setSelectionRange(iso.length, iso.length);
+        }
+      });
+      // The calendar button sits inside the right edge; without room for it the
+      // date runs underneath and the cell looks broken.
+      input.classList.add("has-picker");
+    } else if (column.kind === "progress" || column.kind === "number") {
+      input.inputMode = "numeric";
+    }
+
+    // Clicking away is a commit, the same as leaving a cell in a spreadsheet —
+    // except when what was clicked is this cell's own calendar button, which
+    // exists to fill this very editor.
+    input.addEventListener("blur", (event) => {
+      const next = (event as FocusEvent).relatedTarget as HTMLElement | null;
+      if (next?.classList.contains("fg-datepicker")) return;
+
+      if (this.editing) void this.commitEdit(input.value, "stay");
+    });
+
+    return input;
+  }
+
+  /**
+   * Chooses what is drawn over the chart.
+   *
+   * The variances and the days worked are all there because somebody needs them,
+   * and all of them at once fills the chart with lines and numbers. What is worth
+   * seeing changes with the person and the day, so it is switched on the screen
+   * rather than in the settings.
+   */
+  private renderShowToggle(): HTMLElement {
+    const button = element("button", "fg-shows", t("表示"));
+    button.type = "button";
+    button.tabIndex = -1;
+    button.title = t("チャートに出すものを選びます");
+
+    const choices: [keyof Shows, string][] = [
+      ["start", "開始差異"],
+      ["end", "終了差異"],
+      ["worked", "実作業日数"],
+    ];
+
+    if (choices.some(([key]) => !this.shows[key])) button.classList.add("is-on");
+
+    button.addEventListener("mousedown", (event) => event.preventDefault());
+    button.addEventListener("click", () => {
+      const anchor = button.getBoundingClientRect();
+      const menu = element("div", "fg-menu fg-shows-menu");
+      menu.style.left = `${anchor.left}px`;
+      menu.style.top = `${anchor.bottom + 2}px`;
+
+      const close = (event?: Event) => {
+        if (event && menu.contains(event.target as Node)) return;
+
+        menu.remove();
+        document.removeEventListener("mousedown", close);
+        document.removeEventListener("keydown", onEscape);
+      };
+
+      const onEscape = (event: KeyboardEvent) => {
+        if (event.key === "Escape") close();
+      };
+
+      for (const [key, label] of choices) {
+        const item = element("label", "fg-menu-item fg-shows-item");
+        const box = element("input") as HTMLInputElement;
+        box.type = "checkbox";
+        box.checked = this.shows[key];
+        box.dataset["shows"] = key;
+        box.addEventListener("change", () => {
+          this.shows = { ...this.shows, [key]: box.checked };
+          window.localStorage.setItem(SHOWS_KEY, JSON.stringify(this.shows));
+          this.render();
+        });
+
+        item.append(box, element("span", undefined, t(label)));
+        menu.append(item);
+      }
+
+      // Kept outside the island: every tick redraws it, and a menu inside would
+      // be thrown away on the spot — leaving no way to tick a second box.
+      document.body.append(menu);
+
+      const box = menu.getBoundingClientRect();
+      if (box.right > window.innerWidth) menu.style.left = `${window.innerWidth - box.width - 8}px`;
+
+      setTimeout(() => {
+        document.addEventListener("mousedown", close);
+        document.addEventListener("keydown", onEscape);
+      });
+    });
+
+    return button;
+  }
+
+  private renderHeader(origin: number, days: number): HTMLElement {
+    const header = element("div", "fg-chart-header");
+    // Stands in for the filter row on the other side. Without it every bar sits
+    // one row above where it belongs.
+    const spacer = element("div", "fg-filter-spacer");
+
+    // The chart side has the filter row's height going spare, which is where the
+    // switch goes: it decides how much is drawn over the bars, so it belongs
+    // near them.
+    spacer.append(this.renderShowToggle());
+
+    const quarters = element("div", "fg-quarters");
+    const months = element("div", "fg-months");
+    const daysRow = element("div", "fg-days");
+
+    let monthStart = 0;
+    let quarterStart = 0;
+
+    for (let i = 0; i <= days; i++) {
+      const date = new Date(origin + i * DAY_MS);
+      const isBoundary = i === days || date.getUTCDate() === 1;
+
+      if (isBoundary && i > monthStart) {
+        const first = new Date(origin + monthStart * DAY_MS);
+        const width = (i - monthStart) * this.dayWidth;
+        const label = element("div", "fg-month");
+        label.style.width = `${width}px`;
+
+        // A band too narrow for its own name would print it over the next
+        // month's — the sticky text has nowhere to sit.
+        if (width >= 56) {
+          // The text pins to the left edge while its month is in view, so a
+          // scrolled chart never leaves the visible weeks unlabelled.
+          label.append(element("span", undefined, this.monthLabel(first)));
+        }
+        months.append(label);
+        monthStart = i;
+      }
+
+      // The business year starts where the project says it does, which in Japan
+      // is almost never January.
+      if (isBoundary && i > quarterStart) {
+        const first = new Date(origin + quarterStart * DAY_MS);
+        const q = this.quarterOf(first);
+        const previous = quarters.lastElementChild;
+
+        if (previous && previous.getAttribute("data-quarter") === q.key) {
+          const width = Number(previous.getAttribute("data-days")) + (i - quarterStart);
+          previous.setAttribute("data-days", String(width));
+          (previous as HTMLElement).style.width = `${width * this.dayWidth}px`;
+        } else {
+          const label = element("div", "fg-quarter");
+          label.setAttribute("data-quarter", q.key);
+          label.setAttribute("data-days", String(i - quarterStart));
+          label.style.width = `${(i - quarterStart) * this.dayWidth}px`;
+          label.append(element("span", undefined, q.label));
+          quarters.append(label);
+        }
+
+        quarterStart = i;
+      }
+
+      if (i === days) break;
+
+      const day = date.getUTCDay();
+      const iso = date.toISOString().slice(0, 10);
+      const holiday = this.holidayOn(iso);
+      const cell = element("div", "fg-day");
+
+      // The weekday under the date: every Japanese schedule prints it, and
+      // counting to a Friday off the month grid is nobody's idea of a plan.
+      cell.append(
+        element("span", "fg-date", String(date.getUTCDate())),
+        element("span", "fg-weekday", weekday(day)),
+      );
+
+      const note = this.dayNote(iso);
+      if (note) cell.title = note;
+
+      if (holiday) {
+        cell.classList.add("is-holiday");
+      } else if (day === 6) {
+        cell.classList.add("is-saturday");
+      } else if (day === 0) {
+        cell.classList.add("is-sunday");
+      }
+
+      if (iso === this.data.today) cell.classList.add("is-today");
+      daysRow.append(cell);
+    }
+
+    // The left pane's filter row has no counterpart over the chart, and without
+    // one every bar sits a row above where it belongs.
+    // Whether the business year and quarter band is drawn is a setting.
+    if (this.data.quarters) header.append(spacer, quarters, months, daysRow);
+    else header.append(spacer, months, daysRow);
+
+    return header;
+  }
+
+  /**
+   * One row, both bars.
+   *
+   * The plan is drawn as an outline and the actual work sits inside it, so the
+   * difference between them is the shape rather than a second row to compare
+   * against.
+   */
+  private renderBar(task: Task, origin: number, index: number): HTMLElement {
+    const row = element("div", "fg-bar-row");
+
+    // A chart row can be selected like a grid row. Selectable on one side only,
+    // the same row would have places that answer and places that do not. The
+    // column stays put: the chart has no columns, so a press cannot name one.
+    row.addEventListener("mousedown", () => {
+      if (this.editing) return;
+
+      this.select(index, this.column);
+      // This marks both sides and hands the keyboard back to the grid.
+      this.repaintSelection();
+    });
+    if (index === this.row) row.classList.add("is-current");
+
+    const span = (from: string | null, to: string | null) => {
+      if (!from || !to) return null;
+
+      const start = dayIndex(from, origin);
+      const length = Math.max(1, dayIndex(to, origin) - start + 1);
+
+      return { start, length };
+    };
+
+    // Leave. Whoever is on this row, the days they are away are shaded in this
+    // row alone — a weekend is everyone's, a holiday is the project's, and this
+    // is one person's. Drawn first so the bars keep their own colours on top.
+    const away = task.assignee.trim();
+    for (const leave of away ? this.data.leaves : []) {
+      if (leave.assignee.trim() !== away || leave.kind === "on") continue;
+
+      const slice = span(leave.start, leave.end);
+      if (!slice) continue;
+
+      const cells = element("div", "fg-leave");
+      cells.style.left = `${slice.start * this.dayWidth}px`;
+      cells.style.width = `${slice.length * this.dayWidth}px`;
+      cells.title = `${leave.assignee} 休み${leave.note ? `（${leave.note}）` : ""}`;
+      row.append(cells);
+    }
+
+    // Waiting. Drawn over the row like leave, but hatched: nobody was away, the
+    // work itself was stopped. Days inside these ranges are not counted.
+    for (const wait of task.waits) {
+      // Clipped to the plan: a wait outside the task's own dates takes nothing
+      // out of it, and drawing it there is a hatch floating over no bar.
+      const from = task.start && wait.start < task.start ? task.start : wait.start;
+      const to = task.end && wait.end > task.end ? task.end : wait.end;
+      if (!task.start || !task.end || from > to) continue;
+
+      const slice = span(from, to);
+      if (!slice) continue;
+
+      const gap = element("div", "fg-wait");
+      if (wait.open) gap.classList.add("is-open");
+      gap.style.left = `${slice.start * this.dayWidth}px`;
+      gap.style.width = `${slice.length * this.dayWidth}px`;
+      gap.title = [
+        `待ち ${short(wait.start)}〜${wait.open ? "" : short(wait.end)}`,
+        wait.reason,
+        wait.open ? t("（継続中）") : "",
+      ]
+        .filter(Boolean)
+        .join(" ");
+      row.append(gap);
+    }
+
+    const planned = span(task.start, task.end);
+    // Work that has started and not finished is drawn up to today: it is a
+    // length, not a dot.
+    const actual = span(task.actual_start, task.actual_end ?? this.data.today);
+
+    if (!planned && !actual) return row;
+
+    if (planned) {
+      const bar = element("div", "fg-bar");
+      if (task.delayed) bar.classList.add("is-delayed");
+      if (task.has_children) bar.classList.add("is-summary");
+      // The height does not depend on whether an actual exists. Bars of differing
+      // thickness on one screen look like they mean different things.
+      bar.classList.add("is-plan");
+
+      bar.dataset["task"] = task.id;
+      bar.dataset["progress"] = String(task.progress);
+      bar.style.left = `${planned.start * this.dayWidth}px`;
+      bar.style.width = `${planned.length * this.dayWidth}px`;
+      bar.title = `予定 ${task.start} 〜 ${task.end}（${task.progress}%）`;
+
+      // Progress is always measured against the plan bar. Put on the actual, the
+      // same 60% lands in a different place row by row, and an unfinished actual
+      // runs to today — so the fill advances on days when nothing was done.
+      const fill = element("div", "fg-bar-fill");
+      fill.style.width = `${task.progress}%`;
+      bar.append(fill);
+
+      // Lateness is shown as an area, not a line. A line at where today says the
+      // fill should reach sits a hair off the today line and reads as a doubled
+      // rule, so what is drawn is the shortfall itself. Caught up, nothing.
+      if (task.expected > task.progress) {
+        const behind = element("div", "fg-bar-behind");
+        behind.style.left = `${task.progress}%`;
+        behind.style.width = `${task.expected - task.progress}%`;
+        behind.title = `今日までに ${task.expected}% の予定`;
+        bar.append(behind);
+      }
+
+      if (this.editable(task, BASE_COLUMNS[1]!)) {
+        bar.classList.add("is-draggable");
+
+        const knob = element("span", "fg-grip fg-grip-progress");
+        // Kept inside the bar. At 0% its left half hung outside and at 100% its
+        // right half did, leaving half a handle to grab — and overlapping the
+        // test for the bar's own ends.
+        const width = planned.length * this.dayWidth;
+        const grip = this.dayWidth;
+        // Not flush with the end. Sharing a spot with the end grip at 0% and
+        // 100% means only whichever is on top can be grabbed, and either the
+        // progress or the date becomes immovable. It stops GRIP_WIDTH inside.
+        knob.style.left = `${clamp(
+          (width * task.progress) / 100 - grip / 2,
+          GRIP_WIDTH,
+          Math.max(GRIP_WIDTH, width - grip - GRIP_WIDTH),
+        )}px`;
+        knob.title = t("ドラッグで進捗を変える");
+        bar.append(knob);
+
+        bar.append(
+          element("span", "fg-grip fg-grip-start"),
+          element("span", "fg-grip fg-grip-end"),
+        );
+        bar.addEventListener("pointerdown", (event) =>
+          this.beginDrag(event, task, bar, planned.start, planned.length, index),
+        );
+      }
+
+      row.append(bar);
+    }
+
+    if (actual) {
+      const bar = element("div", "fg-actual");
+      bar.style.left = `${actual.start * this.dayWidth}px`;
+      bar.style.width = `${actual.length * this.dayWidth}px`;
+      bar.title = task.actual_end
+        ? `実施 ${task.actual_start} 〜 ${task.actual_end}`
+        : `実施 ${task.actual_start} 〜（進行中）`;
+      if (!task.actual_end) bar.classList.add("is-open");
+
+      // No fill here: the actual bar answers "when did this run", and the plan
+      // bar answers "how much is done". One question each.
+      if (this.editable(task, BASE_COLUMNS[3]!)) {
+        bar.classList.add("is-draggable");
+
+        bar.append(
+          element("span", "fg-grip fg-grip-start"),
+          element("span", "fg-grip fg-grip-end"),
+        );
+        bar.addEventListener("pointerdown", (event) =>
+          this.beginActualDrag(event, task, bar, actual.start, actual.length, index),
+        );
+      }
+
+      row.append(bar);
+    }
+
+    // Days worked, immediately right of the actual bar: with "how many days"
+    // beside "when", the length and the number need not be matched up by eye.
+    if (this.shows.worked && actual && task.actual_days !== null && task.actual_days > 0) {
+      const worked = element(
+        "div",
+        "fg-worked",
+        LANG === "en"
+          ? `${task.actual_days}d worked`
+          : `実作業 ${task.actual_days}${this.workdayBased ? "営業日" : "日"}`,
+      );
+      worked.style.left = `${(actual.start + actual.length) * this.dayWidth + 6}px`;
+      worked.title = t("実際に動いた日数。終わっていなければ今日まで数えます");
+      row.append(worked);
+    }
+
+    // The start variance, drawn at the left edge where the two starts part —
+    // reading it off the same end as the finish would hide which one slipped.
+    if (this.shows.start && task.start_variance !== null && task.start_variance !== 0 && planned && actual) {
+      const label = element(
+        "div",
+        "fg-variance is-start",
+        this.varianceLabel(task, task.start_variance),
+      );
+      label.classList.add(task.start_variance > 0 ? "is-late" : "is-early");
+      // Right-aligned into the space before the bar, so it never covers it.
+      label.style.right = `calc(100% - ${Math.min(planned.start, actual.start) * this.dayWidth - 6}px)`;
+      row.append(label);
+    }
+
+    // The number people actually look for: how far off the plan it ran. Placed
+    // past whichever bar ends last — put it at the actual's end and a task that
+    // finished early writes its number across the plan it beat.
+    if (this.shows.end && task.end_variance !== null && task.end_variance !== 0 && planned) {
+      const ends = [planned, actual]
+        .filter((span) => span !== null)
+        .map((span) => span!.start + span!.length);
+
+      const label = element("div", "fg-variance", this.varianceLabel(task, task.end_variance));
+      label.classList.add(task.end_variance > 0 ? "is-late" : "is-early");
+      label.style.left = `${Math.max(...ends) * this.dayWidth + 6}px`;
+      row.append(label);
+    }
+
+    return row;
+  }
+
+  /**
+   * Drags the actual bar, or stretches it by an end.
+   *
+   * An unfinished bar has no right edge to speak of — it is drawn to today —
+   * so dragging its body moves the start alone and only the right grip writes
+   * an end. Inventing a finish date because someone nudged a bar sideways is
+   * exactly the kind of record nobody would trust afterwards.
+   */
+  private beginActualDrag(
+    event: PointerEvent,
+    task: Task,
+    bar: HTMLElement,
+    from: number,
+    span: number,
+    index: number,
+  ): void {
+    if (event.button !== 0 || !task.actual_start) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+
+    const box = bar.getBoundingClientRect();
+    const offset = event.clientX - box.left;
+    const open = !task.actual_end;
+
+    const mode: "move" | "start" | "end" =
+      offset >= box.width - GRIP_WIDTH ? "end" : offset <= GRIP_WIDTH ? "start" : "move";
+
+    this.select(index, 0);
+    this.repaintSelection();
+
+    const startX = event.clientX;
+    const origin = parseDate(this.data.range_start);
+    let shift = 0;
+
+    // The move and up events are taken on the window while the pointer is down.
+    // Held on the bar, a redraw mid-drag took the element and its listeners with
+    // it, and letting go did nothing at all.
+    bar.classList.add("is-dragging");
+
+    const preview = (moveEvent: PointerEvent) => {
+      shift = Math.round((moveEvent.clientX - startX) / this.dayWidth);
+
+      if (mode === "start") shift = Math.min(shift, span - 1);
+      if (mode === "end") shift = Math.max(shift, -(span - 1));
+
+      const left = mode === "end" ? from : from + shift;
+      const width = mode === "move" ? span : mode === "start" ? span - shift : span + shift;
+
+      bar.style.left = `${left * this.dayWidth}px`;
+      bar.style.width = `${width * this.dayWidth}px`;
+    };
+
+    const finish = async () => {
+      window.removeEventListener("pointermove", preview);
+      window.removeEventListener("pointerup", finish);
+      window.removeEventListener("pointercancel", cancel);
+      bar.classList.remove("is-dragging");
+
+      if (shift === 0) {
+        this.render();
+        return;
+      }
+
+      const start = shiftDate(origin, from + (mode === "end" ? 0 : shift));
+      const end = shiftDate(origin, from + span - 1 + (mode === "start" ? 0 : shift));
+
+      // An open bar keeps its lack of an end unless the end itself was dragged.
+      const edit =
+        open && mode !== "end"
+          ? { field: "actual_start", value: start }
+          : open
+            ? { field: "actual_end", value: end }
+            : { field: "actual_schedule", value: `${start}/${end}` };
+
+      await this.send(`/api/projects/${encodeURIComponent(this.projectId)}/tasks/${task.id}`, {
+        method: "POST",
+        body: edit,
+        follow: task.id,
+      });
+    };
+
+    const cancel = () => {
+      window.removeEventListener("pointermove", preview);
+      window.removeEventListener("pointerup", finish);
+      window.removeEventListener("pointercancel", cancel);
+      this.render();
+    };
+
+    window.addEventListener("pointermove", preview);
+    window.addEventListener("pointerup", finish);
+    window.addEventListener("pointercancel", cancel);
+  }
+
+  /**
+   * Drags a bar, or stretches it by an end.
+   *
+   * The preview moves the element directly rather than re-rendering — a full
+   * render per pointermove would be the 40ms path — and one commit goes out on
+   * release. Start and end travel together in a single `schedule` write so the
+   * row never passes through end-before-start.
+   */
+  private beginDrag(
+    event: PointerEvent,
+    task: Task,
+    bar: HTMLElement,
+    from: number,
+    span: number,
+    index: number,
+  ): void {
+    if (event.button !== 0 || !task.start || !task.end) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+
+    const box = bar.getBoundingClientRect();
+    const offset = event.clientX - box.left;
+    const fillEdge = (box.width * task.progress) / 100;
+
+    // Pressed on the handle means progress, wherever that is. At 0% and 100% it
+    // sits right beside the end grip, and deciding by distance let the end win
+    // every time. The test is the handle's own coordinates rather than what was
+    // under the pointer, so nothing drawn on top can change the answer.
+    const knob = bar.querySelector<HTMLElement>(".fg-grip-progress")?.getBoundingClientRect();
+    const onKnob = !!knob && event.clientX >= knob.left && event.clientX <= knob.right;
+
+    // The ends win over the progress edge: away from 0% and 100% they are far
+    // apart, and moving the bar is the more common intent.
+    const mode: "move" | "start" | "end" | "progress" = onKnob
+      ? "progress"
+      : offset <= GRIP_WIDTH
+        ? "start"
+        : offset >= box.width - GRIP_WIDTH
+          ? "end"
+          : Math.abs(offset - fillEdge) <= GRIP_WIDTH
+            ? "progress"
+            : "move";
+
+    if (mode === "progress") {
+      this.beginProgressDrag(event, task, bar, box, index);
+      return;
+    }
+
+    this.select(index, 0);
+    this.repaintSelection();
+
+    const startX = event.clientX;
+    const origin = parseDate(this.data.range_start);
+    let shift = 0;
+
+    // The move and up events are taken on the window while the pointer is down,
+    // so a redraw mid-drag cannot take the listeners away with the element.
+    bar.classList.add("is-dragging");
+
+    const preview = (moveEvent: PointerEvent) => {
+      shift = Math.round((moveEvent.clientX - startX) / this.dayWidth);
+
+      // A bar cannot be stretched shorter than the day it starts on.
+      if (mode === "start") shift = Math.min(shift, span - 1);
+      if (mode === "end") shift = Math.max(shift, -(span - 1));
+
+      const left = mode === "end" ? from : from + shift;
+      const width = mode === "move" ? span : mode === "start" ? span - shift : span + shift;
+
+      bar.style.left = `${left * this.dayWidth}px`;
+      bar.style.width = `${width * this.dayWidth}px`;
+    };
+
+    const finish = async () => {
+      window.removeEventListener("pointermove", preview);
+      window.removeEventListener("pointerup", finish);
+      window.removeEventListener("pointercancel", cancel);
+      bar.classList.remove("is-dragging");
+
+      if (shift === 0) {
+        this.render();
+        return;
+      }
+
+      const start = shiftDate(origin, from + (mode === "end" ? 0 : shift));
+      const end = shiftDate(origin, from + span - 1 + (mode === "start" ? 0 : shift));
+
+      await this.send(`/api/projects/${encodeURIComponent(this.projectId)}/tasks/${task.id}`, {
+        method: "POST",
+        body: { field: "schedule", value: `${start}/${end}` },
+        follow: task.id,
+      });
+    };
+
+    const cancel = () => {
+      window.removeEventListener("pointermove", preview);
+      window.removeEventListener("pointerup", finish);
+      window.removeEventListener("pointercancel", cancel);
+      this.render();
+    };
+
+    window.addEventListener("pointermove", preview);
+    window.addEventListener("pointerup", finish);
+    window.addEventListener("pointercancel", cancel);
+  }
+
+  /**
+   * Keeps the two panes at the same vertical position.
+   *
+   * Each scrolls on its own so that each can have sticky headers; a row and its
+   * bar would otherwise drift apart as soon as anyone scrolled.
+   */
+  private syncPanes(left: HTMLElement, chart: HTMLElement): void {
+    let mirroring = false;
+
+    const follow = (from: HTMLElement, to: HTMLElement) => () => {
+      if (mirroring) return;
+
+      mirroring = true;
+      to.scrollTop = from.scrollTop;
+      // Cleared next frame: assigning scrollTop fires the other listener.
+      requestAnimationFrame(() => {
+        mirroring = false;
+      });
+    };
+
+    left.addEventListener("scroll", follow(left, chart));
+    chart.addEventListener("scroll", follow(chart, left));
+  }
+
+  /**
+   * The handle between the table and the chart.
+   *
+   * Widening the chart is the main thing anyone wants from this screen, and the
+   * columns are the only thing in the way.
+   */
+  private renderSplitter(grid: HTMLElement): HTMLElement {
+    const splitter = element("div", "fg-splitter");
+    splitter.title = t("ドラッグで幅を変える");
+
+    splitter.addEventListener("pointerdown", (event) => {
+      event.preventDefault();
+
+      const left = grid.querySelector<HTMLElement>(".fg-pane-left");
+      if (!left) return;
+
+      const startX = event.clientX;
+      const startWidth = left.getBoundingClientRect().width;
+
+      const drag = (move: PointerEvent) => {
+        this.paneWidth = clamp(startWidth + move.clientX - startX, 160, 1200);
+        grid.style.setProperty("--fg-pane-width", `${this.paneWidth}px`);
+        this.pinColumns();
+      };
+
+      const stop = () => {
+        window.removeEventListener("pointermove", drag);
+        window.removeEventListener("pointerup", stop);
+        window.localStorage.setItem(PANE_KEY, String(this.paneWidth));
+      };
+
+      window.addEventListener("pointermove", drag);
+      window.addEventListener("pointerup", stop);
+    });
+
+    return splitter;
+  }
+
+  /**
+   * The right-click menu.
+   *
+   * The outline moves are all on Alt+arrow, which nobody discovers on their
+   * own; this is where they are named.
+   */
+  private openMenu(x: number, y: number): void {
+    const task = this.selected;
+    if (!task) return;
+
+    const menu = element("div", "fg-menu");
+    menu.style.left = `${x}px`;
+    menu.style.top = `${y}px`;
+
+    const close = (event?: Event) => {
+      // A mousedown inside the menu is someone choosing an item. Closing on it
+      // would detach the button before its own click could fire, and the menu
+      // would do nothing at all.
+      if (event && menu.contains(event.target as Node)) return;
+
+      menu.remove();
+      document.removeEventListener("mousedown", close);
+      document.removeEventListener("keydown", onEscape);
+    };
+
+    const onEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") close();
+    };
+
+    const item = (label: string, shortcut: string, run: () => void) => {
+      const button = element("button", "fg-menu-item");
+      button.type = "button";
+      button.append(element("span", undefined, label), element("kbd", undefined, shortcut));
+      button.addEventListener("click", () => {
+        close();
+        run();
+      });
+
+      // The grid keeps focus on itself, so the button never gets it; without
+      // this the pointer press would land on the cell behind the menu.
+      button.addEventListener("mousedown", (event) => event.preventDefault());
+      menu.append(button);
+    };
+
+    if (task.has_children) {
+      const folded = this.collapsed.has(task.id);
+      item(folded ? t("展開する") : t("折りたたむ"), folded ? `${MOD}→` : `${MOD}←`, () =>
+        this.toggleCollapse(task),
+      );
+      menu.append(element("div", "fg-menu-rule"));
+    }
+
+    item(t("子タスクにする"), `${ALT}→`, () => void this.moveRow("indent"));
+    item(t("階層を戻す"), `${ALT}←`, () => void this.moveRow("outdent"));
+    item(t("上へ移動"), `${ALT}↑`, () => void this.moveRow("up"));
+    item(t("下へ移動"), `${ALT}↓`, () => void this.moveRow("down"));
+    menu.append(element("div", "fg-menu-rule"));
+    item(t("下に行を追加"), `${MOD}Enter`, () => void this.insertRow());
+    item(t("行を削除"), `${MOD}Delete`, () => void this.deleteRow());
+
+    this.root.append(menu);
+
+    // Keep the menu on screen when the click lands near an edge.
+    const box = menu.getBoundingClientRect();
+    if (box.right > window.innerWidth) menu.style.left = `${x - box.width}px`;
+    if (box.bottom > window.innerHeight) menu.style.top = `${y - box.height}px`;
+
+    // Deferred so the click that opened the menu does not immediately close it.
+    setTimeout(() => {
+      document.addEventListener("mousedown", close);
+      document.addEventListener("keydown", onEscape);
+    });
+  }
+
+  /** Keeps the keyboard where the user left it across a full re-render. */
+  private restoreFocus(): void {
+    if (this.editing) {
+      const editor = this.root.querySelector<HTMLElement>(".fg-editor");
+      if (editor instanceof HTMLInputElement) {
+        editor.focus();
+        // A seeded editor continues the word; an opened one replaces it.
+        if (this.seed === null) editor.select();
+        else editor.setSelectionRange(editor.value.length, editor.value.length);
+      } else {
+        editor?.focus();
+      }
+      return;
+    }
+
+    const typist = this.root.querySelector<HTMLInputElement>(".fg-editor.is-typist");
+    if (typist) typist.focus({ preventScroll: true });
+    else this.root.querySelector<HTMLElement>(".fg-grid")?.focus({ preventScroll: true });
+
+    this.root
+      .querySelector(".fg-cell.is-selected")
+      ?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }
+}
+
+async function start(): Promise<void> {
+  const root = document.getElementById("fugantt-grid");
+  if (!root) return;
+
+  const projectId = root.dataset["project"];
+  if (!projectId) return;
+
+  try {
+    const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/grid`, {
+      headers: { accept: "application/json" },
+    });
+
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+    new Grid(root, projectId, (await response.json()) as GridData);
+  } catch (error) {
+    root.replaceChildren(
+      element("p", "fg-empty", t("スケジュールを読み込めませんでした。再読み込みしてください。")),
+    );
+    console.error("fugantt: failed to load the grid", error);
+  }
+}
+
+void start();

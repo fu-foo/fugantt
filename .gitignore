@@ -1,0 +1,14 @@
+/target
+*.db
+*.db-wal
+*.db-shm
+/web/node_modules
+
+# web/dist is committed on purpose: the Rust build embeds it as an asset, so
+# building the server must not require Node.
+
+# macOS がフォルダごとに置いていく表示設定。中身は誰の役にも立たない
+.DS_Store
+
+# 各自のローカル設定。名前のとおり共有するものではない
+.claude/settings.local.json

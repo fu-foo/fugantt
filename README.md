@@ -591,4 +591,4 @@ Chrome の場所は `CHROME`、URL は `FUGANTT_URL` で変えられる。
 
 社内に入れるときは `LICENSE` と `NOTICE` をそのまま持っていけば足りる。
 
-Copyright 2026 fu-foo
+Copyright 2026 Kazunari Fukagawa

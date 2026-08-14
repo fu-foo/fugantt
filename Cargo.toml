@@ -7,6 +7,7 @@ description = "A Gantt chart built around Japanese practice: plan against actual
 readme = "README.md"
 repository = "https://github.com/fu-foo/fugantt"
 homepage = "https://github.com/fu-foo/fugantt"
+authors = ["Kazunari Fukagawa"]
 
 [dependencies]
 argon2 = "0.5"

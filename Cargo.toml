@@ -5,6 +5,8 @@ edition = "2024"
 license = "Apache-2.0"
 description = "A Gantt chart built around Japanese practice: plan against actual, counted in working days."
 readme = "README.md"
+repository = "https://github.com/fu-foo/fugantt"
+homepage = "https://github.com/fu-foo/fugantt"
 
 [dependencies]
 argon2 = "0.5"

@@ -583,6 +583,12 @@ html {
   opacity: 0.28;
 }
 
+/* A late row's ground is already red, and the same wash over it sinks into the
+   ground — least visible on exactly the rows whose shortfall matters most. */
+.fg-bar.is-delayed .fg-bar-behind {
+  opacity: 0.5;
+}
+
 /* What actually happened, under the plan it was measured against. The ground is
    how far the work ran; the fill inside it is how much of it is done — the same
    reading as the plan bar, which is where the fill used to live. */

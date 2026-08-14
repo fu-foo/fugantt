@@ -431,6 +431,9 @@ html {
   background: var(--fg-late);
   opacity: 0.28;
 }
+.fg-bar.is-delayed .fg-bar-behind {
+  opacity: 0.5;
+}
 .fg-actual {
   position: absolute;
   top: 19px;

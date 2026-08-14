@@ -1953,6 +1953,25 @@ check(
   }),
 );
 
+// 遅延行は地が既に赤いので、同じ濃さの帯は沈む。遅れをいちばん知りたい行で
+// いちばん見えない、では逆立ちしている。
+check(
+  "遅延行では遅れの帯を濃くする",
+  await page.evaluate(() => {
+    const late = document.querySelector(".fg-bar.is-delayed .fg-bar-behind");
+    if (!late) return false;
+
+    const ground = Number(getComputedStyle(late.closest(".fg-bar")).backgroundColor
+      .match(/\d+/g).slice(0, 3).reduce((a, b) => a + Number(b), 0));
+    // 地が赤い（＝薄い赤の合計が明るい）うえで、帯がはっきりしていること。
+    return Number(getComputedStyle(late).opacity) >= 0.5 && ground > 600;
+  }),
+  await page.evaluate(() => {
+    const late = document.querySelector(".fg-bar.is-delayed .fg-bar-behind");
+    return late ? getComputedStyle(late).opacity : "帯が無い";
+  }),
+);
+
 check(
   "追いついている行に遅れの帯は出ない",
   await page.evaluate(() =>

@@ -184,6 +184,17 @@ curl -X POST -H "Authorization: Bearer fug_…" \
 他のプロジェクトの鍵、読むだけの鍵での書き込み、鍵もクッキーも無い要求は、すべて **403**。
 トークンで書いた変更は、変更履歴に **`API <トークンの用途>`** として残る。人の名前は付かない。
 
+案件をまたぐなら、全体の設定で**全プロジェクトに効く鍵**を発行する（管理者だけ）。
+
+```sh
+curl -H "Authorization: Bearer fug_…" https://example.com/api/projects   # 計画の一覧
+curl -H "Authorization: Bearer fug_…" https://example.com/api/summary    # 案件ごとの数字
+```
+
+`/api/summary` は統計画面と同じ計算を、プロジェクト単位で返す
+（`late_days + wait_days = slipped`）。この2つはログイン中のセッションでも叩けて、
+その場合は自分が見られるプロジェクトだけが返る。
+
 案件をまたいだ集計には、**全プロジェクトに効く鍵**を全体の設定から発行する（管理者のみ）。
 
 ```sh

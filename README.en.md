@@ -154,6 +154,18 @@ A token for another project is refused, and a read-only token cannot write. A
 change made with a token is recorded as **`API <what the token is for>`** — no
 person's name, because nobody did that work, but never anonymous either.
 
+For numbers across projects, an administrator issues a key that reads all of
+them:
+
+```sh
+curl -H "Authorization: Bearer fug_…" https://example.com/api/projects   # the plans
+curl -H "Authorization: Bearer fug_…" https://example.com/api/summary    # per project
+```
+
+`/api/summary` is the statistics page's arithmetic, one row per project
+(`late_days + wait_days = slipped`). Both work with a signed-in session too, and
+then return only what that person may see.
+
 For numbers across projects, an administrator issues a key that reaches all of
 them:
 

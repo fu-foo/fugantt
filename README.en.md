@@ -13,23 +13,16 @@ SQLite, one binary. The grid is plain TypeScript; everything else is HTML.
 ## The problem it solves
 
 Most schedule tools hold one set of dates. Real projects hold two: what was
-planned, and what happened. The gap between them is the thing anyone actually
-gets asked about, and it is the thing spreadsheets end up carrying because no
-tool made room for it.
+planned, and what happened.
 
-fugantt keeps both on one row and works out the rest.
-
-- **Variance is never stored.** The start and end differences are subtracted on
-  every read, so they cannot drift away from the dates they came from.
-- **Days are counted the way your workplace counts them.** Weekends, public
-  holidays, each person's leave, and the periods the work sat waiting are all
-  excluded — or not, per project.
-- **The delay is split.** "Twelve days late" is not a finding. "Nine days of
-  work, three days waiting on another team" is. The statistics page separates
-  the part that was work from the part that was somebody else.
-- **Waiting is a first-class thing.** A task can record the ranges it was
-  blocked, with reasons. Those days count towards neither the duration nor the
-  lateness, and the chart hatches them.
+- **Planned and actual on one row.** The start and end variances are not stored;
+  they are subtracted on every read.
+- **Days counted the way your workplace counts them.** Weekends, public
+  holidays, leave and waiting periods are excluded — or not, per project.
+- **The delay is split.** Not "twelve days late", but "nine days of work, three
+  days waiting on another team".
+- **Waiting is recorded**, with dates and a reason. Those days count towards
+  neither the duration nor the lateness.
 
 | | |
 | --- | --- |
@@ -158,39 +151,17 @@ A token for another project is refused, and a read-only token cannot write. A
 change made with a token is recorded as **`API <what the token is for>`** — no
 person's name, because nobody did that work, but never anonymous either.
 
-## Running it safely
+## Roles and sign-in
 
-- Passwords are stored as **Argon2** hashes. The raw value is never written
-  anywhere, including the log.
-- Sessions are 32 bytes of randomness; the database holds only the **SHA-256**.
-  The cookie is `__Host-` prefixed, `Secure`, `HttpOnly`, `SameSite=Lax`.
-- Every change is a POST, which together with `SameSite=Lax` closes the
-  cross-site path without a token dance.
-- Every query is parameterised. The island never uses `innerHTML`.
+- **The base roles "editor" and "viewer" apply to every project.** To keep a
+  plan to a few people, set the base to "no access" and add them as members.
+- The password rule — minimum length, required kinds of character, refused
+  words — is set per installation.
 - Changing a password ends that person's other sessions.
-- The password rule — minimum length, required kinds of character, a list of
-  refused words — is set per installation.
 
-Two environment variables trade a defence for reach and say so loudly at
-startup: `FUGANTT_NO_AUTH` (no sign-in at all, refused if the host is public)
-and `FUGANTT_ALLOW_HTTP` (drops `Secure` from the cookie). Neither belongs on a
-machine reachable from outside.
-
-**Base roles apply to every project.** Set someone to "no access" and add them
-to the projects they should see, if a plan needs to stay private within the
-company.
-
-## How it is built
-
-- `src/domain.rs` owns every derived value: durations, variances, expected
-  progress, roll-ups. The browser draws; it does not decide.
-- The grid is an island. It fetches its own data and owns that subtree; the rest
-  of the app is server-rendered HTML with no client framework.
-- Live updates over SSE. Somebody else's edit arrives on your screen.
-- Tests: `cargo test` for the domain, and a browser suite driving a real Chrome
-  against a running server for the grid (`web/test/grid.test.mjs`). The second
-  one exists because "the element is there" is not a test — computed style and
-  geometry are.
+`FUGANTT_NO_AUTH=yes-everyone-on-this-network-can-edit` runs it without sign-in
+at all. **Everyone who can reach that URL can read and edit every project.** A
+banner stays on screen while it is on.
 
 ## Licence
 

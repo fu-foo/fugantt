@@ -36,8 +36,15 @@ cargo build --release    # 配布用の実行ファイル1本
 | `FUGANTT_DB` | `fugantt.db` | SQLite ファイル。起動時に自動でマイグレーション |
 | `FUGANTT_ALLOW_HTTP` | — | `1` で平文 HTTP を許可（後述） |
 
+```sh
+brew install fu-foo/tap/fugantt                    # macOS / Linux
+scoop bucket add fu-foo https://github.com/fu-foo/scoop-bucket && scoop install fugantt
+
+docker run -p 3000:3000 -v fugantt:/data ghcr.io/fu-foo/fugantt
+```
+
 ビルド済みバイナリは [Releases](https://github.com/fu-foo/fugantt/releases) から。
-Docker と Fly.io の設定も入っている（`Dockerfile` / `fly.toml`）。
+Fly.io の設定も入っている（`fly.toml`）。
 
 > `cargo topcoat dev` ではなく `cargo-topcoat dev`。topcoat-cli 0.5.0 は
 > cargo のサブコマンドとして呼ばれると引数を読めない。`cargo run` でも動く。

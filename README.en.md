@@ -84,7 +84,10 @@ words.
 ## Running it
 
 ```sh
-cargo-topcoat dev            # http://127.0.0.1:3000
+brew install fu-foo/tap/fugantt
+docker run -p 3000:3000 -v fugantt:/data ghcr.io/fu-foo/fugantt
+
+cargo-topcoat dev            # from source. http://127.0.0.1:3000
 ```
 
 The database is created at `FUGANTT_DB` (default `fugantt.db`) and migrated on

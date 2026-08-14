@@ -1,0 +1,10 @@
+# The build only needs the source and web/dist. Everything else makes the
+# context bigger and the layer cache emptier.
+/target
+/.git
+/web/node_modules
+*.db
+*.db-wal
+*.db-shm
+/docs
+.DS_Store

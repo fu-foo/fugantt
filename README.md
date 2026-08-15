@@ -62,10 +62,10 @@ Linux が `~/.local/share/fugantt`。起動時に絶対パスを1行出す。
 
 ```sh
 brew install fu-foo/tap/fugantt                    # macOS / Linux
-scoop bucket add fu-foo https://github.com/fu-foo/scoop-bucket && scoop install fugantt
-
 docker run -p 3000:3000 -v fugantt:/data ghcr.io/fu-foo/fugantt
 ```
+
+Windows は[下の節](#windows-に入れる)に。
 
 [Releases](https://github.com/fu-foo/fugantt/releases) に4つ。**Apple Silicon はネイティブ**で、
 `brew` も M シリーズには arm64 版を入れる（Rosetta は要らない）。
@@ -86,6 +86,45 @@ Fly.io の設定も入っている（`fly.toml`）。
 
 > `cargo topcoat dev` ではなく `cargo-topcoat dev`。topcoat-cli 0.5.0 は
 > cargo のサブコマンドとして呼ばれると引数を読めない。`cargo run` でも動く。
+
+### Windows に入れる
+
+**① zip を置くだけ**
+
+1. [Releases](https://github.com/fu-foo/fugantt/releases) から `fugantt-windows-x86_64.zip`
+2. 展開して、好きな場所（`C:\fugantt` など）に置く
+3. `fugantt.exe` をダブルクリック。**画面が勝手に開く**（Edge のアプリウィンドウ）
+
+- 初回だけ「**WindowsによってPCが保護されました**」と出る。署名を買っていないため。
+  「詳細情報」→「実行」で進む
+- 黒いコンソールが1つ残る。**それがサーバー本体**なので、閉じると止まる（Ctrl+C でも止まる）
+- 設定を変えたいときは、`fugantt.exe` の隣に `fugantt.ini` を置く
+- データは `%LOCALAPPDATA%\fugantt\fugantt.db`。バックアップは全体の設定から取れる
+
+**② Scoop で入れる**（更新まで面倒を見てほしいなら）
+
+Scoop は Windows 向けのパッケージ管理。**管理者権限もインストーラも使わない**——
+`~\scoop` に展開して PATH を通すだけなので、会社の PC でも通りやすい。
+
+PowerShell を開いて:
+
+```powershell
+# Scoop 本体（最初の一度だけ）
+Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+Invoke-RestMethod -Uri https://get.scoop.sh | Invoke-Expression
+
+# fugantt
+scoop bucket add fu-foo https://github.com/fu-foo/scoop-bucket
+scoop install fugantt
+```
+
+以後は `fugantt` と打てば起動、`scoop update fugantt` で更新、`scoop uninstall fugantt` で削除。
+
+> Scoop はバージョンごとのフォルダに入れて、更新のときに古いほうを捨てる。
+> **`fugantt.ini` は exe の隣ではなく `%LOCALAPPDATA%\fugantt\` に置く**（隣に置くと更新で消える）。
+> データベースは元からそちらなので、更新しても消えない。
+
+どちらでも入るものは同じ実行ファイル1本。Scoop がやるのは置き場所と PATH と更新だけ。
 
 ### 社内 LAN に置くとき
 

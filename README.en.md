@@ -141,6 +141,24 @@ docker run -p 3000:3000 -v fugantt:/data ghcr.io/fu-foo/fugantt
 cargo-topcoat dev            # from source. http://127.0.0.1:3000
 ```
 
+On Windows, either unzip `fugantt-windows-x86_64.zip` and double-click the
+executable — it opens its own window, and the console that stays behind is the
+server — or install it with [Scoop](https://scoop.sh), which needs no
+administrator and no installer:
+
+```powershell
+Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+Invoke-RestMethod -Uri https://get.scoop.sh | Invoke-Expression
+
+scoop bucket add fu-foo https://github.com/fu-foo/scoop-bucket
+scoop install fugantt
+```
+
+Unsigned, so the first run brings up SmartScreen: "More info" then "Run anyway".
+A Scoop install lives in a folder named after the version and is replaced on
+update, so put `fugantt.ini` in `%LOCALAPPDATA%\fugantt\` rather than beside
+the executable. The database is already there.
+
 Four binaries on every release: macOS on Apple Silicon and on Intel, Windows,
 and Linux — **Apple Silicon is native**, and `brew` installs the arm64 build on
 an M-series Mac. The Windows build links the C runtime statically, so it is one

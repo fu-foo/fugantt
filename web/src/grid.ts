@@ -600,11 +600,11 @@ const PANE_KEY = "fugantt:pane-width";
 const SHOWS_KEY = "fugantt:chart-shows";
 
 /** What gets drawn over the chart. More of it says more, and reads worse. */
-type Shows = { start: boolean; end: boolean; worked: boolean };
+type Shows = { start: boolean; end: boolean; worked: boolean; targets: boolean };
 
 function loadShows(): Shows {
   const stored = window.localStorage.getItem(SHOWS_KEY);
-  const shows: Shows = { start: true, end: true, worked: true };
+  const shows: Shows = { start: true, end: true, worked: true, targets: true };
 
   if (!stored) return shows;
 
@@ -3182,6 +3182,7 @@ class Grid {
       ["start", "開始差異"],
       ["end", "終了差異"],
       ["worked", "実作業日数"],
+      ["targets", "予定進捗"],
     ];
 
     if (choices.some(([key]) => !this.shows[key])) button.classList.add("is-on");
@@ -3470,39 +3471,65 @@ class Grid {
 
       row.append(bar);
 
-      // 予定進捗, at the date it was promised for, with the amount written out.
+      // 予定進捗, at the amount it promised, with the date written out.
       //
-      // The position is a date, like everything else on this chart. The amount
-      // is text, because a position cannot carry it: drawn at 50% of the bar's
-      // width it reads as a date the plan never named — the author of this
-      // feature misread his own chart that way — and drawn at the date with the
-      // fill beside it, the eye compares the two and reads back the straight
-      // line this whole design threw out. Written, it says what it is.
-      for (const target of task.targets) {
-        const at = dayIndex(target.date, origin) - planned.start;
-        // Outside the bar it would be a mark floating on nothing. The cell says
-        // it either way, and 予定進捗 outside the plan's own dates is a plan
-        // worth fixing rather than drawing.
-        if (at < 0 || at >= planned.length) continue;
+      // The other way round was tried first — the mark at the date, the amount
+      // in words — and it failed in the hand rather than on paper. This bar is
+      // where progress is set: grab it and the x axis is a percentage. So a
+      // mark on it is read as a percentage whatever it was meant to be, and a
+      // fill that reaches it reads as a promise kept. It happened twice in one
+      // afternoon, both times to people who knew how it was built.
+      //
+      // Whatever is compared has to share a scale, and the fill is what this is
+      // compared with. The date is compared with nothing here — it only decides
+      // whether the promise counts yet — so the date is the part that is
+      // written down.
+      const due = this.shows.targets ? task.targets.filter((target) => target.due) : [];
+      const promised = due.reduce<Task["targets"][number] | null>(
+        (worst, target) => (worst === null || target.percent >= worst.percent ? target : worst),
+        null,
+      );
 
-        const left = (planned.start + at) * this.dayWidth;
+      // What is missing, drawn as the gap it is: from where the work got to, to
+      // where it was meant to be. Caught up, it disappears — and the bar goes
+      // back to being a plain blue bar, which is the whole of the feedback.
+      if (promised && promised.percent > task.progress) {
+        const behind = element("div", "fg-bar-behind");
+        behind.style.left = `${task.progress}%`;
+        behind.style.width = `${promised.percent - task.progress}%`;
+        behind.title = `${promised.date} までに ${promised.percent}%（いま ${task.progress}%）`;
+        bar.append(behind);
+
+        const label = element(
+          "div",
+          "fg-target-label is-missed",
+          `${short(promised.date)} ${promised.percent}%`,
+        );
+        label.style.left = `${planned.start * this.dayWidth + (planned.length * this.dayWidth * promised.percent) / 100 + 4}px`;
+        label.title = behind.title;
+        row.append(label);
+      }
+
+      // Promises whose day has not come, at the level they ask for. The date
+      // beside them says which is which, and that they are not due yet.
+      for (const target of this.shows.targets ? task.targets : []) {
+        if (target.due) continue;
+
+        const left =
+          planned.start * this.dayWidth + (planned.length * this.dayWidth * target.percent) / 100;
 
         const mark = element("div", "fg-target");
         mark.style.left = `${left}px`;
-        if (target.missed) mark.classList.add("is-missed");
-        else if (target.due) mark.classList.add("is-met");
-        mark.title = target.missed
-          ? `${target.date} までに ${target.percent}%（いま ${task.progress}%）`
-          : `${target.date} までに ${target.percent}%`;
+        mark.title = `${target.date} までに ${target.percent}%`;
         row.append(mark);
 
-        // Kept quiet once it has been met: the fill has gone past it, which is
-        // the answer, and the number is still in the cell.
-        if (target.due && !target.missed) continue;
-
-        const label = element("div", "fg-target-label", `${target.percent}%`);
+        const label = element(
+          "div",
+          "fg-target-label",
+          `${short(target.date)} ${target.percent}%`,
+        );
         label.style.left = `${left + 4}px`;
-        if (target.missed) label.classList.add("is-missed");
+        label.title = mark.title;
         row.append(label);
       }
     }

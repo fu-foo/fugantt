@@ -573,36 +573,36 @@ html {
   border-style: solid;
 }
 
-/* 予定進捗: a mark at the date it was promised for.
-   Drawn in the row rather than inside the bar, so the number beside it is not
-   clipped, and so it can overhang the bar a little and read as a marker on the
-   plan rather than as part of the fill. */
+/* The gap between what is done and what was promised by a date that has gone
+   by. An area rather than a line: a line sits a hair off the today line and
+   reads as a doubled rule (「ギザギザでカッコ悪い」). It is measured on the
+   fill's own scale — the share of the bar — because the fill is what it is read
+   against, and two things that are compared have to share a ruler. Caught up,
+   it is gone, and the bar is a plain bar again. */
+.fg-bar-behind {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: var(--fg-late);
+  opacity: 0.5;
+}
+
+/* 予定進捗 whose day has not come: a thin mark at the level it asks for. */
 .fg-target {
   position: absolute;
   top: 2px;
   height: 16px;
   width: 2px;
   background: #334155;
-  opacity: 0.75;
+  opacity: 0.7;
   pointer-events: none;
 }
 
-/* Kept: it happened, so it stops asking to be read. No number either — the fill
-   has gone past it, and the cell still lists it. */
-.fg-target.is-met {
-  opacity: 0.25;
-}
-
-/* The day came and the work was not there. */
-.fg-target.is-missed {
-  background: var(--fg-late);
-  opacity: 1;
-  width: 3px;
-}
-
-/* How much was promised, in words rather than in a position.
-   The halo is not decoration: this sits over the fill as often as over the
-   ground, and a number that disappears on the rows that are behind is a number
+/* When it is for, in words.
+   The date cannot be a position here — the position is spoken for by the
+   amount — and it does not need to be: nothing on this bar is compared with a
+   date. The halo is not decoration; this sits over the fill as often as over
+   the ground, and a label that vanishes on the rows that are behind is a label
    nobody can use. */
 .fg-target-label {
   position: absolute;

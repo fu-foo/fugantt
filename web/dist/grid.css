@@ -424,22 +424,21 @@ html {
   background: var(--fg-bar-soft);
   border-style: solid;
 }
+.fg-bar-behind {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: var(--fg-late);
+  opacity: 0.5;
+}
 .fg-target {
   position: absolute;
   top: 2px;
   height: 16px;
   width: 2px;
   background: #334155;
-  opacity: 0.75;
+  opacity: 0.7;
   pointer-events: none;
-}
-.fg-target.is-met {
-  opacity: 0.25;
-}
-.fg-target.is-missed {
-  background: var(--fg-late);
-  opacity: 1;
-  width: 3px;
 }
 .fg-target-label {
   position: absolute;

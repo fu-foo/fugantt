@@ -310,7 +310,7 @@
   var SHOWS_KEY = "fugantt:chart-shows";
   function loadShows() {
     const stored = window.localStorage.getItem(SHOWS_KEY);
-    const shows = { start: true, end: true, worked: true };
+    const shows = { start: true, end: true, worked: true, targets: true };
     if (!stored) return shows;
     try {
       return { ...shows, ...JSON.parse(stored) };
@@ -2159,7 +2159,8 @@
       const choices = [
         ["start", "\u958B\u59CB\u5DEE\u7570"],
         ["end", "\u7D42\u4E86\u5DEE\u7570"],
-        ["worked", "\u5B9F\u4F5C\u696D\u65E5\u6570"]
+        ["worked", "\u5B9F\u4F5C\u696D\u65E5\u6570"],
+        ["targets", "\u4E88\u5B9A\u9032\u6357"]
       ];
       if (choices.some(([key]) => !this.shows[key])) button.classList.add("is-on");
       button.addEventListener("mousedown", (event) => event.preventDefault());
@@ -2354,20 +2355,40 @@
           );
         }
         row.append(bar);
-        for (const target of task.targets) {
-          const at = dayIndex(target.date, origin) - planned.start;
-          if (at < 0 || at >= planned.length) continue;
-          const left = (planned.start + at) * this.dayWidth;
+        const due = this.shows.targets ? task.targets.filter((target) => target.due) : [];
+        const promised = due.reduce(
+          (worst, target) => worst === null || target.percent >= worst.percent ? target : worst,
+          null
+        );
+        if (promised && promised.percent > task.progress) {
+          const behind = element("div", "fg-bar-behind");
+          behind.style.left = `${task.progress}%`;
+          behind.style.width = `${promised.percent - task.progress}%`;
+          behind.title = `${promised.date} \u307E\u3067\u306B ${promised.percent}%\uFF08\u3044\u307E ${task.progress}%\uFF09`;
+          bar.append(behind);
+          const label = element(
+            "div",
+            "fg-target-label is-missed",
+            `${short(promised.date)} ${promised.percent}%`
+          );
+          label.style.left = `${planned.start * this.dayWidth + planned.length * this.dayWidth * promised.percent / 100 + 4}px`;
+          label.title = behind.title;
+          row.append(label);
+        }
+        for (const target of this.shows.targets ? task.targets : []) {
+          if (target.due) continue;
+          const left = planned.start * this.dayWidth + planned.length * this.dayWidth * target.percent / 100;
           const mark = element("div", "fg-target");
           mark.style.left = `${left}px`;
-          if (target.missed) mark.classList.add("is-missed");
-          else if (target.due) mark.classList.add("is-met");
-          mark.title = target.missed ? `${target.date} \u307E\u3067\u306B ${target.percent}%\uFF08\u3044\u307E ${task.progress}%\uFF09` : `${target.date} \u307E\u3067\u306B ${target.percent}%`;
+          mark.title = `${target.date} \u307E\u3067\u306B ${target.percent}%`;
           row.append(mark);
-          if (target.due && !target.missed) continue;
-          const label = element("div", "fg-target-label", `${target.percent}%`);
+          const label = element(
+            "div",
+            "fg-target-label",
+            `${short(target.date)} ${target.percent}%`
+          );
           label.style.left = `${left + 4}px`;
-          if (target.missed) label.classList.add("is-missed");
+          label.title = mark.title;
           row.append(label);
         }
       }

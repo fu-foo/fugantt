@@ -22,9 +22,10 @@ planned, and what happened.
 - **The delay is split.** Not "twelve days late", but "nine days of work, three
   days waiting on another team".
 - **Behind means behind the plan you wrote.** Enter "50% by the 20th" and the
-  chart marks the 20th and writes 50% there. The position is a date, like
-  everything else on the chart; the amount is text, because a position on a time
-  axis cannot honestly carry one. Enter nothing and nothing is claimed: a
+  shortfall is drawn from where the work got to up to the half of the bar, with
+  `8/20 50%` written at its end. Grab that bar and it sets a percentage, so its
+  axis is read as one — and two things that are compared have to share a ruler.
+  Reach the promise and the red is gone. Enter nothing and nothing is claimed: a
   schedule tool that guesses your plan from the dates is judging you against a
   plan nobody agreed to.
 - **Waiting is recorded**, with dates and a reason. Those days count towards

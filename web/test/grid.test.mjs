@@ -1935,55 +1935,62 @@ check(
   }),
 );
 
-// 予定進捗の印は「日付」の位置に立て、量は「文字」で書く。
+// 予定進捗は「量」の位置に置き、日付を文字で書く。
 //
-// 量を位置で表すと必ず誤読される。50% をバーの半分に置けば、その x はバーの上では
-// 誰も言っていない日付になる（実際、この機能を書いた本人が自分の絵を読み違えた）。
-// 日付の位置に置いて量を書かなければ、今度は塗りと見比べて「直線の計画」を読んでしまう。
-// 位置＝日付、量＝文字。チャートの横軸は最後まで日付一本。
+// 逆（日付の位置に印、量を文字）を先に試して、手で触った瞬間に壊れた。このバーは
+// 掴むと進捗を入れる装置になる——つまり横軸は％として扱われる。そこに日付の位置で
+// 印を置くと、塗りが届いた＝達成、と読まれる。作った本人が半日で2回やった。
+// 比べるもの同士は同じものさしに乗せる。日付はここでは何とも比べないので文字。
 check(
-  "予定進捗の印は約束した日付の位置に立つ",
+  "足りない分は塗りの続きから、約束した％まで",
   await page.evaluate(() => {
     const named = [...document.querySelectorAll(".fg-pane-left .fg-row.fg-data .fg-cell-name")].map(
       (c) => c.textContent.trim(),
     );
     const at = named.findIndex((n) => n.includes("ドキュメント整備"));
-    const row = [...document.querySelectorAll(".fg-bar-row")][at];
-    const bar = row?.querySelector(".fg-bar.is-plan");
-    const mark = row?.querySelector(".fg-target");
-    if (!bar || !mark) return false;
+    const bar = [...document.querySelectorAll(".fg-bar-row")][at]?.querySelector(".fg-bar.is-plan");
+    const band = bar?.querySelector(".fg-bar-behind");
+    const fill = bar?.querySelector(".fg-bar-fill");
+    if (!band || !fill) return false;
 
     const box = bar.getBoundingClientRect();
-    // 予定は 8/1〜8/20 の20日ぶん、約束は 8/5。左から4日ぶんのところ。
-    const day = box.width / 20;
-    const offset = mark.getBoundingClientRect().left - box.left;
+    const right = ((band.getBoundingClientRect().right - box.left) / box.width) * 100;
 
-    return Math.abs(offset - day * 4) <= 2 && mark.title.startsWith("2026-08-05");
+    // 5% まで来ていて、8/5 までに 50% の約束。帯は塗りの右端から 50% の位置まで。
+    return (
+      Math.abs(band.getBoundingClientRect().left - fill.getBoundingClientRect().right) <= 1 &&
+      Math.abs(right - 50) <= 1 &&
+      getComputedStyle(band).backgroundColor === "rgb(220, 38, 38)"
+    );
   }),
   await page.evaluate(() => {
-    const mark = document.querySelector(".fg-target");
-    return mark ? mark.title : "印がない";
+    const band = document.querySelector(".fg-bar-behind");
+    if (!band) return "帯がない";
+    const bar = band.closest(".fg-bar").getBoundingClientRect();
+    const box = band.getBoundingClientRect();
+    return `${(((box.left - bar.left) / bar.width) * 100).toFixed(1)}% → ${(((box.right - bar.left) / bar.width) * 100).toFixed(1)}% / ${band.title}`;
   }),
 );
 
 check(
-  "量は位置ではなく文字で出る",
+  "いつまでか、は文字で出る",
   await page.evaluate(() => {
     const named = [...document.querySelectorAll(".fg-pane-left .fg-row.fg-data .fg-cell-name")].map(
       (c) => c.textContent.trim(),
     );
     const at = named.findIndex((n) => n.includes("ドキュメント整備"));
     const row = [...document.querySelectorAll(".fg-bar-row")][at];
-    const label = row?.querySelector(".fg-target-label");
-    const mark = row?.querySelector(".fg-target");
-    if (!label || !mark) return false;
+    const bar = row.querySelector(".fg-bar.is-plan");
+    const band = bar?.querySelector(".fg-bar-behind");
+    const label = row.querySelector(".fg-target-label");
+    if (!band || !label) return false;
 
     const style = getComputedStyle(label);
 
     return (
-      label.textContent === "50%" &&
-      // 印のすぐ右。離れると、どの印の数字か分からなくなる。
-      label.getBoundingClientRect().left - mark.getBoundingClientRect().right < 8 &&
+      label.textContent === "8/5 50%" &&
+      // 帯の端のすぐ右。離れると、どの約束の日付か分からなくなる。
+      label.getBoundingClientRect().left - band.getBoundingClientRect().right < 8 &&
       style.color === "rgb(220, 38, 38)" &&
       // 塗りの上に乗ることがあるので、白い縁で必ず読めるようにしてある。
       style.textShadow.includes("rgb(255, 255, 255)")
@@ -1991,58 +1998,132 @@ check(
   }),
   await page.evaluate(() => {
     const label = document.querySelector(".fg-target-label");
-    return label ? `${label.textContent} / ${getComputedStyle(label).color}` : "数字が無い";
+    return label ? `${label.textContent} / ${getComputedStyle(label).color}` : "文字が無い";
   }),
 );
 
-// 帯はもう無い。塗りの右端と印の位置は別のものさしなので、並べて長さを比べさせない。
+// 約束に届いた瞬間に赤が消える。これが触っていて分かる唯一の合図なので、
+// 境目そのものを見る。
+const crossing = await page.evaluate(async () => {
+  const grid = await (await fetch("/api/projects/test-project/grid")).json();
+  const id = grid.tasks.find((task) => task.name === "ドキュメント整備").id;
+
+  const read = async (value) => {
+    await fetch(`/api/projects/test-project/tasks/${id}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ field: "progress", value: String(value) }),
+    });
+    await new Promise((done) => setTimeout(done, 500));
+
+    const bar = document.querySelector(`.fg-bar[data-task="${id}"]`);
+    return {
+      red: bar.classList.contains("is-delayed"),
+      band: !!bar.querySelector(".fg-bar-behind"),
+    };
+  };
+
+  const before = await read(49);
+  const after = await read(50);
+  await read(5);
+
+  return { before, after };
+});
+
 check(
-  "遅れの帯は描かない",
-  await page.evaluate(() => document.querySelectorAll(".fg-bar-behind").length === 0),
+  "約束の％に届くと赤が消える",
+  crossing.before.red && crossing.before.band && !crossing.after.red && !crossing.after.band,
+  JSON.stringify(crossing),
 );
 
-// まだ来ていない約束は赤くない。日が来ていないものを破ったことにはできない。
+// まだ来ていない約束は帯ではなく細い印。位置はやはり％、日付は文字。
 check(
-  "これからの予定進捗は赤くない",
+  "これからの予定進捗はその％の位置に細く出る",
   await page.evaluate(() => {
     const named = [...document.querySelectorAll(".fg-pane-left .fg-row.fg-data .fg-cell-name")].map(
       (c) => c.textContent.trim(),
     );
     const at = named.findIndex((n) => n.trim() === "設計");
     const row = [...document.querySelectorAll(".fg-bar-row")][at];
-    const soon = [...row.querySelectorAll(".fg-target")].find((m) => m.title.includes("08-24"));
-    const label = [...row.querySelectorAll(".fg-target-label")].find((l) => l.textContent === "90%");
-
-    return (
-      !!soon && !!label &&
-      !soon.classList.contains("is-missed") &&
-      getComputedStyle(soon).backgroundColor !== "rgb(220, 38, 38)"
+    const bar = row.querySelector(".fg-bar.is-plan");
+    const mark = row.querySelector(".fg-target");
+    const label = [...row.querySelectorAll(".fg-target-label")].find(
+      (l) => l.textContent === "8/24 90%",
     );
+    if (!mark || !label) return false;
+
+    const box = bar.getBoundingClientRect();
+    const left = ((mark.getBoundingClientRect().left - box.left) / box.width) * 100;
+
+    // 8/24 までに 90%。帯は出ない（まだその日ではない）。
+    return (
+      Math.abs(left - 90) <= 1.5 &&
+      mark.title.includes("90%") &&
+      !bar.querySelector(".fg-bar-behind") &&
+      getComputedStyle(mark).backgroundColor !== "rgb(220, 38, 38)"
+    );
+  }),
+  await page.evaluate(() => {
+    const mark = document.querySelector(".fg-target");
+    return mark ? `${mark.style.left} / ${mark.title}` : "印がない";
   }),
 );
 
-// 達成した約束は印だけ残して数字は消す。塗りがその先まで来ていて、数字はセルにある。
+// 達成した約束は何も描かない。塗りがその先まで来ている、それが答えになっている。
 check(
-  "達成した予定進捗は数字を出さない",
-  await page.evaluate(() => {
+  "達成した予定進捗は描かない",
+  await page.evaluate(async () => {
+    const grid = await (await fetch("/api/projects/test-project/grid")).json();
+    const design = grid.tasks.find((task) => task.name === "設計");
+    const met = design.targets.filter((target) => target.due && !target.missed);
+
     const named = [...document.querySelectorAll(".fg-pane-left .fg-row.fg-data .fg-cell-name")].map(
       (c) => c.textContent.trim(),
     );
     const at = named.findIndex((n) => n.trim() === "設計");
     const row = [...document.querySelectorAll(".fg-bar-row")][at];
-    const met = [...row.querySelectorAll(".fg-target")].find((m) => m.title.includes("08-12"));
-    const labels = [...row.querySelectorAll(".fg-target-label")].map((l) => l.textContent);
 
+    // 8/12 の 50% は達成済み。印も文字も出ていないこと。
     return (
-      !!met &&
-      met.classList.contains("is-met") &&
-      Number(getComputedStyle(met).opacity) < 0.4 &&
-      !labels.includes("50%")
+      met.length === 1 &&
+      [...row.querySelectorAll(".fg-target, .fg-target-label")].every(
+        (el) => !el.title.includes("08-12") && !el.textContent.startsWith("8/12"),
+      )
     );
   }),
   await page.evaluate(() => {
     const rows = [...document.querySelectorAll(".fg-bar-row")];
-    return rows.map((r) => [...r.querySelectorAll(".fg-target-label")].map((l) => l.textContent).join("+")).join(" / ");
+    return rows
+      .map((r) => [...r.querySelectorAll(".fg-target-label")].map((l) => l.textContent).join("+"))
+      .join(" / ");
+  }),
+);
+
+// チャートに何を出すかは人と日による。予定進捗も切れる。
+check(
+  "予定進捗はチャートから消せる",
+  await page.evaluate(async () => {
+    const drawn = () => document.querySelectorAll(".fg-target, .fg-target-label, .fg-bar-behind").length;
+    const before = drawn();
+
+    document.querySelector(".fg-shows").click();
+    await new Promise((done) => setTimeout(done, 200));
+    const box = document.querySelector('.fg-shows-menu input[data-shows="targets"]');
+    if (!box) return false;
+
+    box.click();
+    await new Promise((done) => setTimeout(done, 300));
+    const after = drawn();
+    const remembered = window.localStorage.getItem("fugantt:chart-shows");
+
+    // 戻す
+    document.querySelector(".fg-shows").click();
+    await new Promise((done) => setTimeout(done, 200));
+    document.querySelector('.fg-shows-menu input[data-shows="targets"]').click();
+    await new Promise((done) => setTimeout(done, 300));
+    document.body.click();
+
+    return before > 0 && after === 0 && drawn() === before && remembered.includes('"targets":false');
   }),
 );
 
@@ -2116,7 +2197,12 @@ const opMark = (column) => page.$eval(opChip(column), (b) => b.textContent);
 
 /** ボタンを押して、出てきた一覧から比べ方を選ぶ。 */
 const setOp = async (column, at) => {
-  await page.click(opChip(column));
+  // 本物のクリックではなく element.click()。向きボタンは横に流れる領域にあって、
+  // 右のほうの列は固定列の下に隠れる。隠れた要素は puppeteer が「押せない」と言う。
+  await page.$eval(opChip(column), (button) => {
+    button.scrollIntoView({ block: "nearest", inline: "nearest" });
+    button.click();
+  });
   await page.click(`.fg-bound-menu [data-bound="${at}"]`);
   await settle();
 };

@@ -858,6 +858,35 @@
       return this.tasks[this.row];
     }
     /** The built-in columns followed by whatever the project added. */
+    /**
+     * Every column there is, hidden ones included.
+     *
+     * The tooltip is allowed to name a column the table does not show — that is
+     * most of the point of it: take the 製品 column off the screen and still be
+     * able to ask a bar what product it is for.
+     */
+    get everyColumn() {
+      return [
+        ...BASE_COLUMNS,
+        ...this.data.fields.map((field) => ({
+          key: field.id,
+          label: field.label,
+          kind: field.kind,
+          fieldId: field.id,
+          options: field.options
+        }))
+      ];
+    }
+    /** The lines a bar adds to its tooltip, from the columns the project chose. */
+    extraTip(task) {
+      if (this.data.tooltip_columns.length === 0) return "";
+      const lines = this.data.tooltip_columns.map((key) => this.everyColumn.find((column2) => column2.key === key)).filter((column2) => column2 !== void 0).map((column2) => {
+        const value = this.cellDisplay(task, column2).trim();
+        return value && value !== "\u2014" ? `${t(column2.label)}: ${value}` : "";
+      }).filter(Boolean);
+      return lines.length > 0 ? `
+${lines.join("\n")}` : "";
+    }
     get columns() {
       const hidden = new Set(this.data.hidden_columns);
       const all = [
@@ -2541,7 +2570,7 @@
         bar.dataset["progress"] = String(task.progress);
         bar.style.left = `${planned.start * this.dayWidth}px`;
         bar.style.width = `${planned.length * this.dayWidth}px`;
-        bar.title = `\u4E88\u5B9A ${task.start} \u301C ${task.end}\uFF08${task.progress}%\uFF09`;
+        bar.title = `\u4E88\u5B9A ${task.start} \u301C ${task.end}\uFF08${task.progress}%\uFF09${this.extraTip(task)}`;
         const fill = element("div", "fg-bar-fill");
         fill.style.width = `${task.progress}%`;
         bar.append(fill);
@@ -2608,7 +2637,7 @@
         const bar = element("div", "fg-actual");
         bar.style.left = `${actual.start * this.dayWidth}px`;
         bar.style.width = `${actual.length * this.dayWidth}px`;
-        bar.title = task.actual_end ? `\u5B9F\u65BD ${task.actual_start} \u301C ${task.actual_end}` : `\u5B9F\u65BD ${task.actual_start} \u301C\uFF08\u9032\u884C\u4E2D\uFF09`;
+        bar.title = (task.actual_end ? `\u5B9F\u65BD ${task.actual_start} \u301C ${task.actual_end}` : `\u5B9F\u65BD ${task.actual_start} \u301C\uFF08\u9032\u884C\u4E2D\uFF09`) + this.extraTip(task);
         if (!task.actual_end) bar.classList.add("is-open");
         if (this.editable(task, column("actual_start"))) {
           bar.classList.add("is-draggable");

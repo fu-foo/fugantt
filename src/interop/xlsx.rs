@@ -474,6 +474,7 @@ mod tests {
             fields: Vec::new(),
             hidden_columns: Vec::new(),
             column_order: Vec::new(),
+            tooltip_columns: Vec::new(),
             column_widths: std::collections::HashMap::new(),
             frozen_columns: 1,
             counting: crate::domain::Counting::default(),

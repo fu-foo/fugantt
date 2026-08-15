@@ -1815,6 +1815,36 @@ async fn remove_field(cx: &Cx, Form(form): Form<RemoveField>) -> Result<SeeOther
 /// to live beside the fields they reorder — and a form cannot nest in a form.
 /// Pressing ↑ submits the same form, so the widths typed alongside are saved
 /// rather than discarded.
+/// Which columns a bar repeats when somebody points at it.
+///
+/// Kept apart from the column form: this is about the chart, and it may name a
+/// column that form has switched off — which is the useful case. A wide table
+/// scrolls; a bar does not.
+#[route(POST "/projects/{project_id}/tooltip")]
+async fn set_tooltip(
+    cx: &Cx,
+    Form(form): Form<std::collections::HashMap<String, String>>,
+) -> Result<SeeOther> {
+    let user = require_user(cx).await?;
+    let project_id = project::id_from_path(cx)?.to_owned();
+    let project = authorize_edit(cx, &user.id, &project_id).await?;
+
+    // Read against the project's own columns, so a stale form cannot store a
+    // key that means nothing — and the order follows the table, not the form.
+    let data = project::grid_data(cx, &project).await?;
+    let chosen: Vec<String> = project::column_order(&data)
+        .into_iter()
+        .filter(|key| key != "name" && form.contains_key(&format!("tip_{key}")))
+        .collect();
+
+    project::set_setting(cx, &project_id, "tooltip_columns", &chosen.join(" ")).await?;
+    bump_and_announce(cx, &project_id, user.display()).await?;
+
+    Ok(see_other(&format!(
+        "/projects/{project_id}/settings?open=tooltip#tooltip"
+    )))
+}
+
 #[route(POST "/projects/{project_id}/columns")]
 async fn set_columns(
     cx: &Cx,

@@ -144,6 +144,12 @@ pub fn of(ja: &str) -> Option<&'static str> {
         // --- settings -----------------------------------------------------
         "表示" => "Display",
         "列" => "Columns",
+        "チャートの吹き出し" => "What a bar says",
+        "バーにポインタを合わせたときに、日付のほかに出す項目です。表から外した列も選べます——チャートの上で確かめられるなら、その列はいつも出しておかなくていい。" => {
+            "What a bar shows besides its dates when you point at it. Columns you have taken off the table can be named here: if you can check it on the chart, it need not sit on the screen all day."
+        }
+        "（非表示）" => "(hidden)",
+        "日付だけです。" => "Dates only.",
         "独自の項目" => "Your own fields",
         "祝日・休業日" => "Holidays and closures",
         "色" => "Colours",

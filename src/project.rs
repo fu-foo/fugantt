@@ -448,6 +448,10 @@ pub async fn grid_data(cx: &Cx, project: &Project) -> Result<GridData> {
                 .get("column_order")
                 .map(|value| value.split_whitespace().map(ToOwned::to_owned).collect())
                 .unwrap_or_default(),
+            tooltip_columns: stored
+                .get("tooltip_columns")
+                .map(|value| value.split_whitespace().map(ToOwned::to_owned).collect())
+                .unwrap_or_default(),
             column_widths: column_widths(&stored),
             // The task name alone by default: it is the one column that says
             // which row you are looking at.

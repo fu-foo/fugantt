@@ -4082,6 +4082,54 @@ check(
   JSON.stringify(cleared),
 );
 
+// --- チャートの吹き出し -----------------------------------------------------------
+
+// 表から外した列も、バーの上では確かめられる。そこが要るから列を出しっぱなしにする、
+// という取引をしなくて済む。
+const tip = await page.evaluate(async () => {
+  const bar = async () => {
+    const grid = await (await fetch("/api/projects/test-project/grid")).json();
+    const id = grid.tasks.find((task) => task.name === "設計").id;
+    return { id, tooltip: grid.tooltip_columns };
+  };
+
+  const before = await bar();
+
+  const body = new URLSearchParams();
+  body.set("tip_status", "1");
+  body.set("tip_assignee", "1");
+  await fetch("/projects/test-project/tooltip", { method: "POST", body });
+
+  const after = await bar();
+
+  return { before: before.tooltip, after: after.tooltip, id: after.id };
+});
+
+check(
+  "吹き出しに出す列を選べる",
+  tip.before.length === 0 && tip.after.join(",") === "assignee,status",
+  JSON.stringify(tip),
+);
+
+await page.reload({ waitUntil: "domcontentloaded" });
+await page.waitForSelector(".fg-grid");
+await settle();
+
+check(
+  "選んだ列がバーの吹き出しに出る",
+  await page.evaluate((id) => {
+    const title = document.querySelector(`.fg-bar[data-task="${id}"]`)?.title ?? "";
+    // 日付は残り、その下に「ラベル: 値」が並ぶ。
+    return title.startsWith("予定 ") && title.includes("\n担当者: 佐藤") && title.includes("\nステータス: ");
+  }, tip.id),
+  await page.evaluate((id) => document.querySelector(`.fg-bar[data-task="${id}"]`)?.title ?? "バーが無い", tip.id),
+);
+
+// 片付け: 既定は日付だけ。
+await page.evaluate(async () => {
+  await fetch("/projects/test-project/tooltip", { method: "POST", body: new URLSearchParams() });
+});
+
 // --- 余力 -------------------------------------------------------------------
 
 // 「山田は今月どれくらい空いてる？」は、チャートを指で追って数える質問だった。
@@ -4274,9 +4322,9 @@ check(
     const ids = [...doc.querySelectorAll("[id]")]
       .map((el) => el.id)
       .filter((id) =>
-        ["view", "columns", "statuses", "fields", "assignees", "holidays", "colours", "members"].includes(id),
+        ["view", "columns", "tooltip", "statuses", "fields", "assignees", "holidays", "colours", "members"].includes(id),
       );
-    return ids.join(",") === "view,columns,statuses,fields,assignees,holidays,colours,members";
+    return ids.join(",") === "view,columns,tooltip,statuses,fields,assignees,holidays,colours,members";
   }),
 );
 

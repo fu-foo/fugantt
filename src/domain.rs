@@ -118,6 +118,10 @@ pub struct GridData {
     /// The order the columns are shown in. Anything missing keeps its place at
     /// the end, so a new column never disappears because the list is old.
     pub column_order: Vec<String>,
+    /// Columns a bar repeats in its tooltip. May name a hidden column: taking
+    /// 製品 off the table and still being able to ask a bar about it is most of
+    /// why this exists.
+    pub tooltip_columns: Vec<String>,
     /// Widths in pixels, by column key. Absent means the column sizes itself.
     pub column_widths: HashMap<String, u32>,
     /// How many columns stay put when the table scrolls sideways.
@@ -158,6 +162,7 @@ impl GridData {
             fields: Vec::new(),
             hidden_columns: Vec::new(),
             column_order: Vec::new(),
+            tooltip_columns: Vec::new(),
             column_widths: HashMap::new(),
             frozen_columns: 1,
             counting: Counting::default(),
@@ -189,6 +194,7 @@ pub struct Settings {
     pub values: HashMap<String, HashMap<String, String>>,
     pub hidden_columns: Vec<String>,
     pub column_order: Vec<String>,
+    pub tooltip_columns: Vec<String>,
     pub column_widths: HashMap<String, u32>,
     pub frozen_columns: usize,
     pub counting: Counting,
@@ -452,6 +458,7 @@ impl Default for Settings {
             values: HashMap::new(),
             hidden_columns: Vec::new(),
             column_order: Vec::new(),
+            tooltip_columns: Vec::new(),
             column_widths: HashMap::new(),
             frozen_columns: 1,
             counting: Counting::default(),
@@ -550,6 +557,7 @@ pub fn build(
         mut values,
         hidden_columns,
         column_order,
+        tooltip_columns,
         column_widths,
         frozen_columns,
         counting,
@@ -655,6 +663,7 @@ pub fn build(
         fields,
         hidden_columns,
         column_order,
+        tooltip_columns,
         column_widths,
         frozen_columns,
         counting,

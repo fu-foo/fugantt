@@ -76,6 +76,8 @@ interface GridData {
   }[];
   hidden_columns: string[];
   column_order: string[];
+  /// Columns the chart repeats in a bar's tooltip, by key.
+  tooltip_columns: string[];
   column_widths: Record<string, number>;
   frozen_columns: number;
   counting: {
@@ -1408,6 +1410,43 @@ class Grid {
   }
 
   /** The built-in columns followed by whatever the project added. */
+  /**
+   * Every column there is, hidden ones included.
+   *
+   * The tooltip is allowed to name a column the table does not show — that is
+   * most of the point of it: take the 製品 column off the screen and still be
+   * able to ask a bar what product it is for.
+   */
+  private get everyColumn(): ColumnDef[] {
+    return [
+      ...BASE_COLUMNS,
+      ...this.data.fields.map((field) => ({
+        key: field.id,
+        label: field.label,
+        kind: field.kind as ColumnDef["kind"],
+        fieldId: field.id,
+        options: field.options,
+      })),
+    ];
+  }
+
+  /** The lines a bar adds to its tooltip, from the columns the project chose. */
+  private extraTip(task: Task): string {
+    if (this.data.tooltip_columns.length === 0) return "";
+
+    const lines = this.data.tooltip_columns
+      .map((key) => this.everyColumn.find((column) => column.key === key))
+      .filter((column): column is ColumnDef => column !== undefined)
+      .map((column) => {
+        const value = this.cellDisplay(task, column).trim();
+        // An empty cell says nothing worth two more lines of tooltip.
+        return value && value !== "—" ? `${t(column.label)}: ${value}` : "";
+      })
+      .filter(Boolean);
+
+    return lines.length > 0 ? `\n${lines.join("\n")}` : "";
+  }
+
   private get columns(): ColumnDef[] {
     const hidden = new Set(this.data.hidden_columns);
 
@@ -3747,7 +3786,7 @@ class Grid {
       bar.dataset["progress"] = String(task.progress);
       bar.style.left = `${planned.start * this.dayWidth}px`;
       bar.style.width = `${planned.length * this.dayWidth}px`;
-      bar.title = `予定 ${task.start} 〜 ${task.end}（${task.progress}%）`;
+      bar.title = `予定 ${task.start} 〜 ${task.end}（${task.progress}%）${this.extraTip(task)}`;
 
       // Progress is always measured against the plan bar. Put on the actual, the
       // same 60% lands in a different place row by row, and an unfinished actual
@@ -3854,9 +3893,10 @@ class Grid {
       const bar = element("div", "fg-actual");
       bar.style.left = `${actual.start * this.dayWidth}px`;
       bar.style.width = `${actual.length * this.dayWidth}px`;
-      bar.title = task.actual_end
-        ? `実施 ${task.actual_start} 〜 ${task.actual_end}`
-        : `実施 ${task.actual_start} 〜（進行中）`;
+      bar.title =
+        (task.actual_end
+          ? `実施 ${task.actual_start} 〜 ${task.actual_end}`
+          : `実施 ${task.actual_start} 〜（進行中）`) + this.extraTip(task);
       if (!task.actual_end) bar.classList.add("is-open");
 
       // No fill here: the actual bar answers "when did this run", and the plan

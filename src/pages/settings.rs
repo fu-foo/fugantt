@@ -406,6 +406,59 @@ async fn settings(cx: &Cx) -> Result {
                 }
             </section>
 
+            // --- what a bar says when you point at it -----------------------
+
+            <section id="tooltip" class="mt-6 rounded-xl border border-slate-200 bg-white p-6">
+                <h2 class="text-lg font-semibold">(l.t("チャートの吹き出し"))</h2>
+                <p class="mt-1 text-sm text-slate-500">
+                    (l.t("バーにポインタを合わせたときに、日付のほかに出す項目です。表から外した列も選べます——チャートの上で確かめられるなら、その列はいつも出しておかなくていい。"))
+                </p>
+
+                if project.can_edit() {
+                    <form
+                        method="POST"
+                        action=(("/projects/", &project.id, "/tooltip"))
+                        class="mt-4 flex flex-col gap-3"
+                    >
+                        <div class="grid gap-x-6 gap-y-1 sm:grid-cols-3">
+                            for column in columns.iter().filter(|column| column.key != "name") {
+                                <label class="flex items-center gap-2 text-sm">
+                                    <input
+                                        type="checkbox"
+                                        name=(("tip_", &column.key))
+                                        value="1"
+                                        checked=(
+                                            data.tooltip_columns
+                                                .contains(&column.key)
+                                                .then_some("checked")
+                                        )
+                                        class="size-4"
+                                    >
+                                    (&column.label)
+                                    if !column.shown {
+                                        <span class="text-xs text-slate-400">(l.t("（非表示）"))</span>
+                                    }
+                                </label>
+                            }
+                        </div>
+
+                        <button
+                            class="w-fit rounded-lg bg-blue-600 px-4 py-2 font-medium text-white hover:bg-blue-500"
+                        >
+                            (l.t("保存"))
+                        </button>
+                    </form>
+                } else if data.tooltip_columns.is_empty() {
+                    <p class="mt-4 text-sm text-slate-500">(l.t("日付だけです。"))</p>
+                } else {
+                    <ul class="mt-4 flex flex-col gap-1 text-sm text-slate-600">
+                        for column in columns.iter().filter(|c| data.tooltip_columns.contains(&c.key)) {
+                            <li>(&column.label)</li>
+                        }
+                    </ul>
+                }
+            </section>
+
             // --- statuses ---------------------------------------------------
 
             <details id="statuses" open=((open == "statuses").then_some("open")) class="mt-6 rounded-xl border border-slate-200 bg-white p-6">

@@ -886,13 +886,7 @@
       const order = this.data.column_order;
       const rank = (column2) => {
         const at = order.indexOf(column2.key);
-        if (at >= 0) return at;
-        const index = all.indexOf(column2);
-        for (let before = index - 1; before >= 0; before--) {
-          const anchor = order.indexOf(all[before].key);
-          if (anchor >= 0) return anchor + (index - before) / (all.length + 1);
-        }
-        return -1;
+        return at < 0 ? order.length + all.indexOf(column2) : at;
       };
       return all.sort((a, b) => rank(a) - rank(b));
     }

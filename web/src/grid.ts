@@ -1438,25 +1438,13 @@ class Grid {
       })),
     ];
 
-    // The stored order need not mention every column. One that is missing sits
-    // next to the column it was declared after, so a built-in added by an
-    // update turns up where it belongs rather than at the far right edge of a
-    // project somebody arranged a year ago — 遅延 next to タスク, not past コメント.
+    // The server sends the order with every column already placed, including
+    // any the stored setting never heard of. Anything missing here is a column
+    // this build knows about and that one did not; it keeps its own place.
     const order = this.data.column_order;
     const rank = (column: ColumnDef) => {
       const at = order.indexOf(column.key);
-      if (at >= 0) return at;
-
-      const index = all.indexOf(column);
-      for (let before = index - 1; before >= 0; before--) {
-        const anchor = order.indexOf(all[before]!.key);
-        // A fraction, so several new columns keep their declared order between
-        // two stored ones instead of collapsing onto the same place.
-        if (anchor >= 0) return anchor + (index - before) / (all.length + 1);
-      }
-
-      // Declared before anything the project has an opinion about.
-      return -1;
+      return at < 0 ? order.length + all.indexOf(column) : at;
     };
 
     return all.sort((a, b) => rank(a) - rank(b));

@@ -1,4 +1,5 @@
 mod admin;
+mod capacity;
 mod history;
 mod login;
 mod projects;
@@ -214,6 +215,7 @@ async fn project_menu(project: &project::Project, l: crate::i18n::Lang) -> Resul
     let import_json = format!("{base}/import.json");
     let history = format!("{base}/history");
     let stats = format!("{base}/stats");
+    let capacity = format!("{base}/capacity");
 
     view! {
         <nav class="flex flex-col gap-1 text-sm">
@@ -222,6 +224,7 @@ async fn project_menu(project: &project::Project, l: crate::i18n::Lang) -> Resul
             // In the order they are looked at: every day, now and then, rarely.
             drawer_link(href: &base, label: l.t("スケジュール"))
             drawer_link(href: &stats, label: l.t("統計"))
+            drawer_link(href: &capacity, label: l.t("余力"))
             drawer_link(href: &history, label: l.t("変更履歴"))
             drawer_link(href: &settings, label: l.t("設定"))
 

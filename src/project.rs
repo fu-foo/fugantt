@@ -443,6 +443,7 @@ pub async fn grid_data(cx: &Cx, project: &Project) -> Result<GridData> {
             values,
             hidden_columns: hidden,
             counting: counting(&stored),
+            // Filled in below, once the project's own fields are known.
             column_order: stored
                 .get("column_order")
                 .map(|value| value.split_whitespace().map(ToOwned::to_owned).collect())
@@ -462,6 +463,11 @@ pub async fn grid_data(cx: &Cx, project: &Project) -> Result<GridData> {
     // The wording differs per reader, so the language goes on after the table
     // has been built.
     data.language = crate::i18n::lang(cx).await.code().to_owned();
+
+    // Resolved here, so the grid, the settings page and the workbook all read
+    // the same order — including where a column the stored order never heard of
+    // belongs. Two answers to "which column comes second" is one too many.
+    data.column_order = column_order(&data);
 
     Ok(data)
 }
@@ -1180,9 +1186,25 @@ pub fn column_order(data: &GridData) -> Vec<String> {
         .cloned()
         .collect();
 
-    for key in all {
-        if !ordered.contains(&key) {
-            ordered.push(key);
+    // A column the stored order says nothing about goes next to the one it was
+    // declared after, rather than onto the end. An update that adds a built-in
+    // column adds it for a reason — 遅延 belongs beside the task name — and the
+    // end of the row is the one place it is no use. Projects that have never
+    // been arranged are unaffected: their stored order is empty.
+    for (index, key) in all.iter().enumerate() {
+        if ordered.contains(key) {
+            continue;
+        }
+
+        let after = all[..index]
+            .iter()
+            .rev()
+            .find_map(|before| ordered.iter().position(|seen| seen == before));
+
+        match after {
+            Some(at) => ordered.insert(at + 1, key.clone()),
+            // Declared before anything the project has an opinion about.
+            None => ordered.insert(0, key.clone()),
         }
     }
 
@@ -1589,7 +1611,40 @@ pub async fn next_key(cx: &Cx, sql: &str, scope: &str) -> Result<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::slugify;
+    use super::{column_order, slugify};
+    use crate::domain::GridData;
+
+    /// A column an old setting never heard of goes where it was declared, not
+    /// onto the end. 遅延 was added second, beside the task name, and the end of
+    /// the row is the one place a column about lateness is no use.
+    #[test]
+    fn a_new_column_lands_next_to_the_one_it_follows() {
+        let mut data = GridData::empty("p", 0);
+        // An order stored before 遅延 and 予定進捗 existed.
+        data.column_order = ["name", "assignee", "status", "start", "end", "note"]
+            .iter()
+            .map(|key| (*key).to_owned())
+            .collect();
+
+        let order = column_order(&data);
+        let at = |key: &str| order.iter().position(|seen| seen == key).unwrap();
+
+        assert_eq!(at("late"), at("name") + 1, "{order:?}");
+        assert!(at("targets") > at("days"), "{order:?}");
+        assert!(at("targets") < at("actual_start"), "{order:?}");
+        // What the project did arrange stays arranged.
+        assert!(at("assignee") < at("status") && at("status") < at("start"));
+    }
+
+    /// A project that never arranged anything gets the declared order whole.
+    #[test]
+    fn an_untouched_project_takes_the_order_as_declared() {
+        let order = column_order(&GridData::empty("p", 0));
+
+        assert_eq!(order.first().map(String::as_str), Some("name"));
+        assert_eq!(order.get(1).map(String::as_str), Some("late"));
+        assert_eq!(order.last().map(String::as_str), Some("note"));
+    }
 
     #[test]
     fn spaces_become_separators() {

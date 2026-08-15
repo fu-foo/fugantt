@@ -668,6 +668,246 @@ pub fn build(
     }
 }
 
+/// One person's days over a stretch of the calendar.
+#[derive(Debug, Clone, Serialize)]
+pub struct Load {
+    pub assignee: String,
+    /// Days this person could work: the calendar's, less their leave.
+    /// `None` for the unassigned row — nobody has a capacity.
+    pub capacity: Option<i64>,
+    /// Days already spoken for by their unfinished tasks, counted once each.
+    pub busy: i64,
+    pub free: Option<i64>,
+    /// Which days those are, as stretches. A number answers "how much"; the
+    /// only question anybody asks next is "when", and counting it back off the
+    /// chart by hand is the work this page exists to remove.
+    pub free_spans: Vec<Span>,
+    /// Days where two or more of their tasks overlap. Kept apart from `busy`
+    /// on purpose: it is a different question, and adding it in would make a
+    /// person with three tasks on one day look three days busier than they are.
+    pub overlap: i64,
+    pub overlap_spans: Vec<Span>,
+    /// How many tasks were counted, so a row of zeroes can be read.
+    pub tasks: usize,
+}
+
+/// Who has room, over a stretch of months.
+///
+/// The unit is a day, and a day is either taken or it is not. Anything finer —
+/// half a day, 30% of a person — is a number nobody in a 予実 meeting can
+/// defend, and it would need a field on every task that nobody would fill in.
+///
+/// Days are counted once. Three tasks on one Tuesday is one Tuesday: the
+/// alternative reports 300% loads that read as nonsense and get ignored, which
+/// is worse than a number that is merely coarse. The overlap is reported
+/// separately, because "you are booked solid" and "you are booked three times
+/// over" are different problems.
+pub fn load(data: &GridData, from: Date, to: Date) -> Vec<Load> {
+    let calendar = calendar_of(data);
+
+    // Everyone the project knows about, plus anyone standing on a task without
+    // being on the list, plus the tasks nobody is holding.
+    let mut names: Vec<String> = data
+        .assignees
+        .iter()
+        .map(|person| person.name.trim().to_owned())
+        .collect();
+
+    for task in &data.tasks {
+        let name = task.assignee.trim().to_owned();
+        if !names.contains(&name) {
+            names.push(name);
+        }
+    }
+
+    names.sort();
+    names.dedup();
+    // The unassigned row last: it is work, not a person.
+    names.retain(|name| !name.is_empty());
+    names.push(String::new());
+
+    names
+        .into_iter()
+        .map(|name| {
+            let mut taken: HashMap<Date, usize> = HashMap::new();
+            let mut counted = 0;
+
+            for task in &data.tasks {
+                // Summary rows are their children added up; counting both would
+                // book every day twice.
+                if task.has_children || task.assignee.trim() != name {
+                    continue;
+                }
+
+                // Finished work is not in anybody's way. The question this page
+                // answers is what is left.
+                if task.actual_end.is_some() {
+                    continue;
+                }
+
+                let (Some(start), Some(end)) = (
+                    task.start.as_deref().and_then(parse_date),
+                    task.end.as_deref().and_then(parse_date),
+                ) else {
+                    continue;
+                };
+
+                counted += 1;
+
+                let mut day = start.max(from);
+                let last = end.min(to);
+                while day <= last {
+                    // Days the person could not have worked anyway are not days
+                    // their plan is using up.
+                    if name.is_empty() || calendar.is_workday(&name, &[], day) {
+                        *taken.entry(day).or_default() += 1;
+                    }
+
+                    let Ok(next) = day.tomorrow() else { break };
+                    day = next;
+                }
+            }
+
+            let busy = taken.len() as i64;
+            let overlap = taken.values().filter(|count| **count > 1).count() as i64;
+
+            let workable = |day: Date| !name.is_empty() && calendar.is_workday(&name, &[], day);
+
+            let capacity = (!name.is_empty()).then(|| {
+                let mut days = 0;
+                let mut day = from;
+                while day <= to {
+                    if workable(day) {
+                        days += 1;
+                    }
+
+                    let Ok(next) = day.tomorrow() else { break };
+                    day = next;
+                }
+
+                days
+            });
+
+            // Runs are joined across days nobody could have worked anyway, so a
+            // fortnight free reads as one stretch rather than as three weekday
+            // fragments with the weekends punched out of it.
+            let free_spans = stretches(
+                from,
+                to,
+                |day| workable(day) && !taken.contains_key(&day),
+                |day| !workable(day),
+            );
+            let overlap_spans = stretches(
+                from,
+                to,
+                |day| taken.get(&day).is_some_and(|count| *count > 1),
+                |day| !workable(day),
+            );
+
+            Load {
+                assignee: name,
+                capacity,
+                busy,
+                free: capacity.map(|days| days - busy),
+                free_spans,
+                overlap,
+                overlap_spans,
+                tasks: counted,
+            }
+        })
+        .collect()
+}
+
+/// Runs of days that answer yes, as `from`/`to` pairs.
+///
+/// `neutral` days neither start a run nor end one: a Sunday in the middle of a
+/// free fortnight is part of the stretch, and a Sunday at either end of it is
+/// not worth mentioning.
+fn stretches(
+    from: Date,
+    to: Date,
+    yes: impl Fn(Date) -> bool,
+    neutral: impl Fn(Date) -> bool,
+) -> Vec<Span> {
+    let mut spans: Vec<(Date, Date)> = Vec::new();
+    let mut open: Option<(Date, Date)> = None;
+    let mut day = from;
+
+    while day <= to {
+        if yes(day) {
+            open = match open {
+                Some((start, _)) => Some((start, day)),
+                None => Some((day, day)),
+            };
+        } else if !neutral(day)
+            && let Some(span) = open.take()
+        {
+            spans.push(span);
+        }
+
+        let Ok(next) = day.tomorrow() else { break };
+        day = next;
+    }
+
+    if let Some(span) = open {
+        spans.push(span);
+    }
+
+    spans
+        .into_iter()
+        .map(|(start, end)| Span {
+            start: start.to_string(),
+            end: end.to_string(),
+            reason: String::new(),
+            open: false,
+            days: i64::from(end.since(start).map(|span| span.get_days()).unwrap_or(0)) + 1,
+        })
+        .collect()
+}
+
+/// The project's calendar, rebuilt from what the grid was given.
+///
+/// `build` makes one from its settings; this makes the same one from the table
+/// it produced, so a page that only has the table still counts days the way
+/// the project counts them.
+fn calendar_of(data: &GridData) -> Calendar {
+    let off_days: std::collections::HashSet<Date> = if data.counting.holidays {
+        data.holidays
+            .iter()
+            .filter_map(|holiday| parse_date(&holiday.date))
+            .collect()
+    } else {
+        std::collections::HashSet::new()
+    };
+
+    let mut away: HashMap<String, Vec<(Date, Date)>> = HashMap::new();
+    let mut working: HashMap<String, Vec<(Date, Date)>> = HashMap::new();
+
+    for leave in &data.leaves {
+        let (Some(start), Some(end)) = (parse_date(&leave.start), parse_date(&leave.end)) else {
+            continue;
+        };
+
+        let target = if leave.kind == "on" {
+            &mut working
+        } else {
+            &mut away
+        };
+
+        target
+            .entry(leave.assignee.trim().to_owned())
+            .or_default()
+            .push((start.min(end), end.max(start)));
+    }
+
+    Calendar {
+        counting: data.counting,
+        off_days,
+        away,
+        working,
+    }
+}
+
 /// Emits `row` and its subtree, returning the row's resolved schedule.
 fn visit<'rows>(
     row: &'rows TaskRow,
@@ -1525,6 +1765,77 @@ mod tests {
         // Kept in date order, whatever order they were typed in.
         let dates: Vec<&str> = task.targets.iter().map(|t| t.date.as_str()).collect();
         assert_eq!(dates, ["2026-03-10", "2026-03-20", "2026-03-31"]);
+    }
+
+    /// Two tasks on one day is one day. The alternative reports a 200% load,
+    /// which reads as nonsense and gets ignored — and being ignored is worse
+    /// than being coarse.
+    #[test]
+    fn days_are_counted_once_however_many_tasks_land_on_them() {
+        let mut first = row("a", None, "2026-03-02", "2026-03-06", 0);
+        first.assignee = "山田".to_owned();
+        let mut second = row("b", None, "2026-03-04", "2026-03-10", 0);
+        second.assignee = "山田".to_owned();
+
+        let data = build_for_test("p", 0, date("2026-03-01"), vec![first, second]);
+        let load = load(&data, date("2026-03-01"), date("2026-03-31"));
+        let yamada = load.iter().find(|row| row.assignee == "山田").unwrap();
+
+        // 3/2〜3/10 is nine days; 3/4〜3/6 belongs to both.
+        assert_eq!(yamada.busy, 9);
+        assert_eq!(yamada.overlap, 3);
+        assert_eq!(yamada.tasks, 2);
+    }
+
+    /// Finished work is not in anybody's way, and a summary row is its children
+    /// counted twice.
+    #[test]
+    fn what_is_done_and_what_is_a_total_are_left_out() {
+        let mut done = row("a", None, "2026-03-02", "2026-03-06", 100);
+        done.assignee = "山田".to_owned();
+        done.actual_start = Some("2026-03-02".to_owned());
+        done.actual_end = Some("2026-03-06".to_owned());
+
+        let mut parent = row("p", None, "", "", 0);
+        parent.assignee = "山田".to_owned();
+        let mut child = row("c", Some("p"), "2026-03-09", "2026-03-10", 0);
+        child.assignee = "山田".to_owned();
+
+        let data = build_for_test("p", 0, date("2026-03-01"), vec![done, parent, child]);
+        let load = load(&data, date("2026-03-01"), date("2026-03-31"));
+        let yamada = load.iter().find(|row| row.assignee == "山田").unwrap();
+
+        // Only the child: two days.
+        assert_eq!(yamada.busy, 2, "{yamada:?}");
+        assert_eq!(yamada.tasks, 1);
+    }
+
+    /// Work nobody is holding is the thing a capacity page is for.
+    #[test]
+    fn the_unassigned_get_a_row_of_their_own() {
+        let rows = vec![row("a", None, "2026-03-02", "2026-03-04", 0)];
+        let data = build_for_test("p", 0, date("2026-03-01"), rows);
+        let load = load(&data, date("2026-03-01"), date("2026-03-31"));
+        let nobody = load.last().unwrap();
+
+        assert_eq!(nobody.assignee, "");
+        assert_eq!(nobody.busy, 3);
+        // Nobody has a capacity, so there is no free to report either.
+        assert_eq!(nobody.capacity, None);
+        assert_eq!(nobody.free, None);
+    }
+
+    /// A day outside the window is not this month's problem.
+    #[test]
+    fn only_the_days_inside_the_window_are_counted() {
+        let mut task = row("a", None, "2026-02-20", "2026-03-05", 0);
+        task.assignee = "山田".to_owned();
+
+        let data = build_for_test("p", 0, date("2026-03-01"), vec![task]);
+        let load = load(&data, date("2026-03-01"), date("2026-03-31"));
+        let yamada = load.iter().find(|row| row.assignee == "山田").unwrap();
+
+        assert_eq!(yamada.busy, 5);
     }
 
     /// A collapsed parent has to say that something under it is behind.

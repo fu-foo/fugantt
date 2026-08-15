@@ -4082,6 +4082,48 @@ check(
   JSON.stringify(cleared),
 );
 
+// --- 余力 -------------------------------------------------------------------
+
+// 「山田は今月どれくらい空いてる？」は、チャートを指で追って数える質問だった。
+const capacity = await page.evaluate(async () => {
+  const read = async (query) => {
+    const html = await (await fetch(`/projects/test-project/capacity${query}`)).text();
+    const doc = new DOMParser().parseFromString(html, "text/html");
+
+    return [...doc.querySelectorAll("tbody tr")].map((tr) => ({
+      cells: [...tr.querySelectorAll("td")].slice(0, 5).map((td) => td.textContent.trim()),
+      spans: [...tr.querySelectorAll("td p")].map((p) => p.textContent.trim()),
+    }));
+  };
+
+  return {
+    august: await read("?from=2026-08&to=2026-08"),
+    // 期間は月単位で、任意に選べる。
+    autumn: await read("?from=2026-09&to=2026-10"),
+  };
+});
+
+check(
+  "余力は担当者ごとに、稼働・埋まり・空き・重なりを出す",
+  capacity.august.length >= 3 &&
+    capacity.august.every((row) => row.cells.length === 5) &&
+    capacity.august.some((row) => row.cells[0] === "（未割当）"),
+  JSON.stringify(capacity.august.map((row) => row.cells.join("|"))),
+);
+
+check(
+  "空きと重なりは、いつなのかまで出す",
+  capacity.august.some((row) => row.spans.some((text) => /空き: \d+\/\d+/.test(text))),
+  JSON.stringify(capacity.august.map((row) => row.spans)),
+);
+
+check(
+  "期間は月単位で選べる",
+  capacity.autumn.length > 0 &&
+    JSON.stringify(capacity.autumn) !== JSON.stringify(capacity.august),
+  JSON.stringify(capacity.autumn.map((row) => row.cells.join("|"))),
+);
+
 // 「3件」だけでは、終わりかけなのか手つかずなのか分からない。
 check(
   "統計は遅延と、遅れていないものを両方出す",

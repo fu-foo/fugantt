@@ -128,7 +128,7 @@ pub fn path() -> std::path::PathBuf {
 const FILE_NAME: &str = "fugantt.db";
 
 /// The per-user place for application data, by the platform's own convention.
-fn data_dir() -> Option<std::path::PathBuf> {
+pub fn data_dir() -> Option<std::path::PathBuf> {
     let home = || std::env::var_os("HOME").map(std::path::PathBuf::from);
 
     if cfg!(windows) {

@@ -30,7 +30,19 @@ cargo-topcoat dev        # 開発。http://127.0.0.1:3000
 cargo build --release    # 配布用の実行ファイル1本
 ```
 
-| 環境変数 | 既定 | |
+設定は環境変数か、**`fugantt.ini`**（実行ファイルの隣・カレント・利用者ごとの場所のどれか）。
+書く名前はどちらも同じ。**環境変数のほうが強い**（Docker と Fly は環境変数で渡す）。
+
+```ini
+# fugantt.ini
+PORT = 3100
+FUGANTT_DB = D:\plans\fugantt.db
+```
+
+`fugantt --config` でどの値がどこから来ているか、`fugantt --help` で書ける項目が出る。
+`fugantt.conf` と `.env` も読む。
+
+| 環境変数 / `fugantt.ini` | 既定 | |
 | --- | --- | --- |
 | `HOST` | `127.0.0.1` | `0.0.0.0` で LAN に公開 |
 | `PORT` | `3000` | |

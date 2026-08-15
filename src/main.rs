@@ -3,6 +3,7 @@ mod app_settings;
 mod auth;
 mod backup;
 mod browser;
+mod config;
 mod db;
 mod domain;
 mod history;
@@ -28,8 +29,38 @@ use topcoat::{
     session::{RouterBuilderSessionExt, SessionConfig},
 };
 
+fn main() -> Result<(), Box<dyn Error>> {
+    // Before the runtime, because this writes to the process environment and
+    // that is only sound while the process is still one thread.
+    //
+    // SAFETY: nothing else has started.
+    let settings = unsafe { config::load() };
+
+    match std::env::args().nth(1).as_deref() {
+        Some("--help" | "-h" | "help") => {
+            print!("{}", config::help());
+            return Ok(());
+        }
+        Some("--config") => {
+            print!("{}", config::explain(&settings));
+            return Ok(());
+        }
+        Some("--version" | "-V") => {
+            println!("fugantt {}", env!("CARGO_PKG_VERSION"));
+            return Ok(());
+        }
+        _ => {}
+    }
+
+    serve(settings)
+}
+
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn Error>> {
+async fn serve(settings: config::Loaded) -> Result<(), Box<dyn Error>> {
+    if let Some(file) = &settings.path {
+        println!("設定: {}", file.display());
+    }
+
     let path = db::path();
     db::remember(&path);
     let pool = db::connect(&path.to_string_lossy()).await?;

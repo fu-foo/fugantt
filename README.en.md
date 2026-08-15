@@ -103,6 +103,12 @@ docker run -p 3000:3000 -v fugantt:/data ghcr.io/fu-foo/fugantt
 cargo-topcoat dev            # from source. http://127.0.0.1:3000
 ```
 
+Settings are environment variables, or the same names written in a
+`fugantt.ini` beside the executable — in the working directory, or in the
+platform's own place for user data. The environment wins, because that is what
+Docker and Fly pass in. `fugantt --help` lists what can be set and
+`fugantt --config` says where each value came from.
+
 Started on loopback, it opens the page itself — an Edge application window on
 Windows, a tab elsewhere. `FUGANTT_OPEN=0` if you would rather it did not.
 

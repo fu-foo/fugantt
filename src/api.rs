@@ -2355,7 +2355,7 @@ impl IntoResponse for Download {
 }
 
 /// Encodes everything outside the unreserved set, as RFC 5987 requires.
-fn percent_encode(text: &str) -> String {
+pub fn percent_encode(text: &str) -> String {
     let mut out = String::new();
 
     for byte in text.bytes() {

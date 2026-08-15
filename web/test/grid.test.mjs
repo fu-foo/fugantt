@@ -15,6 +15,7 @@
 
 import puppeteer from "puppeteer-core";
 import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
@@ -4238,6 +4239,118 @@ check(
   "本人が選んだ言語はブラウザより優先される",
   languages.chosen.lang === "en" && languages.back.lang === "ja",
   JSON.stringify({ chosen: languages.chosen, back: languages.back }),
+);
+
+// --- バックアップ ---------------------------------------------------------------
+//
+// いちばん最後に置く。戻すと全部が入れ替わるので、他のテストの足元を抜かないこと。
+
+const backup = await asAdmin(() =>
+  page.evaluate(async () => {
+    const log = {};
+
+    const response = await fetch("/admin/backup.db");
+    const file = new Uint8Array(await response.arrayBuffer());
+
+    log.status = response.status;
+    log.magic = new TextDecoder().decode(file.slice(0, 15));
+    log.named = response.headers.get("content-disposition") ?? "";
+
+    // 中身を変えてから戻す。
+    const grid = await (await fetch("/api/projects/test-project/grid")).json();
+    const id = grid.tasks.find((task) => task.name === "設計").id;
+    await fetch(`/api/projects/test-project/tasks/${id}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ field: "name", value: "書き換えた" }),
+    });
+    log.changed = (await (await fetch("/api/projects/test-project/grid")).json()).tasks.some(
+      (task) => task.name === "書き換えた",
+    );
+
+    const body = new FormData();
+    body.append("backup", new Blob([file], { type: "application/vnd.sqlite3" }), "b.db");
+    const restore = await fetch("/admin/restore", { method: "POST", body });
+
+    log.restored = restore.status;
+    // 直前の中身を控えた先を、戻ったあとの画面が教えてくれる。
+    log.kept = decodeURIComponent(new URL(restore.url).searchParams.get("restored") ?? "");
+
+    const after = (await (await fetch("/api/projects/test-project/grid")).json()).tasks;
+    log.back = after.some((task) => task.name === "設計");
+    log.gone = !after.some((task) => task.name === "書き換えた");
+
+    // SQLite ですらないもの。
+    const junk = new FormData();
+    junk.append("backup", new Blob([new TextEncoder().encode("hello")]), "x.db");
+    const refused = await fetch("/admin/restore", { method: "POST", body: junk });
+
+    log.junk = refused.status;
+    log.junkSays = await refused.text();
+
+    return log;
+  }),
+);
+
+check(
+  "バックアップは1つのファイルとして落ちてくる",
+  backup.status === 200 && backup.magic === "SQLite format 3" && /fugantt-\d{8}-\d{6}\.db/.test(backup.named),
+  JSON.stringify({ status: backup.status, magic: backup.magic, named: backup.named }),
+);
+check(
+  "バックアップから戻すと、その時点の中身になる",
+  backup.changed && backup.restored === 200 && backup.back && backup.gone,
+  JSON.stringify(backup),
+);
+check(
+  "戻す直前の中身を自動で控える",
+  /fugantt-before-restore-\d{8}-\d{6}\.db$/.test(backup.kept),
+  backup.kept || "控えた先が分からない",
+);
+check(
+  "SQLite でないファイルは断る",
+  backup.junk === 400 && backup.junkSays.includes("SQLite"),
+  `${backup.junk} / ${backup.junkSays}`,
+);
+
+// 他人の SQLite を掴んで壊さない。買い物メモのデータベースは fugantt ではない。
+const foreign = (() => {
+  const path = join(here, "..", "..", "target", "not-fugantt.db");
+  execFileSync("sqlite3", [path, "CREATE TABLE IF NOT EXISTS shopping (item TEXT)"]);
+  return [...readFileSync(path)];
+})();
+
+const strangerSays = await asAdmin(() =>
+  page.evaluate(async (bytes) => {
+    const body = new FormData();
+    body.append("backup", new Blob([new Uint8Array(bytes)]), "other.db");
+    const response = await fetch("/admin/restore", { method: "POST", body });
+    const grid = await (await fetch("/api/projects/test-project/grid")).json();
+
+    return { status: response.status, says: await response.text(), tasks: grid.tasks.length };
+  }, foreign),
+);
+
+check(
+  "fugantt のものでない SQLite は断り、何も壊さない",
+  strangerSays.status === 400 && strangerSays.says.includes("fugantt") && strangerSays.tasks > 0,
+  JSON.stringify(strangerSays),
+);
+
+// 管理者以外には、そんな口があること自体を教えない。
+const notAdmin = await page.evaluate(async () => {
+  const download = await fetch("/admin/backup.db");
+  const body = new FormData();
+  body.append("backup", new Blob([new TextEncoder().encode("x")]), "x.db");
+  const restore = await fetch("/admin/restore", { method: "POST", body });
+
+  return { download: download.status, restore: restore.status };
+});
+
+check(
+  "管理者でなければバックアップは触れない",
+  notAdmin.download === 404 && notAdmin.restore === 404,
+  JSON.stringify(notAdmin),
 );
 
 check("JavaScript エラーが出ていない", pageErrors.length === 0, pageErrors.join(" / "));

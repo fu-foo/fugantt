@@ -59,6 +59,31 @@ impl Hub {
     }
 }
 
+/// Tells every open screen that the whole installation moved under it.
+///
+/// A restore replaces every project at once, so there is no one revision to
+/// announce. Each project is told its own new one, and every screen refetches
+/// — which is the right answer whether or not the plan it was showing is even
+/// there any more.
+pub async fn announce_everything(cx: &Cx) {
+    let projects = sqlx::query_as::<_, (String, i64)>("SELECT id, revision FROM projects")
+        .fetch_all(crate::db::pool(cx))
+        .await
+        .unwrap_or_default();
+
+    for (id, revision) in projects {
+        hub(cx).publish(
+            &id,
+            Change {
+                revision,
+                task_id: None,
+                actor: "バックアップの復元".to_owned(),
+                client: None,
+            },
+        );
+    }
+}
+
 pub fn hub(cx: &Cx) -> &Hub {
     app_context(cx)
 }

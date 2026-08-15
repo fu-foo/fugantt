@@ -73,6 +73,21 @@ pub fn unix_seconds(time: SystemTime) -> i64 {
         .as_secs() as i64
 }
 
+/// The database this process is using, remembered as it was resolved.
+///
+/// Backups are written next to it, and by then the answer must be the same one
+/// the pool was opened with — not whatever `path()` would say now.
+static FILE: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
+
+/// Records the file `connect` was pointed at.
+pub fn remember(path: &std::path::Path) {
+    let _ = FILE.set(path.to_path_buf());
+}
+
+pub fn file() -> std::path::PathBuf {
+    FILE.get().cloned().unwrap_or_else(path)
+}
+
 /// Where the database file is, and why.
 ///
 /// Three answers in order, because the wrong one loses somebody's data:

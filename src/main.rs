@@ -1,6 +1,7 @@
 mod api;
 mod app_settings;
 mod auth;
+mod backup;
 mod browser;
 mod db;
 mod domain;
@@ -30,6 +31,7 @@ use topcoat::{
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     let path = db::path();
+    db::remember(&path);
     let pool = db::connect(&path.to_string_lossy()).await?;
 
     // Said out loud, and as an absolute path. The default moved to a per-user

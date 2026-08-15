@@ -3,19 +3,22 @@ use topcoat::{
     Result,
     context::Cx,
     router::{
-        content::Form,
+        Body, Response,
+        content::{Form, multipart::Multipart},
         error::{RouterErrorExt, SeeOther, bad_request, see_other},
         page, route,
     },
     view::view,
 };
 
-use crate::{app_settings, auth::require_user, db, project};
+use crate::{app_settings, auth::require_user, backup, db, project};
 
 /// A token, shown once, on the way back from making one.
 #[topcoat::router::query_params(error = not_found())]
 struct Issued {
     issued: Option<String>,
+    /// Where the previous contents went, on the way back from a restore.
+    restored: Option<String>,
 }
 
 /// Settings that belong to the installation. Only an administrator sees this.
@@ -42,6 +45,11 @@ async fn index(cx: &Cx) -> Result {
         .issued
         .clone()
         .unwrap_or_default();
+    let restored = topcoat::router::query_params::<Issued>(cx)?
+        .restored
+        .clone()
+        .unwrap_or_default();
+    let database = db::file().display().to_string();
 
     let usage = concat!(
         "curl -H 'Authorization: Bearer fug_…' https://…/api/projects\n",
@@ -578,8 +586,107 @@ async fn index(cx: &Cx) -> Result {
                     </ul>
                 }
             </section>
+
+            // --- backups ----------------------------------------------------
+
+            <section id="backup" class="mt-6 rounded-xl border border-slate-200 bg-white p-6">
+                <h2 class="text-lg font-semibold">(l.t("バックアップ"))</h2>
+                <p class="mt-1 text-sm text-slate-500">
+                    (l.t("いまの中身をまるごと1つのファイルに落とします。開いている人がいても、途中の状態にはなりません。"))
+                </p>
+                <p class="mt-1 text-xs text-slate-400">
+                    (l.t("いま使っているファイル")) ": " (&database)
+                </p>
+
+                if !restored.is_empty() {
+                    <div class="mt-4 rounded-lg border border-blue-200 bg-blue-50 p-4 text-sm text-blue-900">
+                        (l.t("戻しました。直前の中身はここに残してあります："))
+                        <code class="mt-1 block break-all font-mono text-xs">(&restored)</code>
+                    </div>
+                }
+
+                <a
+                    href="/admin/backup.db"
+                    class="mt-4 inline-block rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700"
+                >
+                    (l.t("バックアップを作る"))
+                </a>
+
+                <form
+                    method="POST"
+                    action="/admin/restore"
+                    enctype="multipart/form-data"
+                    class="mt-6 flex flex-col gap-3 rounded-lg border border-red-200 bg-red-50 p-4"
+                >
+                    <span class="text-sm font-medium text-red-900">(l.t("バックアップから戻す"))</span>
+                    <p class="text-sm text-red-900">
+                        (l.t("いまのプロジェクト・タスク・設定はすべて、選んだファイルの中身に置き換わります。戻す直前の中身は、データベースの隣に1つ自動で控えます。"))
+                    </p>
+                    <p class="text-sm font-medium text-red-900">
+                        (l.t("アカウントとパスワードもその時点に戻ります。いまログインしている人は入り直しになることがあります。"))
+                    </p>
+                    <input
+                        type="file"
+                        name="backup"
+                        accept=".db,application/vnd.sqlite3,application/octet-stream"
+                        required=""
+                        class="text-sm text-red-900 file:mr-2 file:rounded-md file:border file:border-red-300 file:bg-white file:px-2 file:py-1 file:text-xs"
+                    >
+                    <button
+                        class="self-start rounded-lg border border-red-300 bg-white px-4 py-2 text-sm font-medium text-red-700 hover:bg-red-100"
+                        onclick=(&format!("return confirm('{}')", l.t("いまの中身は、選んだファイルの中身に置き換わります。よろしいですか？")))
+                    >
+                        (l.t("このファイルの内容に戻す"))
+                    </button>
+                </form>
+            </section>
         </div>
     }
+}
+
+/// A copy of everything, for whoever cannot be asked to learn `sqlite3`.
+#[route(GET "/admin/backup.db")]
+async fn download_backup(cx: &Cx) -> Result<Response> {
+    require_admin(cx).await?;
+
+    let bytes = backup::snapshot(cx).await?;
+
+    Ok(Response::builder()
+        .header("Content-Type", "application/vnd.sqlite3")
+        .header(
+            "Content-Disposition",
+            format!("attachment; filename=\"{}\"", backup::filename()),
+        )
+        .body(Body::from(bytes))?)
+}
+
+/// Puts a copy back, over everything.
+#[route(POST "/admin/restore")]
+async fn upload_backup(cx: &Cx, mut form: Multipart) -> Result<SeeOther> {
+    let l = crate::i18n::lang(cx).await;
+    require_admin(cx).await?;
+
+    let mut bytes = Vec::new();
+
+    while let Some(field) = form.next_field().await? {
+        if field.name() == Some("backup") {
+            bytes = field.bytes().await?.to_vec();
+        }
+    }
+
+    if bytes.is_empty() {
+        return Err(bad_request(l.t("ファイルが選ばれていません。")).into());
+    }
+
+    let kept = backup::restore(cx, &bytes, l).await?;
+
+    // Everyone's open screen is now looking at a plan that no longer exists.
+    crate::live::announce_everything(cx).await;
+
+    Ok(see_other(&format!(
+        "/admin?restored={}",
+        crate::api::percent_encode(&kept.display().to_string())
+    )))
 }
 
 #[derive(Deserialize)]

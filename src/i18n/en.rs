@@ -47,6 +47,32 @@ pub fn of(ja: &str) -> Option<&'static str> {
             "Somebody else changed this first, so nothing was undone."
         }
         "取り消せる操作がありません。" => "Nothing to undo.",
+
+        // --- backups ------------------------------------------------------
+        "バックアップ" => "Backups",
+        "バックアップを作る" => "Make a backup",
+        "バックアップから戻す" => "Restore from a backup",
+        "このファイルの内容に戻す" => "Restore this file",
+        "いま使っているファイル" => "In use",
+        "いまの中身をまるごと1つのファイルに落とします。開いている人がいても、途中の状態にはなりません。" => {
+            "Writes everything to a single file. Consistent even while people are working in it."
+        }
+        "いまのプロジェクト・タスク・設定はすべて、選んだファイルの中身に置き換わります。戻す直前の中身は、データベースの隣に1つ自動で控えます。" => {
+            "Every project, task and setting is replaced by what is in the file you choose. What was there a moment before is kept, automatically, next to the database."
+        }
+        "アカウントとパスワードもその時点に戻ります。いまログインしている人は入り直しになることがあります。" => {
+            "Accounts and passwords go back too. Anyone signed in may have to sign in again."
+        }
+        "いまの中身は、選んだファイルの中身に置き換わります。よろしいですか？" => {
+            "Everything here will be replaced by the contents of that file. Continue?"
+        }
+        "戻しました。直前の中身はここに残してあります：" => {
+            "Restored. What was there a moment before is here:"
+        }
+        "SQLite のファイルではありません。" => "That is not a SQLite file.",
+        "fugantt のバックアップではありません。" => "That is not a fugantt backup.",
+        "ファイルを開けませんでした。" => "The file could not be opened.",
+        "ファイルが選ばれていません。" => "No file was chosen.",
         "やり直せる操作がありません。" => "Nothing to redo.",
         "行の追加・削除・並べ替えは取り消せません。もう一度押すと、その前の変更を取り消します。" => {
             "Adding, deleting and reordering rows cannot be undone. Press again to undo the change before it."

@@ -116,6 +116,11 @@ database, and nothing else.
 SQLite means **one machine**. The same database opened by two servers is two
 different plans.
 
+Backups are a button in the installation settings: one file out, the same file
+back in. Restoring keeps what was there a moment before, next to the database,
+because restoring the wrong file is a mistake people make in a hurry. Accounts
+and passwords go back with everything else.
+
 ## Getting data in and out
 
 Excel (`.xlsx`) for reading: the same columns as the screen, with the chart

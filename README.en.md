@@ -2,7 +2,7 @@
 
 **Plan against actual, counted in working days.**
 
-A Gantt chart you edit like a spreadsheet, for teams who have to answer not just
+A Gantt chart you edit from the keyboard, for teams who have to answer not just
 "when is it due" but "how far off the plan did it run, and why". Rust server,
 SQLite, one binary. The grid is plain TypeScript; everything else is HTML.
 
@@ -42,7 +42,9 @@ planned, and what happened.
 
 ## Editing
 
-The grid is keyboard-first: nobody leaves a spreadsheet for something slower.
+The grid is keyboard-first. Whatever people are keeping their plans in now,
+they are typing into it without reaching for the mouse, and anything slower than
+that gets abandoned within a week.
 
 Arrows move, Enter opens a cell, Tab goes right, Escape puts it back.
 `⌘Enter` / `Ctrl+Enter` adds a row, `⌥→` / `Alt+→` makes it a child, `⌥↑` / `Alt+↑`

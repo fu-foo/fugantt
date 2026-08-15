@@ -1,7 +1,7 @@
 # fugantt
 
 **予定と実施を並べ、営業日で数えるガントチャート。**
-Excel と同じキー操作で編集できる。Rust（Topcoat + SQLite）製、実行ファイル1本。
+表はキーボードだけで編集できる。Rust（Topcoat + SQLite）製、実行ファイル1本。
 
 [English](README.en.md)
 

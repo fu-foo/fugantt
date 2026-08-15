@@ -76,10 +76,15 @@ The schedule says when things are due. The question asked over it is whether the
 person you are about to hand something to has any room, and that used to be
 answered by running a finger across the chart.
 
-| Person | Available | Committed | Free | Overlapping | |
-| --- | --- | --- | --- | --- | --- |
-| 佐藤 | 31d | 22d | **9d** | 5d | Free: 8/1–8/9 · Overlapping: 8/24–8/28 |
-| (unassigned) | — | 20d | — | — | |
+| Person | Available | Elapsed | Committed | Free | Overlapping | |
+| --- | --- | --- | --- | --- | --- | --- |
+| 佐藤 | 21d | 10d | 11d | **0d** | 5d | Overlapping: 8/24–8/28 |
+| 山田 | 21d | 10d | 0d | **11d** | — | Free: 8/17–8/31 |
+| (unassigned) | — | — | 6d | — | — | |
+
+Counted from today. Days already gone are their own column, because half a month
+gone with "twelve days free" in it is a lie by arithmetic — and available =
+elapsed + committed + free, so the row adds up.
 
 A day is either taken or it is not. Three tasks on one Tuesday is one Tuesday —
 counting it three times produces the 300% loads that make a report unreadable

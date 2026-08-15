@@ -53,7 +53,7 @@ async fn index(cx: &Cx) -> Result {
     let from = from_month;
     let to = last_of(to_month);
 
-    let rows = domain::load(&data, from, to);
+    let rows = domain::load(&data, from, to, today);
     let from_value = from.strftime("%Y-%m").to_string();
     let to_value = to.strftime("%Y-%m").to_string();
     let range = format!("{from} 〜 {to}");
@@ -105,6 +105,7 @@ async fn index(cx: &Cx) -> Result {
                         <tr>
                             <th class="px-4 py-2 text-left font-medium">(l.t("担当者"))</th>
                             <th class="px-4 py-2 text-right font-medium">(l.t("稼働できる"))</th>
+                            <th class="px-4 py-2 text-right font-medium">(l.t("過ぎた"))</th>
                             <th class="px-4 py-2 text-right font-medium">(l.t("埋まっている"))</th>
                             <th class="px-4 py-2 text-right font-medium">(l.t("空き"))</th>
                             <th class="px-4 py-2 text-right font-medium">(l.t("重なり"))</th>
@@ -127,6 +128,9 @@ async fn index(cx: &Cx) -> Result {
                                     </td>
                                     <td class="px-4 py-2 text-right tabular-nums text-slate-500">
                                         (&days(row.capacity))
+                                    </td>
+                                    <td class="px-4 py-2 text-right tabular-nums text-slate-400">
+                                        (&days(row.gone))
                                     </td>
                                     <td class="px-4 py-2 text-right tabular-nums">(&format!("{}日", row.busy))</td>
                                     <td
@@ -190,7 +194,7 @@ async fn index(cx: &Cx) -> Result {
             </section>
 
             <p class="mt-3 text-xs text-slate-400">
-                (l.t("同じ日に2つのタスクがあっても、その日は1日と数えます（何重になっているかは「重なり」に出ます）。終わったタスクと集計行は数えません。休暇はその人の稼働から引きます。"))
+                (l.t("今日から先を数えます（過ぎた日は「過ぎた」に分けます）。同じ日に2つのタスクがあっても、その日は1日。何重かは「重なり」に出ます。終わったタスクと集計行は数えません。休暇はその人の稼働から引きます。"))
             </p>
         </div>
     }

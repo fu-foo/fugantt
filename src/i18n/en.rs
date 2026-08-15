@@ -110,14 +110,15 @@ pub fn of(ja: &str) -> Option<&'static str> {
         // --- capacity -----------------------------------------------------
         "余力" => "Capacity",
         "稼働できる" => "Available",
+        "過ぎた" => "Elapsed",
         "埋まっている" => "Committed",
         "空き" => "Free",
         "重なり" => "Overlapping",
         "開始月" => "From",
         "終了月" => "To",
         "この期間で見る" => "Show this range",
-        "同じ日に2つのタスクがあっても、その日は1日と数えます（何重になっているかは「重なり」に出ます）。終わったタスクと集計行は数えません。休暇はその人の稼働から引きます。" => {
-            "Two tasks on one day is one day; how many deep is in Overlapping. Finished tasks and summary rows are not counted, and leave comes off the person's available days."
+        "今日から先を数えます（過ぎた日は「過ぎた」に分けます）。同じ日に2つのタスクがあっても、その日は1日。何重かは「重なり」に出ます。終わったタスクと集計行は数えません。休暇はその人の稼働から引きます。" => {
+            "Counted from today: days already gone are their own column, so what is left is what is left. Two tasks on one day is one day; how many deep is in Overlapping. Finished tasks and summary rows are not counted, and leave comes off the person's available days."
         }
         "予定進捗に届いていません" => "Not up to the checkpoint it promised",
         "予定終了を過ぎて、実施終了が入っていません" => {

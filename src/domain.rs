@@ -675,7 +675,11 @@ pub struct Load {
     /// Days this person could work: the calendar's, less their leave.
     /// `None` for the unassigned row — nobody has a capacity.
     pub capacity: Option<i64>,
-    /// Days already spoken for by their unfinished tasks, counted once each.
+    /// Days of the window that are already behind us. Counted apart from the
+    /// rest, because a month half gone with "12 days free" in it is a lie by
+    /// arithmetic: those twelve days include ones nobody can use any more.
+    pub gone: Option<i64>,
+    /// Days from today on that their unfinished tasks cover, counted once each.
     pub busy: i64,
     pub free: Option<i64>,
     /// Which days those are, as stretches. A number answers "how much"; the
@@ -702,8 +706,14 @@ pub struct Load {
 /// is worse than a number that is merely coarse. The overlap is reported
 /// separately, because "you are booked solid" and "you are booked three times
 /// over" are different problems.
-pub fn load(data: &GridData, from: Date, to: Date) -> Vec<Load> {
+pub fn load(data: &GridData, from: Date, to: Date, today: Date) -> Vec<Load> {
     let calendar = calendar_of(data);
+
+    // Everything below is about what is left. Yesterday cannot be booked and it
+    // cannot be free either; it is gone, and says so in a column of its own.
+    // 稼働できる = 過ぎた + 埋まっている + 空き, which is the only way a row of
+    // numbers about a half-finished month adds up.
+    let ahead = from.max(today);
 
     // Everyone the project knows about, plus anyone standing on a task without
     // being on the list, plus the tasks nobody is holding.
@@ -754,7 +764,7 @@ pub fn load(data: &GridData, from: Date, to: Date) -> Vec<Load> {
 
                 counted += 1;
 
-                let mut day = start.max(from);
+                let mut day = start.max(ahead);
                 let last = end.min(to);
                 while day <= last {
                     // Days the person could not have worked anyway are not days
@@ -773,10 +783,10 @@ pub fn load(data: &GridData, from: Date, to: Date) -> Vec<Load> {
 
             let workable = |day: Date| !name.is_empty() && calendar.is_workday(&name, &[], day);
 
-            let capacity = (!name.is_empty()).then(|| {
+            let count = |first: Date, last: Date| {
                 let mut days = 0;
-                let mut day = from;
-                while day <= to {
+                let mut day = first;
+                while day <= last {
                     if workable(day) {
                         days += 1;
                     }
@@ -786,19 +796,26 @@ pub fn load(data: &GridData, from: Date, to: Date) -> Vec<Load> {
                 }
 
                 days
+            };
+
+            let capacity = (!name.is_empty()).then(|| count(from, to));
+            // Up to yesterday: today is still a day somebody can use.
+            let gone = (!name.is_empty()).then(|| match today > from {
+                true => count(from, today.yesterday().unwrap_or(from).min(to)),
+                false => 0,
             });
 
             // Runs are joined across days nobody could have worked anyway, so a
             // fortnight free reads as one stretch rather than as three weekday
             // fragments with the weekends punched out of it.
             let free_spans = stretches(
-                from,
+                ahead,
                 to,
                 |day| workable(day) && !taken.contains_key(&day),
                 |day| !workable(day),
             );
             let overlap_spans = stretches(
-                from,
+                ahead,
                 to,
                 |day| taken.get(&day).is_some_and(|count| *count > 1),
                 |day| !workable(day),
@@ -807,8 +824,13 @@ pub fn load(data: &GridData, from: Date, to: Date) -> Vec<Load> {
             Load {
                 assignee: name,
                 capacity,
+                gone,
                 busy,
-                free: capacity.map(|days| days - busy),
+                // What is actually left: the window, less the part that has
+                // gone by, less what is already booked in the rest of it.
+                free: capacity
+                    .zip(gone)
+                    .map(|(capacity, gone)| capacity - gone - busy),
                 free_spans,
                 overlap,
                 overlap_spans,
@@ -1778,7 +1800,12 @@ mod tests {
         second.assignee = "山田".to_owned();
 
         let data = build_for_test("p", 0, date("2026-03-01"), vec![first, second]);
-        let load = load(&data, date("2026-03-01"), date("2026-03-31"));
+        let load = load(
+            &data,
+            date("2026-03-01"),
+            date("2026-03-31"),
+            date("2026-03-01"),
+        );
         let yamada = load.iter().find(|row| row.assignee == "山田").unwrap();
 
         // 3/2〜3/10 is nine days; 3/4〜3/6 belongs to both.
@@ -1802,7 +1829,12 @@ mod tests {
         child.assignee = "山田".to_owned();
 
         let data = build_for_test("p", 0, date("2026-03-01"), vec![done, parent, child]);
-        let load = load(&data, date("2026-03-01"), date("2026-03-31"));
+        let load = load(
+            &data,
+            date("2026-03-01"),
+            date("2026-03-31"),
+            date("2026-03-01"),
+        );
         let yamada = load.iter().find(|row| row.assignee == "山田").unwrap();
 
         // Only the child: two days.
@@ -1815,7 +1847,12 @@ mod tests {
     fn the_unassigned_get_a_row_of_their_own() {
         let rows = vec![row("a", None, "2026-03-02", "2026-03-04", 0)];
         let data = build_for_test("p", 0, date("2026-03-01"), rows);
-        let load = load(&data, date("2026-03-01"), date("2026-03-31"));
+        let load = load(
+            &data,
+            date("2026-03-01"),
+            date("2026-03-31"),
+            date("2026-03-01"),
+        );
         let nobody = load.last().unwrap();
 
         assert_eq!(nobody.assignee, "");
@@ -1825,6 +1862,54 @@ mod tests {
         assert_eq!(nobody.free, None);
     }
 
+    /// Half a month gone with "twelve days free" in it is a lie by arithmetic:
+    /// those twelve include days nobody can use any more.
+    #[test]
+    fn the_days_already_gone_are_not_free() {
+        let mut task = row("a", None, "2026-03-16", "2026-03-20", 0);
+        task.assignee = "山田".to_owned();
+
+        let data = build_for_test("p", 0, date("2026-03-15"), vec![task]);
+        let load = load(
+            &data,
+            date("2026-03-01"),
+            date("2026-03-31"),
+            date("2026-03-15"),
+        );
+        let yamada = load.iter().find(|row| row.assignee == "山田").unwrap();
+
+        // 3/1〜3/14 is behind us; 3/15 is today and still usable.
+        assert_eq!(yamada.gone, Some(14));
+        assert_eq!(yamada.busy, 5);
+        assert_eq!(yamada.free, Some(31 - 14 - 5));
+        // The three add up to the whole window. Any other arrangement leaves a
+        // reader wondering which number is lying.
+        assert_eq!(
+            yamada.capacity,
+            Some(yamada.gone.unwrap() + yamada.busy + yamada.free.unwrap())
+        );
+    }
+
+    /// A window that has already been and gone is all "gone", and nothing else.
+    #[test]
+    fn a_window_in_the_past_offers_nothing() {
+        let mut task = row("a", None, "2026-01-05", "2026-01-09", 0);
+        task.assignee = "山田".to_owned();
+
+        let data = build_for_test("p", 0, date("2026-03-15"), vec![task]);
+        let load = load(
+            &data,
+            date("2026-01-01"),
+            date("2026-01-31"),
+            date("2026-03-15"),
+        );
+        let yamada = load.iter().find(|row| row.assignee == "山田").unwrap();
+
+        assert_eq!(yamada.gone, Some(31));
+        assert_eq!(yamada.busy, 0);
+        assert_eq!(yamada.free, Some(0));
+    }
+
     /// A day outside the window is not this month's problem.
     #[test]
     fn only_the_days_inside_the_window_are_counted() {
@@ -1832,7 +1917,12 @@ mod tests {
         task.assignee = "山田".to_owned();
 
         let data = build_for_test("p", 0, date("2026-03-01"), vec![task]);
-        let load = load(&data, date("2026-03-01"), date("2026-03-31"));
+        let load = load(
+            &data,
+            date("2026-03-01"),
+            date("2026-03-31"),
+            date("2026-03-01"),
+        );
         let yamada = load.iter().find(|row| row.assignee == "山田").unwrap();
 
         assert_eq!(yamada.busy, 5);

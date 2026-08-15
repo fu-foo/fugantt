@@ -17,7 +17,19 @@ permissions:
   packages: write
 
 jobs:
+  # The release is made before anything is built, so each binary can be
+  # attached by the machine that produced it.
+  announce:
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+
   build:
+    needs: announce
     strategy:
       fail-fast: false
       matrix:
@@ -70,10 +82,13 @@ jobs:
           Copy-Item LICENSE,NOTICE,README.md,README.en.md out/${{ matrix.name }}/
           Compress-Archive -Path out/${{ matrix.name }} -DestinationPath ${{ matrix.name }}.zip
 
-      - uses: actions/upload-artifact@v4
+      # Attached from the machine that built it, rather than passed through the
+      # artifact store and collected by a later job. That round trip failed
+      # three releases in a row on a service nobody here can fix, and it was
+      # never carrying the files anywhere they needed to go.
+      - uses: softprops/action-gh-release@v2
         with:
-          name: ${{ matrix.name }}
-          path: |
+          files: |
             *.tar.gz
             *.zip
 
@@ -114,19 +129,4 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-  release:
-    needs: build
-    if: startsWith(github.ref, 'refs/tags/')
-    runs-on: ubuntu-latest
 
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          merge-multiple: true
-
-      - uses: softprops/action-gh-release@v2
-        with:
-          files: |
-            *.tar.gz
-            *.zip
-          generate_release_notes: true

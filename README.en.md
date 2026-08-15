@@ -28,8 +28,12 @@ planned, and what happened.
   Reach the promise and the red is gone. Enter nothing and nothing is claimed: a
   schedule tool that guesses your plan from the dates is judging you against a
   plan nobody agreed to.
+- **Late is a column, not a colour.** Second from the left, filterable, so
+  "show me only the late ones" is a question the table can answer.
 - **Waiting is recorded**, with dates and a reason. Those days count towards
   neither the duration nor the lateness.
+- **Who has room is a page.** Per person, per month: the days they could work,
+  the days already taken, what is left, and which days those are.
 
 | | |
 | --- | --- |
@@ -56,11 +60,37 @@ reordering rows are not undoable.
 Dates take whatever you type — `20260805`, `8/5`, `2026-08-05` — including
 full-width digits, so a Japanese keyboard never has to switch modes.
 
+Right-click gives the outline moves by name, and the row's own colours —
+background and text, from a short palette. People were already marking rows by
+writing ★ into the task name; this is the same intent with a tool that does not
+sort, export and stay there for ever.
+
 Filters sit above the columns, one per column, ANDed together. Dates and numbers
 compare rather than match: pick **at least / at most / equals / more than / less
-than** from the button beside the box. Progress adds two more that need no
-number at all — **behind** and **on track**, read against the checkpoints the
-plan itself names, and so ignoring the rows that name none.
+than** from the button beside the box. The 遅延 column is picked from a list:
+late, or on time.
+
+## Who has room
+
+The schedule says when things are due. The question asked over it is whether the
+person you are about to hand something to has any room, and that used to be
+answered by running a finger across the chart.
+
+| Person | Available | Committed | Free | Overlapping | |
+| --- | --- | --- | --- | --- | --- |
+| 佐藤 | 31d | 22d | **9d** | 5d | Free: 8/1–8/9 · Overlapping: 8/24–8/28 |
+| (unassigned) | — | 20d | — | — | |
+
+A day is either taken or it is not. Three tasks on one Tuesday is one Tuesday —
+counting it three times produces the 300% loads that make a report unreadable
+and then unread — and how deep the stacking goes is its own column, because
+"booked solid" and "booked three times over" need different answers. Finished
+work and summary rows are left out, leave comes off the available days, and the
+stretches are printed, because "nine days free" is half an answer.
+
+No effort percentages. A finer unit needs a number on every task that nobody
+would keep up to date, and an invented number in a capacity table is worse than
+no table.
 
 ## Where it came from
 
@@ -115,9 +145,11 @@ Windows, a tab elsewhere. `FUGANTT_OPEN=0` if you would rather it did not.
 The database is `FUGANTT_DB`, or a `fugantt.db` already in the working
 directory, or the platform's own place for user data — `%LOCALAPPDATA%`,
 `~/Library/Application Support`, `~/.local/share`. Whichever it is, the absolute
-path is printed at startup. It is migrated on first start. For a release build, `cargo build --release` produces a single
-executable with the static files embedded — deploying is that file and a
-database, and nothing else.
+path is printed at startup, and it is migrated on first start.
+
+For a release build, `cargo build --release` produces a single executable with
+the static files embedded — deploying is that file and a database, and nothing
+else.
 
 SQLite means **one machine**. The same database opened by two servers is two
 different plans.

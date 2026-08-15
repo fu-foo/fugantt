@@ -30,7 +30,13 @@ async fn index(cx: &Cx) -> Result {
         .collect();
 
     let total = leaves.len();
-    let delayed = leaves.iter().filter(|task| task.delayed).count();
+    // Late is two facts, not one: behind a checkpoint the plan named, or past
+    // the planned end with the work unfinished. A plan that names no checkpoint
+    // still runs out of days.
+    let delayed = leaves
+        .iter()
+        .filter(|task| task.delayed || task.overdue > 0)
+        .count();
     let progress = if total == 0 {
         0
     } else {

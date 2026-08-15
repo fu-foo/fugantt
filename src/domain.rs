@@ -26,8 +26,10 @@ pub struct TaskRow {
     pub status: String,
     pub assignee: String,
     pub note: String,
-    /// Waiting periods: `YYYY-MM-DD/YYYY-MM-DD`, separated by spaces.
+    /// Waiting periods: `YYYY-MM-DD/YYYY-MM-DD` per line.
     pub waits: String,
+    /// 予定進捗: `YYYY-MM-DD/PERCENT` per line.
+    pub targets: String,
 }
 
 /// A task as the grid receives it: depth-first order, derived values resolved.
@@ -64,8 +66,15 @@ pub struct TaskView {
     /// The waiting spell, when there is one. Kept plain: the state is the core
     /// and everything about it is optional.
     /// Days spent waiting, for the share of a delay that was not work.
-    /// How far along the task should be today, given its own dates.
-    pub expected: i64,
+    /// 予定進捗: the checkpoints this plan names, in date order.
+    pub targets: Vec<Target>,
+    /// What the plan says should be done by now: the percent of the last
+    /// checkpoint whose date has passed. `None` when the plan names none, or
+    /// none has come round yet — and then nothing is judged.
+    pub expected: Option<i64>,
+    /// Behind a checkpoint the plan itself names. A row that names none is
+    /// never behind — nothing was promised, so nothing was missed. Running past
+    /// the planned end is a separate fact, and stays in `overdue`.
     pub delayed: bool,
     /// Parents are read-only in the grid: their dates and progress are sums.
     pub has_children: bool,
@@ -266,6 +275,20 @@ impl Default for Counting {
             leave: true,
         }
     }
+}
+
+/// One checkpoint of 予定進捗: by this date, this much should be done.
+///
+/// Nothing is claimed between two checkpoints. Joining them with a line would
+/// be inventing a plan again, only at a finer grain.
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct Target {
+    pub date: String,
+    pub percent: i64,
+    /// Whether its date has come round.
+    pub due: bool,
+    /// Whether it came round and the work was not there.
+    pub missed: bool,
 }
 
 /// A stretch of days one person is away.
@@ -672,15 +695,16 @@ fn visit<'rows>(
         status: row.status.clone(),
         assignee: row.assignee.clone(),
         note: row.note.clone(),
-        expected: 0,
+        targets: Vec::new(),
+        expected: None,
         delayed: false,
         has_children,
         tags: row.tags.split_whitespace().map(ToOwned::to_owned).collect(),
         values: HashMap::new(),
     });
 
-    // The waits belong to this row, and come out of the day count, the variance
-    // and the expected progress alike.
+    // The waits belong to this row, and come out of the day count and the
+    // variance alike.
     let waits = parse_waits(&row.waits);
     let spans = wait_spans(&waits, today);
 
@@ -726,17 +750,16 @@ fn visit<'rows>(
                 }
                 _ => 0,
             },
+            // Filled in below, once this row's own checkpoints are read.
+            delayed: false,
         }
     };
 
-    let expected = expected_progress(
-        resolved.start,
-        resolved.end,
-        today,
-        &row.assignee,
-        &spans,
-        calendar,
-    );
+    // 予定進捗 is read against the progress this row ended up with, so a summary
+    // row is judged by the same rule as any other: the number on the screen
+    // against the number the plan named.
+    let targets = parse_targets(&row.targets, today, resolved.progress);
+    let expected = expected_progress(&targets);
 
     let view = &mut out[index];
     view.start = resolved.start.map(|date| date.to_string());
@@ -795,10 +818,14 @@ fn visit<'rows>(
         _ => 0,
     };
 
+    view.delayed = targets.iter().any(|target| target.missed) || resolved.delayed;
+    view.targets = targets;
     view.expected = expected;
-    view.delayed = expected > resolved.progress;
 
-    resolved
+    Resolved {
+        delayed: view.delayed,
+        ..resolved
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -814,6 +841,9 @@ struct Resolved {
     start_variance: Option<i64>,
     end_variance: Option<i64>,
     overdue: i64,
+    /// Behind a checkpoint — its own, or one inside its subtree. A parent that
+    /// is collapsed still has to say that something under it is behind.
+    delayed: bool,
 }
 
 /// A parent spans its children and inherits their progress, weighted by how
@@ -871,6 +901,7 @@ fn rollup(children: &[(Resolved, i64)]) -> Resolved {
         start_variance: sum(&mut children.iter().map(|(child, _)| child.start_variance)),
         end_variance: sum(&mut children.iter().map(|(child, _)| child.end_variance)),
         overdue: children.iter().map(|(child, _)| child.overdue).sum(),
+        delayed: children.iter().any(|(child, _)| child.delayed),
     }
 }
 
@@ -908,29 +939,51 @@ fn difference(
 ///
 /// Both endpoints are inclusive: a task that starts and ends today is a full
 /// day of work, not a zero-length one.
-fn expected_progress(
-    start: Option<Date>,
-    end: Option<Date>,
-    today: Date,
-    assignee: &str,
-    waits: &[(Date, Date)],
-    calendar: &Calendar,
-) -> i64 {
-    let (Some(start), Some(end)) = (start, end) else {
-        return 0;
-    };
+/// Reads the stored form of 予定進捗: `YYYY-MM-DD/PERCENT` per line.
+///
+/// The same shape as 待ち, because it is the same kind of thing: a short list a
+/// person keeps on one task, entered a line at a time.
+fn parse_targets(text: &str, today: Date, progress: i64) -> Vec<Target> {
+    let mut targets: Vec<(Date, i64)> = text
+        .lines()
+        .filter_map(|line| {
+            let (date, percent) = line.trim().split_once('/')?;
 
-    if end < start || today < start {
-        return 0;
-    }
-    if today > end {
-        return 100;
-    }
+            Some((
+                parse_date(date)?,
+                percent.trim().parse::<i64>().ok()?.clamp(0, 100),
+            ))
+        })
+        .collect();
 
-    let elapsed = calendar.days(assignee, waits, start, today);
-    let total = calendar.days(assignee, waits, start, end);
+    targets.sort_by_key(|(date, _)| *date);
 
-    (elapsed * 100 / total).clamp(0, 100)
+    targets
+        .into_iter()
+        .map(|(date, percent)| {
+            let due = date <= today;
+
+            Target {
+                date: date.to_string(),
+                percent,
+                due,
+                missed: due && progress < percent,
+            }
+        })
+        .collect()
+}
+
+/// What the plan says should be done by now.
+///
+/// The last checkpoint whose date has passed, and nothing between two of them:
+/// joining checkpoints with a line would invent a plan again, only at a finer
+/// grain. `None` means the plan has not said, and nothing is judged.
+fn expected_progress(targets: &[Target]) -> Option<i64> {
+    targets
+        .iter()
+        .filter(|target| target.due)
+        .map(|target| target.percent)
+        .max()
 }
 
 /// How the project counts days.
@@ -1247,8 +1300,6 @@ mod tests {
         // Five of the twelve days were spent waiting.
         assert_eq!(data.tasks[0].days, Some(7));
         assert_eq!(data.tasks[0].wait_days, 5);
-        // Expected progress stops where the wait began, two days in: 2 of 7, 28%.
-        assert_eq!(data.tasks[0].expected, 28);
         assert_eq!(data.tasks[0].waits.len(), 1);
     }
 
@@ -1312,17 +1363,19 @@ mod tests {
         )
     }
 
-    /// A week off is a week the task cannot advance, so it neither counts as
-    /// days of work nor as days of lateness.
+    /// A week off is a week the task cannot advance, so it does not count as
+    /// days of work either.
+    ///
+    /// It does not move a checkpoint: a date the plan named is a date, and
+    /// somebody has to decide out loud whether the leave changed the promise.
     #[test]
     fn leave_is_not_counted_against_the_person_taking_it() {
-        // Half done on the 10th, on a plan that runs 8/3–8/14.
+        // A plan that runs 8/3–8/14, read on the 10th.
         let mut task = row("t", None, "2026-08-03", "2026-08-14", 50);
         task.assignee = "山田".to_owned();
 
         let plain = build_for_test("p", 1, date("2026-08-10"), vec![task.clone()]);
         assert_eq!(plain.tasks[0].days, Some(12));
-        assert!(plain.tasks[0].delayed, "休暇が無ければ8日経って50%は遅れ");
 
         let away = with_leave(
             vec![task],
@@ -1330,10 +1383,6 @@ mod tests {
             ("山田", "2026-08-05", "2026-08-12"),
         );
         assert_eq!(away.tasks[0].days, Some(4), "休んでいる8日は数えない");
-        assert!(
-            !away.tasks[0].delayed,
-            "働ける日の半分で50%なら遅れていない"
-        );
     }
 
     /// The leave belongs to a person, not to the project.
@@ -1371,6 +1420,7 @@ mod tests {
             assignee: String::new(),
             note: String::new(),
             waits: String::new(),
+            targets: String::new(),
         }
     }
 
@@ -1408,27 +1458,77 @@ mod tests {
         assert_eq!(data.tasks[0].progress, 66);
     }
 
+    /// The plan said 60% by the 5th. It is the 6th and the work is at 20%.
     #[test]
-    fn a_task_is_late_when_progress_trails_the_calendar() {
-        let rows = vec![row("a", None, "2026-03-01", "2026-03-10", 20)];
+    fn a_task_is_late_when_it_misses_a_checkpoint_it_named() {
+        let mut task = row("a", None, "2026-03-01", "2026-03-10", 20);
+        task.targets = "2026-03-05/60".to_owned();
 
-        let data = build_for_test("proj", 0, date("2026-03-06"), rows);
+        let data = build_for_test("proj", 0, date("2026-03-06"), vec![task]);
         let task = &data.tasks[0];
 
-        // Six of ten days in, so 60% expected against 20% done.
-        assert_eq!(task.expected, 60);
+        assert_eq!(task.expected, Some(60));
         assert!(task.delayed);
+        assert!(task.targets[0].missed);
     }
 
-    /// A task nobody has started is not late until its start date arrives.
+    /// A checkpoint that has not come round yet judges nothing. Half a day
+    /// before it is due, being at 0% is not being late.
     #[test]
-    fn a_task_is_not_late_before_it_starts() {
+    fn a_checkpoint_judges_nothing_until_its_date() {
+        let mut task = row("a", None, "2026-03-01", "2026-03-10", 0);
+        task.targets = "2026-03-05/60".to_owned();
+
+        let data = build_for_test("proj", 0, date("2026-03-04"), vec![task]);
+
+        assert_eq!(data.tasks[0].expected, None);
+        assert!(!data.tasks[0].delayed);
+        assert!(!data.tasks[0].targets[0].due);
+    }
+
+    /// The old rule read a plan out of the dates — elapsed days over total —
+    /// and called a task late for not being linear. A plan that names no
+    /// checkpoint promises nothing, and nothing is judged against it.
+    #[test]
+    fn a_task_that_names_no_checkpoint_is_never_behind() {
         let rows = vec![row("a", None, "2026-03-01", "2026-03-10", 0)];
 
-        let data = build_for_test("proj", 0, date("2026-02-01"), rows);
+        let data = build_for_test("proj", 0, date("2026-03-09"), rows);
 
-        assert_eq!(data.tasks[0].expected, 0);
+        assert_eq!(data.tasks[0].expected, None);
         assert!(!data.tasks[0].delayed);
+    }
+
+    /// Only the checkpoints that have passed are read, and the latest of them
+    /// wins. Nothing is claimed for the days between two of them.
+    #[test]
+    fn the_last_checkpoint_that_has_passed_is_the_one_that_counts() {
+        let mut task = row("a", None, "2026-03-01", "2026-03-31", 40);
+        task.targets = "2026-03-20/80\n2026-03-10/30\n2026-03-31/100".to_owned();
+
+        let data = build_for_test("proj", 0, date("2026-03-15"), vec![task]);
+        let task = &data.tasks[0];
+
+        // The 10th asked for 30% and got 40%; the 20th has not come round.
+        assert_eq!(task.expected, Some(30));
+        assert!(!task.delayed);
+        // Kept in date order, whatever order they were typed in.
+        let dates: Vec<&str> = task.targets.iter().map(|t| t.date.as_str()).collect();
+        assert_eq!(dates, ["2026-03-10", "2026-03-20", "2026-03-31"]);
+    }
+
+    /// A collapsed parent has to say that something under it is behind.
+    #[test]
+    fn a_parent_is_behind_when_a_child_is() {
+        let mut kid = row("a", Some("p"), "2026-03-01", "2026-03-10", 0);
+        kid.targets = "2026-03-05/50".to_owned();
+
+        let rows = vec![row("p", None, "", "", 0), kid];
+        let data = build_for_test("proj", 0, date("2026-03-06"), rows);
+
+        assert!(data.tasks[0].delayed);
+        // The parent itself named nothing, so it claims no expected progress.
+        assert_eq!(data.tasks[0].expected, None);
     }
 
     /// Depth-first order is what lets the grid draw indentation without

@@ -19,7 +19,13 @@ interface Task {
   note: string;
   waits: { start: string; end: string; reason: string; open: boolean; days: number }[];
   wait_days: number;
-  expected: number;
+  /** Days past the planned end, on work that has not finished. */
+  overdue: number;
+  /** 予定進捗: the checkpoints this plan named, in date order. */
+  targets: { date: string; percent: number; due: boolean; missed: boolean }[];
+  /** The last checkpoint that has come round. `null` when the plan named none. */
+  expected: number | null;
+  /** Behind a checkpoint the plan itself named. Never a guess from the dates. */
   delayed: boolean;
   has_children: boolean;
   tags: string[];
@@ -128,7 +134,10 @@ const BASE_COLUMNS: ColumnDef[] = [
   { key: "actual_days", label: "実作業日数", kind: "days" },
   { key: "start_variance", label: "開始差異", kind: "variance" },
   { key: "end_variance", label: "終了差異", kind: "variance" },
-  { key: "progress", label: "進捗", kind: "progress" },
+  // 予定進捗: entered, never derived. A list of "by this date, this much",
+  // which is the only thing that can say whether the work is behind.
+  { key: "targets", label: "予定進捗", kind: "text" },
+  { key: "progress", label: "実進捗", kind: "progress" },
   { key: "status", label: "ステータス", kind: "status" },
   { key: "assignee", label: "担当者", kind: "text" },
   { key: "note", label: "コメント", kind: "text" },
@@ -238,6 +247,8 @@ const EN: Record<string, string> = {
     "Days actually worked; counted up to today while it is still running",
   "開始差異": "Start variance",
   "終了差異": "End variance",
+  "予定進捗": "Planned",
+  "実進捗": "Progress",
   "進捗": "Progress",
   "ステータス": "Status",
   "担当者": "Assignee",
@@ -284,6 +295,14 @@ const EN: Record<string, string> = {
   "理由（任意）": "Reason (optional)",
   "＋ 期間を追加": "+ Add a period",
   "待ちの期間を登録する": "Record the waiting periods",
+  "予定進捗を登録する": "Record what should be done by when",
+  "＋ 予定を追加": "+ Add a checkpoint",
+  "までに": "by then",
+  "その日を過ぎても実進捗が届いていなければ遅れになります。間の日は判定しません。入れなければ、この行は進捗では遅れになりません。":
+    "Once that date has passed, the row is behind if the work has not reached that percentage. Nothing is judged in between, and a row with no checkpoints is never behind on progress.",
+  "この日までに届いていません": "Not there by this date",
+  "達成": "Met",
+  "これから": "Still to come",
   "終わりを空にすると「まだ待っている」になり、今日まで数え続けます。待ちの日数は日数からも遅れの判定からも外れます。":
     "Leave the end empty for work that is still waiting; it counts up to today. Waiting days are excluded from the day count and from the delay.",
   "（継続中）": "(still waiting)",
@@ -1339,17 +1358,28 @@ class Grid {
     return this.columns[this.column] ?? BASE_COLUMNS[0]!;
   }
 
+  /**
+   * Whether the row is drawn as late.
+   *
+   * Two different facts, one colour. 予定進捗 is a promise that was not kept;
+   * 期限超過 is a date that went by with the work unfinished. Neither is
+   * guessed, and a row can be either without being the other.
+   */
+  private behind(task: Task): boolean {
+    return task.delayed || task.overdue > 0;
+  }
+
   /** Whether one cell satisfies one filter box. */
   private matches(task: Task, column: ColumnDef, needle: string): boolean {
     const text = this.cellText(task, column);
     const at = this.boundFor(column);
 
-    // Behind and on track only compare against what should have been done by
-    // today — the same test the chart's band makes, so the filtered list and the
-    // picture never disagree.
+    // Behind and on track read the checkpoints the plan named. A row that named
+    // none is neither: nothing was promised, so nothing was kept or missed, and
+    // putting it under 順調 would be the tool making the claim for it.
     if (at === "behind" || at === "ahead") {
-      const behind = task.progress < task.expected;
-      return at === "behind" ? behind : !behind;
+      if (at === "behind") return task.delayed;
+      return task.targets.length > 0 && !task.delayed;
     }
 
     const bound = parseBound(needle, at);
@@ -1412,6 +1442,9 @@ class Grid {
       case "waits":
         // The same shape read or written: `8/17〜8/21, 9/1〜9/3`.
         return task.waits.map((span) => `${short(span.start)}〜${short(span.end)}`).join(", ");
+      case "targets":
+        // The same shape read or written: `8/20 30%, 8/28 100%`.
+        return task.targets.map((target) => `${short(target.date)} ${target.percent}%`).join(", ");
       default:
         return task.note;
     }
@@ -1524,6 +1557,12 @@ class Grid {
     // the one place with a dialog.
     if (this.selectedColumn.key === "waits") {
       this.openWaits(task);
+      return;
+    }
+
+    // Same reason: 予定進捗 is a list of dates and percentages.
+    if (this.selectedColumn.key === "targets") {
+      this.openTargets(task);
       return;
     }
 
@@ -1660,6 +1699,109 @@ class Grid {
     document.body.append(dialog);
     dialog.showModal();
     rows.querySelector<HTMLSelectElement>(".fg-dialog-who")?.focus();
+  }
+
+  /**
+   * Editing 予定進捗.
+   *
+   * The same dialog as the waits, because it is the same kind of thing: a short
+   * list a person keeps on one task. It exists at all because the alternative
+   * was reading the plan out of the dates — elapsed over total — and calling a
+   * task late for not being linear. Work is not linear. Somebody has to say
+   * what the plan is, and this is where they say it.
+   */
+  private openTargets(task: Task): void {
+    const dialog = element("dialog", "fg-dialog") as HTMLDialogElement;
+    const rows = element("div", "fg-dialog-rows");
+
+    const addRow = (target?: { date: string; percent: number }) => {
+      const row = element("div", "fg-dialog-row");
+
+      const date = element("input", "fg-dialog-date") as HTMLInputElement;
+      date.type = "date";
+      date.required = true;
+      date.value = target?.date ?? "";
+
+      const percent = element("input", "fg-dialog-percent") as HTMLInputElement;
+      percent.type = "number";
+      percent.min = "0";
+      percent.max = "100";
+      percent.step = "5";
+      percent.value = target === undefined ? "" : String(target.percent);
+
+      const remove = element("button", "fg-dialog-remove", t("削除")) as HTMLButtonElement;
+      remove.type = "button";
+      remove.addEventListener("click", () => row.remove());
+
+      row.append(
+        date,
+        element("span", "fg-dialog-tilde", t("までに")),
+        percent,
+        element("span", "fg-dialog-unit", "%"),
+        remove,
+      );
+      rows.append(row);
+      return date;
+    };
+
+    for (const target of task.targets) addRow(target);
+    if (task.targets.length === 0) addRow();
+
+    const add = element("button", "fg-dialog-add", t("＋ 予定を追加")) as HTMLButtonElement;
+    add.type = "button";
+    add.addEventListener("click", () => addRow().focus());
+
+    const save = element("button", "fg-dialog-save", t("保存")) as HTMLButtonElement;
+    const cancel = element("button", "fg-dialog-cancel", t("キャンセル")) as HTMLButtonElement;
+    cancel.type = "button";
+    cancel.addEventListener("click", () => dialog.close());
+
+    save.addEventListener("click", async () => {
+      const lines: string[] = [];
+
+      for (const row of rows.querySelectorAll(".fg-dialog-row")) {
+        const date = row.querySelector<HTMLInputElement>(".fg-dialog-date");
+        const percent = row.querySelector<HTMLInputElement>(".fg-dialog-percent");
+
+        // A date with no percentage is half a sentence, and so is the reverse.
+        if (!date?.value || !percent?.value) continue;
+
+        lines.push(`${date.value} ${percent.value}%`);
+      }
+
+      dialog.close();
+
+      await this.send(`/api/projects/${encodeURIComponent(this.projectId)}/tasks/${task.id}`, {
+        method: "POST",
+        body: { field: "targets", value: lines.join("\n") },
+        follow: task.id,
+      });
+    });
+
+    dialog.append(
+      element("h2", "fg-dialog-title", `予定進捗 — ${task.name || t("（無題）")}`),
+      element(
+        "p",
+        "fg-dialog-help",
+        t("その日を過ぎても実進捗が届いていなければ遅れになります。間の日は判定しません。入れなければ、この行は進捗では遅れになりません。"),
+      ),
+      rows,
+      add,
+    );
+
+    const buttons = element("div", "fg-dialog-buttons");
+    buttons.append(cancel, save);
+    dialog.append(buttons);
+
+    dialog.addEventListener("keydown", (event) => event.stopPropagation());
+    dialog.addEventListener("close", () => {
+      dialog.remove();
+      this.root.querySelector<HTMLElement>(".fg-grid")?.focus({ preventScroll: true });
+    });
+
+    document.body.append(dialog);
+    dialog.showModal();
+    rows.querySelector<HTMLInputElement>(".fg-dialog-date")?.focus();
   }
 
   /**
@@ -2381,7 +2523,7 @@ class Grid {
     // `fg-data` marks the rows that hold tasks: the heading and the filter row
     // are also `.fg-row`, and picking them up shifts every index by one.
     const row = element("div", "fg-row fg-data");
-    if (task.delayed) row.classList.add("is-delayed");
+    if (this.behind(task)) row.classList.add("is-delayed");
     if (index === this.row) row.classList.add("is-current");
 
     this.columns.forEach((column, columnIndex) => {
@@ -2447,6 +2589,32 @@ class Grid {
           cell.append(pill);
         } else if (value) {
           cell.append(element("span", undefined, value));
+        }
+      } else if (column.key === "targets") {
+        if (this.editable(task, column)) {
+          const open = element("button", "fg-wait-edit", task.targets.length === 0 ? "＋" : "✎");
+          open.type = "button";
+          open.title = t("予定進捗を登録する");
+          open.addEventListener("mousedown", (event) => event.stopPropagation());
+          open.addEventListener("click", () => {
+            this.select(index, columnIndex);
+            this.openTargets(task);
+          });
+          cell.append(open);
+        }
+
+        // A checkpoint that has passed and was not met is the one thing on this
+        // row worth a colour. The rest are just what the plan says.
+        for (const target of task.targets) {
+          const pill = element("span", "fg-target-pill", `${short(target.date)} ${target.percent}%`);
+          if (target.missed) pill.classList.add("is-missed");
+          else if (target.due) pill.classList.add("is-met");
+          pill.title = target.missed
+            ? t("この日までに届いていません")
+            : target.due
+              ? t("達成")
+              : t("これから");
+          cell.append(pill);
         }
       } else if (column.key === "waits") {
         // The button comes first: the cell clips what runs past its width, and
@@ -3252,7 +3420,7 @@ class Grid {
 
     if (planned) {
       const bar = element("div", "fg-bar");
-      if (task.delayed) bar.classList.add("is-delayed");
+      if (this.behind(task)) bar.classList.add("is-delayed");
       if (task.has_children) bar.classList.add("is-summary");
       // The height does not depend on whether an actual exists. Bars of differing
       // thickness on one screen look like they mean different things.
@@ -3270,17 +3438,6 @@ class Grid {
       const fill = element("div", "fg-bar-fill");
       fill.style.width = `${task.progress}%`;
       bar.append(fill);
-
-      // Lateness is shown as an area, not a line. A line at where today says the
-      // fill should reach sits a hair off the today line and reads as a doubled
-      // rule, so what is drawn is the shortfall itself. Caught up, nothing.
-      if (task.expected > task.progress) {
-        const behind = element("div", "fg-bar-behind");
-        behind.style.left = `${task.progress}%`;
-        behind.style.width = `${task.expected - task.progress}%`;
-        behind.title = `今日までに ${task.expected}% の予定`;
-        bar.append(behind);
-      }
 
       if (this.editable(task, BASE_COLUMNS[1]!)) {
         bar.classList.add("is-draggable");
@@ -3312,6 +3469,42 @@ class Grid {
       }
 
       row.append(bar);
+
+      // 予定進捗, at the date it was promised for, with the amount written out.
+      //
+      // The position is a date, like everything else on this chart. The amount
+      // is text, because a position cannot carry it: drawn at 50% of the bar's
+      // width it reads as a date the plan never named — the author of this
+      // feature misread his own chart that way — and drawn at the date with the
+      // fill beside it, the eye compares the two and reads back the straight
+      // line this whole design threw out. Written, it says what it is.
+      for (const target of task.targets) {
+        const at = dayIndex(target.date, origin) - planned.start;
+        // Outside the bar it would be a mark floating on nothing. The cell says
+        // it either way, and 予定進捗 outside the plan's own dates is a plan
+        // worth fixing rather than drawing.
+        if (at < 0 || at >= planned.length) continue;
+
+        const left = (planned.start + at) * this.dayWidth;
+
+        const mark = element("div", "fg-target");
+        mark.style.left = `${left}px`;
+        if (target.missed) mark.classList.add("is-missed");
+        else if (target.due) mark.classList.add("is-met");
+        mark.title = target.missed
+          ? `${target.date} までに ${target.percent}%（いま ${task.progress}%）`
+          : `${target.date} までに ${target.percent}%`;
+        row.append(mark);
+
+        // Kept quiet once it has been met: the fill has gone past it, which is
+        // the answer, and the number is still in the cell.
+        if (target.due && !target.missed) continue;
+
+        const label = element("div", "fg-target-label", `${target.percent}%`);
+        label.style.left = `${left + 4}px`;
+        if (target.missed) label.classList.add("is-missed");
+        row.append(label);
+      }
     }
 
     if (actual) {

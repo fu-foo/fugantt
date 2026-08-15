@@ -182,7 +182,10 @@ pub async fn numbers(cx: &Cx, project: &Project) -> Result<Numbers> {
         .collect();
 
     let tasks = leaves.len();
-    let delayed = leaves.iter().filter(|task| task.delayed).count();
+    let delayed = leaves
+        .iter()
+        .filter(|task| task.delayed || task.overdue > 0)
+        .count();
 
     let progress = if tasks == 0 {
         0
@@ -383,7 +386,7 @@ pub async fn grid_data(cx: &Cx, project: &Project) -> Result<GridData> {
     let rows = sqlx::query_as::<_, TaskRow>(
         "SELECT id, parent_id, sort_key, name, start_date, end_date,
                 actual_start, actual_end, progress, tags,
-                status, assignee, note, waits
+                status, assignee, note, waits, targets
            FROM tasks
           WHERE project_id = ?1
           ORDER BY sort_key",
@@ -1031,16 +1034,16 @@ pub async fn import_project(
                     SET parent_id = ?3, sort_key = ?4, name = ?5,
                         start_date = ?6, end_date = ?7, actual_start = ?8, actual_end = ?9,
                         progress = ?10, status = ?11, assignee = ?12, note = ?13, waits = ?14,
-                        updated_at = ?15, updated_by = ?16
+                        targets = ?15, updated_at = ?16, updated_by = ?17
                   WHERE id = ?1 AND project_id = ?2",
             )
         } else {
             sqlx::query(
                 "INSERT INTO tasks (id, project_id, parent_id, sort_key, name,
                                     start_date, end_date, actual_start, actual_end,
-                                    progress, status, assignee, note, waits,
+                                    progress, status, assignee, note, waits, targets,
                                     updated_at, updated_by)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
             )
         }
         .bind(&id)
@@ -1056,7 +1059,8 @@ pub async fn import_project(
         .bind(&task.status)
         .bind(&task.assignee)
         .bind(&task.note)
-        .bind(task.waits.join(" "))
+        .bind(task.waits.join("\n"))
+        .bind(task.targets.join("\n"))
         .bind(db::now())
         // An empty author is an access token rather than a person: the column
         // points at an account, and inventing one would put a name on work

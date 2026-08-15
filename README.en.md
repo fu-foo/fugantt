@@ -21,6 +21,12 @@ planned, and what happened.
   holidays, leave and waiting periods are excluded — or not, per project.
 - **The delay is split.** Not "twelve days late", but "nine days of work, three
   days waiting on another team".
+- **Behind means behind the plan you wrote.** Enter "50% by the 20th" and the
+  chart marks the 20th and writes 50% there. The position is a date, like
+  everything else on the chart; the amount is text, because a position on a time
+  axis cannot honestly carry one. Enter nothing and nothing is claimed: a
+  schedule tool that guesses your plan from the dates is judging you against a
+  plan nobody agreed to.
 - **Waiting is recorded**, with dates and a reason. Those days count towards
   neither the duration nor the lateness.
 
@@ -46,8 +52,8 @@ full-width digits, so a Japanese keyboard never has to switch modes.
 Filters sit above the columns, one per column, ANDed together. Dates and numbers
 compare rather than match: pick **at least / at most / equals / more than / less
 than** from the button beside the box. Progress adds two more that need no
-number at all — **behind** and **on track**, measured against where today says
-the work should be.
+number at all — **behind** and **on track**, read against the checkpoints the
+plan itself names, and so ignoring the rows that name none.
 
 ## Where it came from
 
@@ -117,6 +123,7 @@ The JSON is meant to be read, edited and handed back, including by a program:
       "actual_start": "2026-08-03", "actual_end": "2026-08-18",
       "progress": 100, "status": "完了", "assignee": "山田",
       "waits": ["2026-08-17/2026-08-21"],
+      "targets": ["2026-08-10/50"],
       "fields": { "Product": "A" }
     }
   ]
@@ -127,12 +134,13 @@ The JSON is meant to be read, edited and handed back, including by a program:
 | --- | --- |
 | `depth` | From 0. Deeper than the row above means a child of it. |
 | `waits` | `"from/to"`. Omit the end (`"from/"`) and it is still waiting. |
+| `targets` | `"date/percent"`. What the plan promises by when. Nothing here means the row is never behind on progress. |
 | `id` | Present and known: updated. Absent: added. Missing from the file: removed. Leave it out when writing by hand. |
 | references | Statuses, people and fields are named, never referenced by id. |
 | summary rows | Their dates and progress are not written out: they come from the children. |
 
-**No derived value is in the file** — no day counts, no variance, no expected
-progress. Nothing written back can contradict itself. To *read* those, ask
+**No derived value is in the file** — no day counts, no variance, no lateness.
+Nothing written back can contradict itself. To *read* those, ask
 `GET /api/projects/{id}/grid`, which returns the table already computed.
 
 > Read from the grid, write to the document.
@@ -165,19 +173,6 @@ curl -H "Authorization: Bearer fug_…" https://example.com/api/summary    # per
 `/api/summary` is the statistics page's arithmetic, one row per project
 (`late_days + wait_days = slipped`). Both work with a signed-in session too, and
 then return only what that person may see.
-
-For numbers across projects, an administrator issues a key that reaches all of
-them:
-
-```sh
-curl -H "Authorization: Bearer fug_…" https://example.com/api/projects   # the plans
-curl -H "Authorization: Bearer fug_…" https://example.com/api/summary    # per project
-```
-
-`/api/summary` runs the statistics page's arithmetic once per project: tasks,
-how many are late, average progress, days late, days waiting, and the two added
-together. Both also answer to a signed-in session, returning only what that
-person may see.
 
 ## Roles and sign-in
 

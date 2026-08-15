@@ -12,7 +12,10 @@
     { key: "actual_days", label: "\u5B9F\u4F5C\u696D\u65E5\u6570", kind: "days" },
     { key: "start_variance", label: "\u958B\u59CB\u5DEE\u7570", kind: "variance" },
     { key: "end_variance", label: "\u7D42\u4E86\u5DEE\u7570", kind: "variance" },
-    { key: "progress", label: "\u9032\u6357", kind: "progress" },
+    // 予定進捗: entered, never derived. A list of "by this date, this much",
+    // which is the only thing that can say whether the work is behind.
+    { key: "targets", label: "\u4E88\u5B9A\u9032\u6357", kind: "text" },
+    { key: "progress", label: "\u5B9F\u9032\u6357", kind: "progress" },
     { key: "status", label: "\u30B9\u30C6\u30FC\u30BF\u30B9", kind: "status" },
     { key: "assignee", label: "\u62C5\u5F53\u8005", kind: "text" },
     { key: "note", label: "\u30B3\u30E1\u30F3\u30C8", kind: "text" },
@@ -77,6 +80,8 @@
     "\u5B9F\u969B\u306B\u52D5\u3044\u305F\u65E5\u6570\u3002\u7D42\u308F\u3063\u3066\u3044\u306A\u3051\u308C\u3070\u4ECA\u65E5\u307E\u3067\u6570\u3048\u307E\u3059": "Days actually worked; counted up to today while it is still running",
     "\u958B\u59CB\u5DEE\u7570": "Start variance",
     "\u7D42\u4E86\u5DEE\u7570": "End variance",
+    "\u4E88\u5B9A\u9032\u6357": "Planned",
+    "\u5B9F\u9032\u6357": "Progress",
     "\u9032\u6357": "Progress",
     "\u30B9\u30C6\u30FC\u30BF\u30B9": "Status",
     "\u62C5\u5F53\u8005": "Assignee",
@@ -116,6 +121,13 @@
     "\u7406\u7531\uFF08\u4EFB\u610F\uFF09": "Reason (optional)",
     "\uFF0B \u671F\u9593\u3092\u8FFD\u52A0": "+ Add a period",
     "\u5F85\u3061\u306E\u671F\u9593\u3092\u767B\u9332\u3059\u308B": "Record the waiting periods",
+    "\u4E88\u5B9A\u9032\u6357\u3092\u767B\u9332\u3059\u308B": "Record what should be done by when",
+    "\uFF0B \u4E88\u5B9A\u3092\u8FFD\u52A0": "+ Add a checkpoint",
+    "\u307E\u3067\u306B": "by then",
+    "\u305D\u306E\u65E5\u3092\u904E\u304E\u3066\u3082\u5B9F\u9032\u6357\u304C\u5C4A\u3044\u3066\u3044\u306A\u3051\u308C\u3070\u9045\u308C\u306B\u306A\u308A\u307E\u3059\u3002\u9593\u306E\u65E5\u306F\u5224\u5B9A\u3057\u307E\u305B\u3093\u3002\u5165\u308C\u306A\u3051\u308C\u3070\u3001\u3053\u306E\u884C\u306F\u9032\u6357\u3067\u306F\u9045\u308C\u306B\u306A\u308A\u307E\u305B\u3093\u3002": "Once that date has passed, the row is behind if the work has not reached that percentage. Nothing is judged in between, and a row with no checkpoints is never behind on progress.",
+    "\u3053\u306E\u65E5\u307E\u3067\u306B\u5C4A\u3044\u3066\u3044\u307E\u305B\u3093": "Not there by this date",
+    "\u9054\u6210": "Met",
+    "\u3053\u308C\u304B\u3089": "Still to come",
     "\u7D42\u308F\u308A\u3092\u7A7A\u306B\u3059\u308B\u3068\u300C\u307E\u3060\u5F85\u3063\u3066\u3044\u308B\u300D\u306B\u306A\u308A\u3001\u4ECA\u65E5\u307E\u3067\u6570\u3048\u7D9A\u3051\u307E\u3059\u3002\u5F85\u3061\u306E\u65E5\u6570\u306F\u65E5\u6570\u304B\u3089\u3082\u9045\u308C\u306E\u5224\u5B9A\u304B\u3089\u3082\u5916\u308C\u307E\u3059\u3002": "Leave the end empty for work that is still waiting; it counts up to today. Waiting days are excluded from the day count and from the delay.",
     "\uFF08\u7D99\u7D9A\u4E2D\uFF09": "(still waiting)",
     "\u4E88\u5B9A\u306E\u671F\u9593\u306E\u5916\u306A\u306E\u3067\u65E5\u6570\u306B\u306F\u52B9\u304D\u307E\u305B\u3093": "Outside the planned dates, so it changes nothing",
@@ -827,13 +839,23 @@
     get selectedColumn() {
       return this.columns[this.column] ?? BASE_COLUMNS[0];
     }
+    /**
+     * Whether the row is drawn as late.
+     *
+     * Two different facts, one colour. 予定進捗 is a promise that was not kept;
+     * 期限超過 is a date that went by with the work unfinished. Neither is
+     * guessed, and a row can be either without being the other.
+     */
+    behind(task) {
+      return task.delayed || task.overdue > 0;
+    }
     /** Whether one cell satisfies one filter box. */
     matches(task, column, needle) {
       const text = this.cellText(task, column);
       const at = this.boundFor(column);
       if (at === "behind" || at === "ahead") {
-        const behind = task.progress < task.expected;
-        return at === "behind" ? behind : !behind;
+        if (at === "behind") return task.delayed;
+        return task.targets.length > 0 && !task.delayed;
       }
       const bound = parseBound(needle, at);
       if (!bound) return text.toLowerCase().includes(needle.toLowerCase());
@@ -879,6 +901,8 @@
           return task.assignee;
         case "waits":
           return task.waits.map((span) => `${short(span.start)}\u301C${short(span.end)}`).join(", ");
+        case "targets":
+          return task.targets.map((target) => `${short(target.date)} ${target.percent}%`).join(", ");
         default:
           return task.note;
       }
@@ -960,6 +984,10 @@
       }
       if (this.selectedColumn.key === "waits") {
         this.openWaits(task);
+        return;
+      }
+      if (this.selectedColumn.key === "targets") {
+        this.openTargets(task);
         return;
       }
       this.editing = true;
@@ -1064,6 +1092,89 @@
       document.body.append(dialog);
       dialog.showModal();
       rows.querySelector(".fg-dialog-who")?.focus();
+    }
+    /**
+     * Editing 予定進捗.
+     *
+     * The same dialog as the waits, because it is the same kind of thing: a short
+     * list a person keeps on one task. It exists at all because the alternative
+     * was reading the plan out of the dates — elapsed over total — and calling a
+     * task late for not being linear. Work is not linear. Somebody has to say
+     * what the plan is, and this is where they say it.
+     */
+    openTargets(task) {
+      const dialog = element("dialog", "fg-dialog");
+      const rows = element("div", "fg-dialog-rows");
+      const addRow = (target) => {
+        const row = element("div", "fg-dialog-row");
+        const date = element("input", "fg-dialog-date");
+        date.type = "date";
+        date.required = true;
+        date.value = target?.date ?? "";
+        const percent = element("input", "fg-dialog-percent");
+        percent.type = "number";
+        percent.min = "0";
+        percent.max = "100";
+        percent.step = "5";
+        percent.value = target === void 0 ? "" : String(target.percent);
+        const remove = element("button", "fg-dialog-remove", t("\u524A\u9664"));
+        remove.type = "button";
+        remove.addEventListener("click", () => row.remove());
+        row.append(
+          date,
+          element("span", "fg-dialog-tilde", t("\u307E\u3067\u306B")),
+          percent,
+          element("span", "fg-dialog-unit", "%"),
+          remove
+        );
+        rows.append(row);
+        return date;
+      };
+      for (const target of task.targets) addRow(target);
+      if (task.targets.length === 0) addRow();
+      const add = element("button", "fg-dialog-add", t("\uFF0B \u4E88\u5B9A\u3092\u8FFD\u52A0"));
+      add.type = "button";
+      add.addEventListener("click", () => addRow().focus());
+      const save = element("button", "fg-dialog-save", t("\u4FDD\u5B58"));
+      const cancel = element("button", "fg-dialog-cancel", t("\u30AD\u30E3\u30F3\u30BB\u30EB"));
+      cancel.type = "button";
+      cancel.addEventListener("click", () => dialog.close());
+      save.addEventListener("click", async () => {
+        const lines = [];
+        for (const row of rows.querySelectorAll(".fg-dialog-row")) {
+          const date = row.querySelector(".fg-dialog-date");
+          const percent = row.querySelector(".fg-dialog-percent");
+          if (!date?.value || !percent?.value) continue;
+          lines.push(`${date.value} ${percent.value}%`);
+        }
+        dialog.close();
+        await this.send(`/api/projects/${encodeURIComponent(this.projectId)}/tasks/${task.id}`, {
+          method: "POST",
+          body: { field: "targets", value: lines.join("\n") },
+          follow: task.id
+        });
+      });
+      dialog.append(
+        element("h2", "fg-dialog-title", `\u4E88\u5B9A\u9032\u6357 \u2014 ${task.name || t("\uFF08\u7121\u984C\uFF09")}`),
+        element(
+          "p",
+          "fg-dialog-help",
+          t("\u305D\u306E\u65E5\u3092\u904E\u304E\u3066\u3082\u5B9F\u9032\u6357\u304C\u5C4A\u3044\u3066\u3044\u306A\u3051\u308C\u3070\u9045\u308C\u306B\u306A\u308A\u307E\u3059\u3002\u9593\u306E\u65E5\u306F\u5224\u5B9A\u3057\u307E\u305B\u3093\u3002\u5165\u308C\u306A\u3051\u308C\u3070\u3001\u3053\u306E\u884C\u306F\u9032\u6357\u3067\u306F\u9045\u308C\u306B\u306A\u308A\u307E\u305B\u3093\u3002")
+        ),
+        rows,
+        add
+      );
+      const buttons = element("div", "fg-dialog-buttons");
+      buttons.append(cancel, save);
+      dialog.append(buttons);
+      dialog.addEventListener("keydown", (event) => event.stopPropagation());
+      dialog.addEventListener("close", () => {
+        dialog.remove();
+        this.root.querySelector(".fg-grid")?.focus({ preventScroll: true });
+      });
+      document.body.append(dialog);
+      dialog.showModal();
+      rows.querySelector(".fg-dialog-date")?.focus();
     }
     /**
      * Editing the waits.
@@ -1577,7 +1688,7 @@
     }
     renderRow(task, index) {
       const row = element("div", "fg-row fg-data");
-      if (task.delayed) row.classList.add("is-delayed");
+      if (this.behind(task)) row.classList.add("is-delayed");
       if (index === this.row) row.classList.add("is-current");
       this.columns.forEach((column, columnIndex) => {
         const cell = element("div", `fg-cell fg-cell-${column.key}`);
@@ -1623,6 +1734,25 @@
             cell.append(pill);
           } else if (value) {
             cell.append(element("span", void 0, value));
+          }
+        } else if (column.key === "targets") {
+          if (this.editable(task, column)) {
+            const open = element("button", "fg-wait-edit", task.targets.length === 0 ? "\uFF0B" : "\u270E");
+            open.type = "button";
+            open.title = t("\u4E88\u5B9A\u9032\u6357\u3092\u767B\u9332\u3059\u308B");
+            open.addEventListener("mousedown", (event) => event.stopPropagation());
+            open.addEventListener("click", () => {
+              this.select(index, columnIndex);
+              this.openTargets(task);
+            });
+            cell.append(open);
+          }
+          for (const target of task.targets) {
+            const pill = element("span", "fg-target-pill", `${short(target.date)} ${target.percent}%`);
+            if (target.missed) pill.classList.add("is-missed");
+            else if (target.due) pill.classList.add("is-met");
+            pill.title = target.missed ? t("\u3053\u306E\u65E5\u307E\u3067\u306B\u5C4A\u3044\u3066\u3044\u307E\u305B\u3093") : target.due ? t("\u9054\u6210") : t("\u3053\u308C\u304B\u3089");
+            cell.append(pill);
           }
         } else if (column.key === "waits") {
           if (this.editable(task, column)) {
@@ -2191,7 +2321,7 @@
       if (!planned && !actual) return row;
       if (planned) {
         const bar = element("div", "fg-bar");
-        if (task.delayed) bar.classList.add("is-delayed");
+        if (this.behind(task)) bar.classList.add("is-delayed");
         if (task.has_children) bar.classList.add("is-summary");
         bar.classList.add("is-plan");
         bar.dataset["task"] = task.id;
@@ -2202,13 +2332,6 @@
         const fill = element("div", "fg-bar-fill");
         fill.style.width = `${task.progress}%`;
         bar.append(fill);
-        if (task.expected > task.progress) {
-          const behind = element("div", "fg-bar-behind");
-          behind.style.left = `${task.progress}%`;
-          behind.style.width = `${task.expected - task.progress}%`;
-          behind.title = `\u4ECA\u65E5\u307E\u3067\u306B ${task.expected}% \u306E\u4E88\u5B9A`;
-          bar.append(behind);
-        }
         if (this.editable(task, BASE_COLUMNS[1])) {
           bar.classList.add("is-draggable");
           const knob = element("span", "fg-grip fg-grip-progress");
@@ -2231,6 +2354,22 @@
           );
         }
         row.append(bar);
+        for (const target of task.targets) {
+          const at = dayIndex(target.date, origin) - planned.start;
+          if (at < 0 || at >= planned.length) continue;
+          const left = (planned.start + at) * this.dayWidth;
+          const mark = element("div", "fg-target");
+          mark.style.left = `${left}px`;
+          if (target.missed) mark.classList.add("is-missed");
+          else if (target.due) mark.classList.add("is-met");
+          mark.title = target.missed ? `${target.date} \u307E\u3067\u306B ${target.percent}%\uFF08\u3044\u307E ${task.progress}%\uFF09` : `${target.date} \u307E\u3067\u306B ${target.percent}%`;
+          row.append(mark);
+          if (target.due && !target.missed) continue;
+          const label = element("div", "fg-target-label", `${target.percent}%`);
+          label.style.left = `${left + 4}px`;
+          if (target.missed) label.classList.add("is-missed");
+          row.append(label);
+        }
       }
       if (actual) {
         const bar = element("div", "fg-actual");

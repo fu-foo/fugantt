@@ -17,7 +17,7 @@ const FIRST_TASK_ROW: u32 = 2;
 ///
 /// The export used to carry four columns while the grid grew to sixteen, which
 /// made the spreadsheet a worse copy of the plan than the screen it came from.
-const COLUMNS: [(&str, &str, f64); 14] = [
+const COLUMNS: [(&str, &str, f64); 15] = [
     ("name", "タスク", 34.0),
     ("start", "予定開始", 12.0),
     ("end", "予定終了", 12.0),
@@ -27,7 +27,8 @@ const COLUMNS: [(&str, &str, f64); 14] = [
     ("actual_days", "実作業日数", 8.0),
     ("start_variance", "開始差異", 9.0),
     ("end_variance", "終了差異", 9.0),
-    ("progress", "進捗", 7.0),
+    ("targets", "予定進捗", 14.0),
+    ("progress", "実進捗", 7.0),
     ("status", "ステータス", 10.0),
     ("assignee", "担当者", 10.0),
     ("note", "コメント", 24.0),
@@ -84,6 +85,12 @@ fn cell_text(task: &crate::domain::TaskView, key: &str) -> String {
             .actual_days
             .map(|days| days.to_string())
             .unwrap_or_default(),
+        "targets" => task
+            .targets
+            .iter()
+            .map(|target| format!("{} {}%", target.date, target.percent))
+            .collect::<Vec<_>>()
+            .join(", "),
         "progress" => format!("{}%", task.progress),
         "status" => task.status.clone(),
         "assignee" => task.assignee.clone(),
@@ -490,7 +497,8 @@ mod tests {
                 status: "実施中".to_owned(),
                 assignee: String::new(),
                 note: String::new(),
-                expected: 60,
+                targets: Vec::new(),
+                expected: Some(60),
                 delayed: true,
                 has_children: false,
                 tags: Vec::new(),
@@ -523,8 +531,8 @@ mod tests {
 
         assert_eq!(
             labels(&data),
-            "タスク,予定開始,予定終了,実施開始,実施終了,予定日数,実作業日数,開始差異,終了差異,進捗,\
-             ステータス,担当者,コメント,待ち"
+            "タスク,予定開始,予定終了,実施開始,実施終了,予定日数,実作業日数,開始差異,終了差異,\
+             予定進捗,実進捗,ステータス,担当者,コメント,待ち"
         );
 
         data.hidden_columns = vec!["status".to_owned(), "note".to_owned()];

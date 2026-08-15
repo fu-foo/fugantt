@@ -573,20 +573,55 @@ html {
   border-style: solid;
 }
 
-/* The part that should have been done by today and is not. The length of the
-   band is the size of the shortfall; caught up, nothing is drawn. */
-.fg-bar-behind {
+/* 予定進捗: a mark at the date it was promised for.
+   Drawn in the row rather than inside the bar, so the number beside it is not
+   clipped, and so it can overhang the bar a little and read as a marker on the
+   plan rather than as part of the fill. */
+.fg-target {
   position: absolute;
-  top: 0;
-  bottom: 0;
-  background: var(--fg-late);
-  opacity: 0.28;
+  top: 2px;
+  height: 16px;
+  width: 2px;
+  background: #334155;
+  opacity: 0.75;
+  pointer-events: none;
 }
 
-/* A late row's ground is already red, and the same wash over it sinks into the
-   ground — least visible on exactly the rows whose shortfall matters most. */
-.fg-bar.is-delayed .fg-bar-behind {
-  opacity: 0.5;
+/* Kept: it happened, so it stops asking to be read. No number either — the fill
+   has gone past it, and the cell still lists it. */
+.fg-target.is-met {
+  opacity: 0.25;
+}
+
+/* The day came and the work was not there. */
+.fg-target.is-missed {
+  background: var(--fg-late);
+  opacity: 1;
+  width: 3px;
+}
+
+/* How much was promised, in words rather than in a position.
+   The halo is not decoration: this sits over the fill as often as over the
+   ground, and a number that disappears on the rows that are behind is a number
+   nobody can use. */
+.fg-target-label {
+  position: absolute;
+  top: 5px;
+  width: max-content;
+  font-size: 9px;
+  line-height: 1;
+  font-weight: 600;
+  white-space: nowrap;
+  color: #334155;
+  text-shadow:
+    0 0 2px #fff,
+    0 0 2px #fff,
+    0 0 3px #fff;
+  pointer-events: none;
+}
+
+.fg-target-label.is-missed {
+  color: var(--fg-late);
 }
 
 /* What actually happened, under the plan it was measured against. The ground is
@@ -759,6 +794,33 @@ html {
   white-space: nowrap;
 }
 
+/* 予定進捗 in the cell. Not the wait's purple: 待ち is a state the work is in,
+   and this is a promise about it. Neutral until its date has passed, quieter
+   once it has been kept, red when it has not. */
+.fg-target-pill {
+  flex: 0 0 auto;
+  margin-right: 4px;
+  border: 1px solid var(--fg-rule);
+  border-radius: 999px;
+  padding: 1px 8px;
+  font-size: 11px;
+  color: #475569;
+  white-space: nowrap;
+}
+
+.fg-target-pill.is-met {
+  color: #94a3b8;
+  border-color: transparent;
+  background: #f1f5f9;
+}
+
+.fg-target-pill.is-missed {
+  color: #fff;
+  border-color: transparent;
+  background: var(--fg-late);
+  font-weight: 600;
+}
+
 /* Still waiting: darker, and the range ends in 〜 with nothing after it. */
 .fg-wait-pill.is-open {
   color: #fff;
@@ -802,6 +864,16 @@ html {
   background: transparent;
   border: 1px dashed #cbd5e1;
   text-decoration: line-through;
+}
+
+.fg-dialog-percent {
+  width: 5em;
+  text-align: right;
+}
+
+.fg-dialog-unit {
+  color: var(--fg-muted);
+  font-size: 12px;
 }
 
 .fg-wait-why {

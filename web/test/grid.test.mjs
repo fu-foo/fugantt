@@ -252,8 +252,8 @@ check("拒否された編集を元に戻す", s.cells[0][COLUMN["予定開始"]]
 
 // --- rollup -----------------------------------------------------------------
 
-const parentBefore = (await state()).cells[summary][COLUMN["進捗"]];
-await selectCell((await state()).names.indexOf("設計"), COLUMN["進捗"]);
+const parentBefore = (await state()).cells[summary][COLUMN["実進捗"]];
+await selectCell((await state()).names.indexOf("設計"), COLUMN["実進捗"]);
 await page.keyboard.press("F2");
 await replaceEditorText("100");
 await page.keyboard.press("Enter");
@@ -261,7 +261,7 @@ await page.keyboard.press("Enter");
 // 集計はサーバーが返した値。届くのを待つ——固定の待ち時間では、混んだ日に
 // 「変わっていない」と言われて落ちていた。
 const rolled = await until(
-  async () => (await state()).cells[summary][COLUMN["進捗"]],
+  async () => (await state()).cells[summary][COLUMN["実進捗"]],
   "42%",
 );
 s = await state();
@@ -270,8 +270,8 @@ check(
   rolled,
   // 落ちたときに、どこで止まったのかが分かるように: 子に値が入っているか、
   // 編集欄が開いたままか、サーバーが何か言っているか。
-  `親 ${parentBefore} → ${s.cells[summary][COLUMN["進捗"]]}` +
-    ` / 子 ${s.cells[s.names.indexOf("設計")]?.[COLUMN["進捗"]]}` +
+  `親 ${parentBefore} → ${s.cells[summary][COLUMN["実進捗"]]}` +
+    ` / 子 ${s.cells[s.names.indexOf("設計")]?.[COLUMN["実進捗"]]}` +
     ` / editing=${s.editing} error=${s.error ?? "なし"}`,
 );
 
@@ -505,9 +505,14 @@ const filterBy = async (column, text) => {
   if (tag === "SELECT") {
     await page.select(box, text.toLowerCase());
   } else {
-    await page.click(box);
+    // click ではなく focus。絞り込みの欄は横に流れる領域にあり、固定列の下に
+    // 半分隠れた欄を押すと、上にある固定列側の欄が代わりに押される。打鍵は本物の
+    // まま、宛先だけを確実にする。
     await page.evaluate((box) => {
-      document.querySelector(box).value = "";
+      const field = document.querySelector(box);
+      field.scrollIntoView({ block: "nearest", inline: "nearest" });
+      field.value = "";
+      field.focus();
     }, box);
     await page.keyboard.type(text);
   }
@@ -900,6 +905,7 @@ await page.evaluate(async () => {
     "actual_days",
     "start_variance",
     "end_variance",
+    "targets",
     "progress",
     "status",
     "assignee",
@@ -1761,6 +1767,7 @@ const setView = (extra = {}) =>
         "actual_days",
         "start_variance",
         "end_variance",
+        "targets",
         "progress",
         "status",
         "assignee",
@@ -1928,62 +1935,179 @@ check(
   }),
 );
 
-// 遅れは線ではなく面で出す。今日あるべき位置に線を引くと、すぐ横の今日の線と
-// わずかにずれて二重線に見えた（「ギザギザでカッコ悪い」）。
+// 予定進捗の印は「日付」の位置に立て、量は「文字」で書く。
+//
+// 量を位置で表すと必ず誤読される。50% をバーの半分に置けば、その x はバーの上では
+// 誰も言っていない日付になる（実際、この機能を書いた本人が自分の絵を読み違えた）。
+// 日付の位置に置いて量を書かなければ、今度は塗りと見比べて「直線の計画」を読んでしまう。
+// 位置＝日付、量＝文字。チャートの横軸は最後まで日付一本。
 check(
-  "遅れは塗りの続きの帯として描かれる",
+  "予定進捗の印は約束した日付の位置に立つ",
   await page.evaluate(() => {
-    const band = document.querySelector(".fg-bar-behind");
-    if (!band) return false;
+    const named = [...document.querySelectorAll(".fg-pane-left .fg-row.fg-data .fg-cell-name")].map(
+      (c) => c.textContent.trim(),
+    );
+    const at = named.findIndex((n) => n.includes("ドキュメント整備"));
+    const row = [...document.querySelectorAll(".fg-bar-row")][at];
+    const bar = row?.querySelector(".fg-bar.is-plan");
+    const mark = row?.querySelector(".fg-target");
+    if (!bar || !mark) return false;
 
-    const bar = band.closest(".fg-bar");
-    const fill = bar.querySelector(".fg-bar-fill");
-    const style = getComputedStyle(band);
+    const box = bar.getBoundingClientRect();
+    // 予定は 8/1〜8/20 の20日ぶん、約束は 8/5。左から4日ぶんのところ。
+    const day = box.width / 20;
+    const offset = mark.getBoundingClientRect().left - box.left;
+
+    return Math.abs(offset - day * 4) <= 2 && mark.title.startsWith("2026-08-05");
+  }),
+  await page.evaluate(() => {
+    const mark = document.querySelector(".fg-target");
+    return mark ? mark.title : "印がない";
+  }),
+);
+
+check(
+  "量は位置ではなく文字で出る",
+  await page.evaluate(() => {
+    const named = [...document.querySelectorAll(".fg-pane-left .fg-row.fg-data .fg-cell-name")].map(
+      (c) => c.textContent.trim(),
+    );
+    const at = named.findIndex((n) => n.includes("ドキュメント整備"));
+    const row = [...document.querySelectorAll(".fg-bar-row")][at];
+    const label = row?.querySelector(".fg-target-label");
+    const mark = row?.querySelector(".fg-target");
+    if (!label || !mark) return false;
+
+    const style = getComputedStyle(label);
 
     return (
-      Math.abs(band.getBoundingClientRect().left - fill.getBoundingClientRect().right) <= 1 &&
-      band.getBoundingClientRect().width > 0 &&
-      Number(style.opacity) > 0 &&
-      style.backgroundColor !== "rgba(0, 0, 0, 0)"
+      label.textContent === "50%" &&
+      // 印のすぐ右。離れると、どの印の数字か分からなくなる。
+      label.getBoundingClientRect().left - mark.getBoundingClientRect().right < 8 &&
+      style.color === "rgb(220, 38, 38)" &&
+      // 塗りの上に乗ることがあるので、白い縁で必ず読めるようにしてある。
+      style.textShadow.includes("rgb(255, 255, 255)")
     );
   }),
   await page.evaluate(() => {
-    const band = document.querySelector(".fg-bar-behind");
-    return band ? getComputedStyle(band).backgroundColor + " / " + getComputedStyle(band).opacity : "帯がない";
+    const label = document.querySelector(".fg-target-label");
+    return label ? `${label.textContent} / ${getComputedStyle(label).color}` : "数字が無い";
   }),
 );
 
-// 遅延行は地が既に赤いので、同じ濃さの帯は沈む。遅れをいちばん知りたい行で
-// いちばん見えない、では逆立ちしている。
+// 帯はもう無い。塗りの右端と印の位置は別のものさしなので、並べて長さを比べさせない。
 check(
-  "遅延行では遅れの帯を濃くする",
-  await page.evaluate(() => {
-    const late = document.querySelector(".fg-bar.is-delayed .fg-bar-behind");
-    if (!late) return false;
+  "遅れの帯は描かない",
+  await page.evaluate(() => document.querySelectorAll(".fg-bar-behind").length === 0),
+);
 
-    const ground = Number(getComputedStyle(late.closest(".fg-bar")).backgroundColor
-      .match(/\d+/g).slice(0, 3).reduce((a, b) => a + Number(b), 0));
-    // 地が赤い（＝薄い赤の合計が明るい）うえで、帯がはっきりしていること。
-    return Number(getComputedStyle(late).opacity) >= 0.5 && ground > 600;
-  }),
+// まだ来ていない約束は赤くない。日が来ていないものを破ったことにはできない。
+check(
+  "これからの予定進捗は赤くない",
   await page.evaluate(() => {
-    const late = document.querySelector(".fg-bar.is-delayed .fg-bar-behind");
-    return late ? getComputedStyle(late).opacity : "帯が無い";
+    const named = [...document.querySelectorAll(".fg-pane-left .fg-row.fg-data .fg-cell-name")].map(
+      (c) => c.textContent.trim(),
+    );
+    const at = named.findIndex((n) => n.trim() === "設計");
+    const row = [...document.querySelectorAll(".fg-bar-row")][at];
+    const soon = [...row.querySelectorAll(".fg-target")].find((m) => m.title.includes("08-24"));
+    const label = [...row.querySelectorAll(".fg-target-label")].find((l) => l.textContent === "90%");
+
+    return (
+      !!soon && !!label &&
+      !soon.classList.contains("is-missed") &&
+      getComputedStyle(soon).backgroundColor !== "rgb(220, 38, 38)"
+    );
   }),
 );
 
+// 達成した約束は印だけ残して数字は消す。塗りがその先まで来ていて、数字はセルにある。
 check(
-  "追いついている行に遅れの帯は出ない",
-  await page.evaluate(() =>
-    [...document.querySelectorAll(".fg-bar-row")].every((row) => {
-      const band = row.querySelector(".fg-bar-behind");
-      if (!band) return true;
-      const bar = band.closest(".fg-bar");
-      const fill = bar.querySelector(".fg-bar-fill");
-      // 帯があるなら、塗りの右端より右にあるはず。
-      return band.getBoundingClientRect().left >= fill.getBoundingClientRect().right - 1;
-    }),
-  ),
+  "達成した予定進捗は数字を出さない",
+  await page.evaluate(() => {
+    const named = [...document.querySelectorAll(".fg-pane-left .fg-row.fg-data .fg-cell-name")].map(
+      (c) => c.textContent.trim(),
+    );
+    const at = named.findIndex((n) => n.trim() === "設計");
+    const row = [...document.querySelectorAll(".fg-bar-row")][at];
+    const met = [...row.querySelectorAll(".fg-target")].find((m) => m.title.includes("08-12"));
+    const labels = [...row.querySelectorAll(".fg-target-label")].map((l) => l.textContent);
+
+    return (
+      !!met &&
+      met.classList.contains("is-met") &&
+      Number(getComputedStyle(met).opacity) < 0.4 &&
+      !labels.includes("50%")
+    );
+  }),
+  await page.evaluate(() => {
+    const rows = [...document.querySelectorAll(".fg-bar-row")];
+    return rows.map((r) => [...r.querySelectorAll(".fg-target-label")].map((l) => l.textContent).join("+")).join(" / ");
+  }),
+);
+
+// ただし期限超過は日付の事実なので、何も約束していなくても赤い。約束を破った
+// のではなく、日が過ぎたという別の話。
+check(
+  "予定進捗が無くても、期限を過ぎて終わっていなければ赤い",
+  await page.evaluate(async () => {
+    const grid = await (await fetch("/api/projects/test-project/grid")).json();
+    const over = grid.tasks.find((task) => task.overdue > 0 && task.targets.length === 0);
+    if (!over) return false;
+
+    const named = [...document.querySelectorAll(".fg-pane-left .fg-row.fg-data .fg-cell-name")].map(
+      (c) => c.textContent.trim(),
+    );
+    const at = named.findIndex((n) => n.includes(over.name));
+    const row = [...document.querySelectorAll(".fg-pane-left .fg-row.fg-data")][at];
+
+    return over.delayed === false && row.classList.contains("is-delayed");
+  }),
+  await page.evaluate(async () => {
+    const grid = await (await fetch("/api/projects/test-project/grid")).json();
+    return grid.tasks.map((t) => `${t.name}:超${t.overdue}:遅${t.delayed}`).join(" / ");
+  }),
+);
+
+// 何も約束していない行は遅れない。ここが今回の設計そのもの。
+check(
+  "予定進捗を入れていない行は遅れにならない",
+  await page.evaluate(async () => {
+    const grid = await (await fetch("/api/projects/test-project/grid")).json();
+    const none = grid.tasks.filter((task) => task.targets.length === 0 && !task.has_children);
+
+    return none.length > 0 && none.every((task) => task.delayed === false);
+  }),
+  await page.evaluate(async () => {
+    const grid = await (await fetch("/api/projects/test-project/grid")).json();
+    return grid.tasks
+      .map((t) => `${t.name}:${t.targets.length}:${t.delayed}:${t.expected}`)
+      .join(" / ");
+  }),
+);
+
+// 期日前の予定進捗は、届いていなくても遅れではない。まだ来ていない約束を破った
+// ことにはできない。
+check(
+  "その日が来るまでは判定しない",
+  await page.evaluate(async () => {
+    const grid = await (await fetch("/api/projects/test-project/grid")).json();
+    const design = grid.tasks.find((task) => task.name === "設計");
+    const [met, soon] = design.targets;
+
+    // 8/12 に 50% を約束して 60% まで来ている。8/24 の 90% はこれから。
+    return (
+      design.targets.length === 2 &&
+      met.due === true && met.missed === false &&
+      soon.due === false && soon.missed === false &&
+      design.expected === met.percent &&
+      design.delayed === false
+    );
+  }),
+  await page.evaluate(async () => {
+    const grid = await (await fetch("/api/projects/test-project/grid")).json();
+    return JSON.stringify(grid.tasks.find((task) => task.name === "設計")?.targets);
+  }),
 );
 
 /** その列の向きボタン。 */
@@ -2039,8 +2163,8 @@ check("解除で向きも既定に戻る", (await opMark("予定開始")) === "�
   `${await opMark("予定開始")} / ${(await state()).rowCount}`);
 
 // 以上・以下だけでは足りない: 「ちょうど100%」「0日を超える」も条件になる。
-await filterBy("進捗", "100");
-await setOp("進捗", "eq");
+await filterBy("実進捗", "100");
+await setOp("実進捗", "eq");
 // 残った行は全部ちょうど 100%。どの行が 100% かは、ここまでのテストで動く。
 const hundreds = (await state()).names;
 check(
@@ -2054,17 +2178,17 @@ check(
   hundreds.join(","),
 );
 
-await setOp("進捗", "gt");
+await setOp("実進捗", "gt");
 check(
   "超過はその値を含まない",
   (await state()).names.every((name) => !hundreds.includes(name)),
   `一致 ${hundreds.join(",")} / 超過 ${(await state()).names.join(",")}`,
 );
 
-await filterBy("進捗", "40");
-await setOp("進捗", "lt");
+await filterBy("実進捗", "40");
+await setOp("実進捗", "lt");
 const under = (await state()).names;
-await setOp("進捗", "lte");
+await setOp("実進捗", "lte");
 const upTo = (await state()).names;
 check(
   "未満と以下は境目の行だけ違う",
@@ -2077,12 +2201,12 @@ await settle();
 
 // 進捗は「何%以上」より「遅れている行だけ」で見たいことのほうが多く、それには
 // 打ち込む数字がない。
-await setOp("進捗", "behind");
+await setOp("実進捗", "behind");
 
-check("進捗は遅れ・順調でも絞り込める", (await opMark("進捗")) === "遅れ", await opMark("進捗"));
+check("進捗は遅れ・順調でも絞り込める", (await opMark("実進捗")) === "遅れ", await opMark("実進捗"));
 
 const behind = (await state()).names;
-await setOp("進捗", "ahead");
+await setOp("実進捗", "ahead");
 const ahead = (await state()).names;
 
 check(
@@ -2344,6 +2468,76 @@ check(
     savedWaits[1].open === true,
   JSON.stringify(savedWaits),
 );
+
+// 予定進捗も同じ形。待ちと同じく、1行のセルには収まらない一覧だから。
+await selectCell((await state()).names.indexOf("実装"), COLUMN["予定進捗"]);
+await page.keyboard.press("Enter");
+await settle();
+check(
+  "予定進捗はダイアログで編集する",
+  await page.evaluate(
+    () => document.querySelector("dialog.fg-dialog[open] .fg-dialog-title")?.textContent ?? "",
+  ).then((title) => title.startsWith("予定進捗")),
+  await page.evaluate(
+    () => document.querySelector("dialog.fg-dialog[open] .fg-dialog-title")?.textContent ?? "ダイアログが無い",
+  ),
+);
+
+const savedTargets = await page.evaluate(async () => {
+  document.querySelector(".fg-dialog-date").value = "2026-09-10";
+  document.querySelector(".fg-dialog-percent").value = "40";
+
+  document.querySelector(".fg-dialog-add").click();
+  const rows = [...document.querySelectorAll(".fg-dialog-row")];
+  rows.at(-1).querySelector(".fg-dialog-date").value = "2026-08-30";
+  rows.at(-1).querySelector(".fg-dialog-percent").value = "10";
+  document.querySelector(".fg-dialog-save").click();
+
+  await new Promise((done) => setTimeout(done, 800));
+
+  const grid = await (await fetch("/api/projects/test-project/grid")).json();
+  return grid.tasks.find((task) => task.id === "t-imp").targets;
+});
+
+check(
+  "ダイアログで複数の予定進捗を登録でき、日付順に並ぶ",
+  savedTargets.length === 2 &&
+    savedTargets[0].date === "2026-08-30" &&
+    savedTargets[0].percent === 10 &&
+    savedTargets[1].percent === 40,
+  JSON.stringify(savedTargets),
+);
+
+// セルにも出る。過ぎて届いていないものだけが赤い。
+check(
+  "予定進捗はセルに一覧で出る",
+  await page.evaluate(() => {
+    const named = [...document.querySelectorAll(".fg-pane-left .fg-row.fg-data .fg-cell-name")].map(
+      (c) => c.textContent.trim(),
+    );
+    const at = named.findIndex((n) => n.includes("実装"));
+    const cell = [...document.querySelectorAll(".fg-pane-left .fg-row.fg-data")][at]
+      ?.querySelector(".fg-cell-targets");
+
+    return [...(cell?.querySelectorAll(".fg-target-pill") ?? [])].map((p) => p.textContent).join(" / ");
+  }).then((text) => text.includes("10%") && text.includes("40%")),
+  await page.evaluate(() => {
+    const cell = document.querySelector(".fg-cell-targets");
+    return cell ? cell.textContent : "列が無い";
+  }),
+);
+
+// 片付け: この行の予定進捗は他のテストに効かせない。
+await page.evaluate(async () => {
+  await fetch("/api/projects/test-project/tasks/t-imp", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ field: "targets", value: "" }),
+  });
+});
+await page.reload({ waitUntil: "domcontentloaded" });
+await page.waitForSelector(".fg-grid");
+await settle();
 
 // 休暇は設定ではなく通常業務。表の下のボタンから。
 await page.evaluate(

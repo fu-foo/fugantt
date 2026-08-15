@@ -69,6 +69,10 @@ pub fn of(ja: &str) -> Option<&'static str> {
         "ずれの内訳" => "Where the slippage went",
         "ずれ" => "Slippage",
         "待ち" => "Waiting",
+        "進捗は0〜100で入力してください。" => "Progress is a number from 0 to 100.",
+        "予定進捗は「8/20 30%」のように日付と％で入力してください。" => {
+            "Write 予定進捗 as a date and a percentage, like \"8/20 30%\"."
+        }
         "ステータス" => "Status",
         "担当者" => "Assignee",
         "（未割当）" => "(unassigned)",
@@ -103,6 +107,8 @@ pub fn of(ja: &str) -> Option<&'static str> {
         "今日" => "Today",
         "休暇" => "Leave",
         "進捗" => "Progress",
+        "実進捗" => "Progress",
+        "予定進捗" => "Planned progress",
         "日数" => "Days",
         "予定開始" => "Planned start",
         "予定終了" => "Planned end",

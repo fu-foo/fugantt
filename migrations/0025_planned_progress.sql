@@ -1,0 +1,12 @@
+-- 予定進捗: the checkpoints a plan actually names.
+--
+-- Until now the progress a task "should" be at was a formula — elapsed days
+-- over total days — which invents a plan nobody made and then judges people
+-- against it. Work is not linear, and a task that is on plan spent weeks
+-- painted red for it. A tool whose red means nothing is a tool whose red
+-- nobody looks at.
+--
+-- So it is entered, in the same shape as 待ち: one `DATE/PERCENT` per line.
+-- No entries means no judgement — the row is a line on a chart, which is a
+-- perfectly good thing for a row to be.
+ALTER TABLE tasks ADD COLUMN targets TEXT NOT NULL DEFAULT '';

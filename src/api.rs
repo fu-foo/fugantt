@@ -293,6 +293,8 @@ enum Field {
     ActualEnd,
     /// Waiting periods, as many as needed: `8/17〜8/21, 9/1〜9/3`.
     Waits,
+    /// 予定進捗: the checkpoints the plan names — `8/20 30%, 8/28 100%`.
+    Targets,
     /// One of the project's own columns, named by `field_id`.
     Custom,
     /// Both dates at once, as `START/END`. Dragging a bar moves them together,
@@ -356,6 +358,7 @@ async fn update_task(cx: &Cx, Json(edit): Json<CellEdit>) -> Result<Json<Mutatio
         Field::Assignee => "assignee",
         Field::Note => "note",
         Field::Waits => "waits",
+        Field::Targets => "targets",
         Field::Custom => "",
         Field::Schedule => "start_date",
         Field::ActualSchedule => "actual_start",
@@ -418,6 +421,10 @@ async fn update_task(cx: &Cx, Json(edit): Json<CellEdit>) -> Result<Json<Mutatio
         Field::Waits => {
             let stored = parse_waits(value, l)?;
             write_cell(cx, &task_id, &user.id, "waits = ?1", stored).await?;
+        }
+        Field::Targets => {
+            let stored = parse_targets(value, l)?;
+            write_cell(cx, &task_id, &user.id, "targets = ?1", stored).await?;
         }
         Field::Custom => {
             let field_id = edit
@@ -605,11 +612,12 @@ fn field_label(field: Field) -> &'static str {
         Field::End => "予定終了",
         Field::ActualStart => "実施開始",
         Field::ActualEnd => "実施終了",
-        Field::Progress => "進捗",
+        Field::Progress => "実進捗",
         Field::Status => "ステータス",
         Field::Assignee => "担当者",
         Field::Note => "コメント",
         Field::Waits => "待ち",
+        Field::Targets => "予定進捗",
         Field::Custom => "独自項目",
         Field::Schedule => "期間",
         Field::ActualSchedule => "実施期間",
@@ -1482,7 +1490,7 @@ async fn set_view(
 
 /// The built-in columns a project may turn off.
 /// Every built-in column, in the order they are declared.
-pub const COLUMN_KEYS: [&str; 14] = [
+pub const COLUMN_KEYS: [&str; 15] = [
     "name",
     "start",
     "end",
@@ -1492,6 +1500,7 @@ pub const COLUMN_KEYS: [&str; 14] = [
     "actual_days",
     "start_variance",
     "end_variance",
+    "targets",
     "progress",
     "status",
     "assignee",
@@ -1499,7 +1508,7 @@ pub const COLUMN_KEYS: [&str; 14] = [
     "waits",
 ];
 
-pub const OPTIONAL_COLUMNS: [&str; 13] = [
+pub const OPTIONAL_COLUMNS: [&str; 14] = [
     "start",
     "end",
     "actual_start",
@@ -1508,6 +1517,7 @@ pub const OPTIONAL_COLUMNS: [&str; 13] = [
     "actual_days",
     "start_variance",
     "end_variance",
+    "targets",
     "progress",
     "status",
     "assignee",
@@ -2403,6 +2413,53 @@ async fn check_order(cx: &Cx, task_id: &str, field: Field, date: Option<&str>) -
     Ok(())
 }
 
+/// Reads a cell of 予定進捗 into the stored form: `YYYY-MM-DD/PERCENT` a line.
+///
+/// Written the way a person would say it — `8/20 30%, 8/28 100%` — in either
+/// width, with the percent sign optional. Each line is one promise: by this
+/// date, this much. Nothing is read into the gap between two of them.
+fn parse_targets(value: &str, l: crate::i18n::Lang) -> Result<String> {
+    let text = normalize_width(value);
+    let mut stored: Vec<(Date, i64)> = Vec::new();
+
+    for part in text.split(['\n', ',', '、']) {
+        let part = part.trim();
+        if part.is_empty() {
+            continue;
+        }
+
+        let (date, percent) = part.rsplit_once([' ', '/', '\t']).ok_or_else(|| {
+            bad_request(l.t("予定進捗は「8/20 30%」のように日付と％で入力してください。"))
+        })?;
+
+        let date = wait_date(date.trim(), l)?;
+        let percent: i64 = percent
+            .trim()
+            .trim_end_matches(['%', '％'])
+            .trim()
+            .parse()
+            .map_err(|_| {
+                bad_request(l.t("予定進捗は「8/20 30%」のように日付と％で入力してください。"))
+            })?;
+
+        if !(0..=100).contains(&percent) {
+            return Err(bad_request(l.t("進捗は0〜100で入力してください。")).into());
+        }
+
+        // The same date twice is one promise revised, not two.
+        stored.retain(|(had, _)| *had != date);
+        stored.push((date, percent));
+    }
+
+    stored.sort_by_key(|(date, _)| *date);
+
+    Ok(stored
+        .iter()
+        .map(|(date, percent)| format!("{date}/{percent}"))
+        .collect::<Vec<_>>()
+        .join("\n"))
+}
+
 /// Reads a cell of waiting periods into the stored form.
 ///
 /// People write ranges every which way — `8/17〜8/21`, `2026-08-17 - 2026-08-21`
@@ -2551,6 +2608,37 @@ pub fn flexible_date(value: &str) -> Option<Date> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// 予定進捗 is a date and a percentage, however it is written.
+    #[test]
+    fn a_checkpoint_reads_its_date_and_its_percentage() {
+        let year = jiff::Zoned::now().date().year();
+        let ja = crate::i18n::Lang::Ja;
+
+        assert_eq!(
+            parse_targets("2026-08-20 30%", ja).unwrap(),
+            "2026-08-20/30"
+        );
+        // The percent sign is optional, and either width will do.
+        assert_eq!(
+            parse_targets("8/20　30％", ja).unwrap(),
+            format!("{year}-08-20/30")
+        );
+        // Several at once, kept in date order whatever order they arrive in.
+        assert_eq!(
+            parse_targets("2026-08-28 100%, 2026-08-20 30%", ja).unwrap(),
+            "2026-08-20/30\n2026-08-28/100"
+        );
+        // The same date twice is one promise revised, not two.
+        assert_eq!(
+            parse_targets("2026-08-20 30%\n2026-08-20 50%", ja).unwrap(),
+            "2026-08-20/50"
+        );
+
+        assert!(parse_targets("2026-08-20", ja).is_err());
+        assert!(parse_targets("2026-08-20 いつか", ja).is_err());
+        assert!(parse_targets("2026-08-20 120%", ja).is_err());
+    }
 
     /// A wait is from when, to when, and why. No end means it is still waiting.
     #[test]

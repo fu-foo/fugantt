@@ -62,4 +62,12 @@ INSERT INTO tasks (id, project_id, parent_id, sort_key, name, start_date, end_da
    NULL,         NULL,         '実施中', '',       '',       NULL,         NULL,           5, '',     strftime('%s','now')),
   ('t-rev',  'test-project', NULL,    'r', 'レビュー',        '2026-07-27', '2026-08-06',
    '2026-07-27', NULL,         '待ち',   '顧客',   'A社',   '2026-08-03', '2026-08-12',  40, '山田', strftime('%s','now'));
+
+-- 予定進捗. Nothing is behind unless the plan itself said what it wanted by
+-- when, so the fixture has to say it: one promise kept, one missed, one still
+-- to come, and rows that promised nothing at all.
+UPDATE tasks SET targets = '2026-08-14/100' WHERE id = 't-req';
+UPDATE tasks SET targets = '2026-08-12/50
+2026-08-24/90' WHERE id = 't-des';
+UPDATE tasks SET targets = '2026-08-05/50' WHERE id = 't-doc';
 SQL

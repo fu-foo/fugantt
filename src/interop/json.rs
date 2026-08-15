@@ -144,6 +144,10 @@ pub struct Task {
     /// Waiting periods: `["2026-08-17/2026-08-21"]`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub waits: Vec<String>,
+    /// 予定進捗: `["2026-08-20/30", "2026-08-28/100"]` — by this date, this
+    /// much. The one plan a derived value could never guess.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub targets: Vec<String>,
     /// The project's own columns, by their label rather than their id — an id
     /// means nothing in another installation.
     #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
@@ -241,6 +245,11 @@ pub fn write(project_name: &str, data: &GridData, extras: Extras) -> String {
                     .waits
                     .iter()
                     .map(|span| format!("{}/{}", span.start, span.end))
+                    .collect(),
+                targets: task
+                    .targets
+                    .iter()
+                    .map(|target| format!("{}/{}", target.date, target.percent))
                     .collect(),
                 fields: task
                     .values

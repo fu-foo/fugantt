@@ -1252,6 +1252,7 @@ fn column_label(key: &str) -> &str {
         // through to the last arm and label the task column as a note.
         "name" => "タスク",
         "waits" => "待ち",
+        "targets" => "予定進捗",
         "note" => "コメント",
         "start" => "予定開始",
         "end" => "予定終了",
@@ -1261,7 +1262,7 @@ fn column_label(key: &str) -> &str {
         "end_variance" => "終了差異",
         "days" => "予定日数",
         "actual_days" => "実作業日数",
-        "progress" => "進捗",
+        "progress" => "実進捗",
         "status" => "ステータス",
         "assignee" => "担当者",
         other => other,

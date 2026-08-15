@@ -340,6 +340,13 @@ curl -H "Authorization: Bearer fug_…" https://example.com/api/summary    # 案
 `FUGANTT_NO_AUTH=yes-everyone-on-this-network-can-edit` で認証なしにもできる。
 **その URL に届く人は全員が全プロジェクトを読み書きできる。** 動いている間は画面の上に帯が出る。
 
+## 応援する
+
+役に立ったら、開発の支えに。
+
+[![GitHub Sponsors](https://img.shields.io/github/sponsors/fu-foo?style=for-the-badge&logo=github&label=Sponsor)](https://github.com/sponsors/fu-foo)
+[![Ko-fi](https://img.shields.io/badge/Ko--fi-Support-ff5e5b?style=for-the-badge&logo=ko-fi)](https://ko-fi.com/fufoo)
+
 ## ライセンス
 
 Apache License 2.0

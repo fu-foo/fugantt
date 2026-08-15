@@ -284,6 +284,13 @@ then return only what that person may see.
 at all. **Everyone who can reach that URL can read and edit every project.** A
 banner stays on screen while it is on.
 
+## Supporting
+
+If you find this project useful, consider supporting its development:
+
+[![GitHub Sponsors](https://img.shields.io/github/sponsors/fu-foo?style=for-the-badge&logo=github&label=Sponsor)](https://github.com/sponsors/fu-foo)
+[![Ko-fi](https://img.shields.io/badge/Ko--fi-Support-ff5e5b?style=for-the-badge&logo=ko-fi)](https://ko-fi.com/fufoo)
+
 ## Licence
 
 Apache License 2.0

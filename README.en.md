@@ -128,10 +128,19 @@ words.
 
 ```sh
 brew install fu-foo/tap/fugantt
+scoop bucket add fu-foo https://github.com/fu-foo/scoop-bucket && scoop install fugantt
 docker run -p 3000:3000 -v fugantt:/data ghcr.io/fu-foo/fugantt
 
 cargo-topcoat dev            # from source. http://127.0.0.1:3000
 ```
+
+Four binaries on every release: macOS on Apple Silicon and on Intel, Windows,
+and Linux — **Apple Silicon is native**, and `brew` installs the arm64 build on
+an M-series Mac. The Windows build links the C runtime statically, so it is one
+file and nothing else. Only the container image is amd64-only: an arm64 image
+would be built under emulation in CI, and a Rust release build in QEMU takes
+long enough to make cutting a release something nobody does. On Apple Silicon,
+`--platform linux/amd64` runs it, or use the native binary.
 
 Settings are environment variables, or the same names written in a
 `fugantt.ini` beside the executable — in the working directory, or in the

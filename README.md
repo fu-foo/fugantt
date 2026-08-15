@@ -67,9 +67,21 @@ scoop bucket add fu-foo https://github.com/fu-foo/scoop-bucket && scoop install 
 docker run -p 3000:3000 -v fugantt:/data ghcr.io/fu-foo/fugantt
 ```
 
-イメージは amd64 のみ。Apple Silicon で動かすなら `--platform linux/amd64` を付ける。
+[Releases](https://github.com/fu-foo/fugantt/releases) に4つ。**Apple Silicon はネイティブ**で、
+`brew` も M シリーズには arm64 版を入れる（Rosetta は要らない）。
 
-ビルド済みバイナリは [Releases](https://github.com/fu-foo/fugantt/releases) から。
+| | |
+| --- | --- |
+| `fugantt-macos-arm64` | macOS / Apple Silicon |
+| `fugantt-macos-x86_64` | macOS / Intel |
+| `fugantt-windows-x86_64` | Windows 64bit（C ランタイムも静的リンク。単品で動く） |
+| `fugantt-linux-x86_64` | Linux 64bit（glibc） |
+
+**Docker イメージだけは amd64 のみ。** Apple Silicon で動かすなら `--platform linux/amd64`
+を付ける（エミュレーションで動く）。arm64 を出していないのは、CI で QEMU 越しに Rust の
+リリースビルドを回すと、リリースを切るのが億劫になる時間がかかるため。ネイティブで動かしたい
+なら上のバイナリか、`cargo build --release` を。
+
 Fly.io の設定も入っている（`fly.toml`）。
 
 > `cargo topcoat dev` ではなく `cargo-topcoat dev`。topcoat-cli 0.5.0 は

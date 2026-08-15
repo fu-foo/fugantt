@@ -142,25 +142,43 @@ interface ColumnDef {
   options?: { value: string; color: string; background: string }[];
 }
 
+/**
+ * A built-in column by name.
+ *
+ * The bars ask "may this row's dates be edited" by handing over a column, and
+ * they used to reach into this list by position. Reordering the columns then
+ * quietly made summary bars draggable, because position 1 stopped being a date.
+ */
+function column(key: string): ColumnDef {
+  return BASE_COLUMNS.find((entry) => entry.key === key) ?? BASE_COLUMNS[0]!;
+}
+
 const BASE_COLUMNS: ColumnDef[] = [
   { key: "name", label: "タスク", kind: "name" },
+  // Who and what state, before any dates: the two things read at a glance.
+  { key: "assignee", label: "担当者", kind: "text" },
+  { key: "status", label: "ステータス", kind: "status" },
+  // The plan, then what happened, in the same four columns each: when it
+  // starts, when it ends, how many days, how far along. Read down one and then
+  // the other and the pairs line up.
   { key: "start", label: "予定開始", kind: "date" },
   { key: "end", label: "予定終了", kind: "date" },
-  { key: "actual_start", label: "実施開始", kind: "date" },
-  { key: "actual_end", label: "実施終了", kind: "date" },
   { key: "days", label: "予定日数", kind: "days" },
-  // Days actually worked. Counted up to today while it is still running.
-  { key: "actual_days", label: "実作業日数", kind: "days" },
-  { key: "start_variance", label: "開始差異", kind: "variance" },
-  { key: "end_variance", label: "終了差異", kind: "variance" },
   // 予定進捗: entered, never derived. A list of "by this date, this much",
   // which is the only thing that can say whether the work is behind.
   { key: "targets", label: "予定進捗", kind: "text" },
+  { key: "actual_start", label: "実施開始", kind: "date" },
+  { key: "actual_end", label: "実施終了", kind: "date" },
+  // Days actually worked. Counted up to today while it is still running.
+  { key: "actual_days", label: "実作業日数", kind: "days" },
   { key: "progress", label: "実進捗", kind: "progress" },
-  { key: "status", label: "ステータス", kind: "status" },
-  { key: "assignee", label: "担当者", kind: "text" },
-  { key: "note", label: "コメント", kind: "text" },
+  // The subtraction, after both sides it subtracts.
+  { key: "start_variance", label: "開始差異", kind: "variance" },
+  { key: "end_variance", label: "終了差異", kind: "variance" },
   { key: "waits", label: "待ち", kind: "text" },
+  // Last on purpose: free text is the widest column and the least often read,
+  // so it is the one that should run off the edge rather than push anything.
+  { key: "note", label: "コメント", kind: "text" },
 ];
 
 /** Columns a summary row takes from its children rather than its own row. */
@@ -3671,7 +3689,7 @@ class Grid {
       fill.style.width = `${task.progress}%`;
       bar.append(fill);
 
-      if (this.editable(task, BASE_COLUMNS[1]!)) {
+      if (this.editable(task, column("start"))) {
         bar.classList.add("is-draggable");
 
         const knob = element("span", "fg-grip fg-grip-progress");
@@ -3776,7 +3794,7 @@ class Grid {
 
       // No fill here: the actual bar answers "when did this run", and the plan
       // bar answers "how much is done". One question each.
-      if (this.editable(task, BASE_COLUMNS[3]!)) {
+      if (this.editable(task, column("actual_start"))) {
         bar.classList.add("is-draggable");
 
         bar.append(

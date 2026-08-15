@@ -19,20 +19,20 @@ const FIRST_TASK_ROW: u32 = 2;
 /// made the spreadsheet a worse copy of the plan than the screen it came from.
 const COLUMNS: [(&str, &str, f64); 15] = [
     ("name", "タスク", 34.0),
+    ("assignee", "担当者", 10.0),
+    ("status", "ステータス", 10.0),
     ("start", "予定開始", 12.0),
     ("end", "予定終了", 12.0),
+    ("days", "予定日数", 8.0),
+    ("targets", "予定進捗", 14.0),
     ("actual_start", "実施開始", 12.0),
     ("actual_end", "実施終了", 12.0),
-    ("days", "予定日数", 8.0),
     ("actual_days", "実作業日数", 8.0),
+    ("progress", "実進捗", 7.0),
     ("start_variance", "開始差異", 9.0),
     ("end_variance", "終了差異", 9.0),
-    ("targets", "予定進捗", 14.0),
-    ("progress", "実進捗", 7.0),
-    ("status", "ステータス", 10.0),
-    ("assignee", "担当者", 10.0),
-    ("note", "コメント", 24.0),
     ("waits", "待ち", 16.0),
+    ("note", "コメント", 24.0),
 ];
 
 /// The columns this project shows, built-in ones first.
@@ -531,8 +531,8 @@ mod tests {
 
         assert_eq!(
             labels(&data),
-            "タスク,予定開始,予定終了,実施開始,実施終了,予定日数,実作業日数,開始差異,終了差異,\
-             予定進捗,実進捗,ステータス,担当者,コメント,待ち"
+            "タスク,担当者,ステータス,予定開始,予定終了,予定日数,予定進捗,\
+             実施開始,実施終了,実作業日数,実進捗,開始差異,終了差異,待ち,コメント"
         );
 
         data.hidden_columns = vec!["status".to_owned(), "note".to_owned()];

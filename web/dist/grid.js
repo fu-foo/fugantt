@@ -1,25 +1,35 @@
 "use strict";
 (() => {
   // src/grid.ts
+  function column(key) {
+    return BASE_COLUMNS.find((entry) => entry.key === key) ?? BASE_COLUMNS[0];
+  }
   var BASE_COLUMNS = [
     { key: "name", label: "\u30BF\u30B9\u30AF", kind: "name" },
+    // Who and what state, before any dates: the two things read at a glance.
+    { key: "assignee", label: "\u62C5\u5F53\u8005", kind: "text" },
+    { key: "status", label: "\u30B9\u30C6\u30FC\u30BF\u30B9", kind: "status" },
+    // The plan, then what happened, in the same four columns each: when it
+    // starts, when it ends, how many days, how far along. Read down one and then
+    // the other and the pairs line up.
     { key: "start", label: "\u4E88\u5B9A\u958B\u59CB", kind: "date" },
     { key: "end", label: "\u4E88\u5B9A\u7D42\u4E86", kind: "date" },
-    { key: "actual_start", label: "\u5B9F\u65BD\u958B\u59CB", kind: "date" },
-    { key: "actual_end", label: "\u5B9F\u65BD\u7D42\u4E86", kind: "date" },
     { key: "days", label: "\u4E88\u5B9A\u65E5\u6570", kind: "days" },
-    // Days actually worked. Counted up to today while it is still running.
-    { key: "actual_days", label: "\u5B9F\u4F5C\u696D\u65E5\u6570", kind: "days" },
-    { key: "start_variance", label: "\u958B\u59CB\u5DEE\u7570", kind: "variance" },
-    { key: "end_variance", label: "\u7D42\u4E86\u5DEE\u7570", kind: "variance" },
     // 予定進捗: entered, never derived. A list of "by this date, this much",
     // which is the only thing that can say whether the work is behind.
     { key: "targets", label: "\u4E88\u5B9A\u9032\u6357", kind: "text" },
+    { key: "actual_start", label: "\u5B9F\u65BD\u958B\u59CB", kind: "date" },
+    { key: "actual_end", label: "\u5B9F\u65BD\u7D42\u4E86", kind: "date" },
+    // Days actually worked. Counted up to today while it is still running.
+    { key: "actual_days", label: "\u5B9F\u4F5C\u696D\u65E5\u6570", kind: "days" },
     { key: "progress", label: "\u5B9F\u9032\u6357", kind: "progress" },
-    { key: "status", label: "\u30B9\u30C6\u30FC\u30BF\u30B9", kind: "status" },
-    { key: "assignee", label: "\u62C5\u5F53\u8005", kind: "text" },
-    { key: "note", label: "\u30B3\u30E1\u30F3\u30C8", kind: "text" },
-    { key: "waits", label: "\u5F85\u3061", kind: "text" }
+    // The subtraction, after both sides it subtracts.
+    { key: "start_variance", label: "\u958B\u59CB\u5DEE\u7570", kind: "variance" },
+    { key: "end_variance", label: "\u7D42\u4E86\u5DEE\u7570", kind: "variance" },
+    { key: "waits", label: "\u5F85\u3061", kind: "text" },
+    // Last on purpose: free text is the widest column and the least often read,
+    // so it is the one that should run off the edge rather than push anything.
+    { key: "note", label: "\u30B3\u30E1\u30F3\u30C8", kind: "text" }
   ];
   var ROLLED_UP = [
     "actual_days",
@@ -471,12 +481,12 @@
       }
       const keys = /* @__PURE__ */ new Set([...this.filters.keys(), ...this.stateColumns.map((c) => c.key)]);
       const conditions = [...keys].map((key) => ({
-        column: this.columns.find((column) => column.key === key),
+        column: this.columns.find((column2) => column2.key === key),
         needle: this.filters.get(key) ?? ""
       })).filter((condition) => condition.column !== void 0);
       this.visible = keepMatches(
         visible,
-        (task) => conditions.every(({ column, needle }) => this.matches(task, column, needle))
+        (task) => conditions.every(({ column: column2, needle }) => this.matches(task, column2, needle))
       );
     }
     /** Wires the header's filter box, which lives outside the island's markup. */
@@ -506,21 +516,21 @@
       return [...this.filters.values()].some((value) => value !== "") || this.stateColumns.length > 0;
     }
     /** Which way a column's filter points, once the user has had a say. */
-    boundFor(column) {
-      const chosen = this.bounds.get(column.key) ?? FILTER_BOUND[column.key];
+    boundFor(column2) {
+      const chosen = this.bounds.get(column2.key) ?? FILTER_BOUND[column2.key];
       if (chosen) return chosen;
-      return column.fieldId && (column.kind === "date" || column.kind === "number") ? "gte" : void 0;
+      return column2.fieldId && (column2.kind === "date" || column2.kind === "number") ? "gte" : void 0;
     }
     /** Bounds that are a condition on their own, with nothing to type. */
     get stateColumns() {
-      return this.columns.filter((column) => {
-        const bound = this.boundFor(column);
+      return this.columns.filter((column2) => {
+        const bound = this.boundFor(column2);
         return bound === "behind" || bound === "ahead";
       });
     }
-    setBound(column, at) {
-      this.bounds.set(column.key, at);
-      this.filterFocus = { key: column.key, caret: null };
+    setBound(column2, at) {
+      this.bounds.set(column2.key, at);
+      this.filterFocus = { key: column2.key, caret: null };
       this.computeVisible();
       this.render();
       this.updateFilterCount();
@@ -532,9 +542,9 @@
      * from the first to the last would be four clicks, and nothing on screen would
      * say what is coming next.
      */
-    openBoundMenu(column, chip) {
-      const choices = BOUND_CHOICES[column.key] ?? BOUND_DEFAULT;
-      const current = this.boundFor(column);
+    openBoundMenu(column2, chip) {
+      const choices = BOUND_CHOICES[column2.key] ?? BOUND_DEFAULT;
+      const current = this.boundFor(column2);
       const anchor = chip.getBoundingClientRect();
       const menu = element("div", "fg-menu fg-bound-menu");
       menu.style.left = `${anchor.left}px`;
@@ -560,7 +570,7 @@
         button.addEventListener("mousedown", (event) => event.preventDefault());
         button.addEventListener("click", () => {
           close();
-          this.setBound(column, at);
+          this.setBound(column2, at);
         });
         menu.append(button);
       }
@@ -592,15 +602,15 @@
     renderFilterRow(tracks) {
       const row = element("div", "fg-row fg-filters");
       row.style.gridTemplateColumns = tracks;
-      this.columns.forEach((column, index) => {
-        const cell = element("div", `fg-cell fg-cell-${column.key}`);
+      this.columns.forEach((column2, index) => {
+        const cell = element("div", `fg-cell fg-cell-${column2.key}`);
         if (index < this.data.frozen_columns) cell.classList.add("is-frozen");
-        const current = this.filters.get(column.key) ?? "";
-        const choices = this.choicesFor(column);
+        const current = this.filters.get(column2.key) ?? "";
+        const choices = this.choicesFor(column2);
         if (choices) {
           const select = element("select", "fg-filter");
           if (current) select.classList.add("is-on");
-          select.dataset["column"] = column.key;
+          select.dataset["column"] = column2.key;
           select.append(element("option", void 0, ""));
           for (const choice of choices) {
             const option = element("option", void 0, choice);
@@ -608,18 +618,18 @@
             select.append(option);
           }
           select.value = current;
-          select.addEventListener("change", () => this.setFilter(column.key, select.value, null));
+          select.addEventListener("change", () => this.setFilter(column2.key, select.value, null));
           cell.append(select);
         } else {
-          const bound = this.boundFor(column);
+          const bound = this.boundFor(column2);
           if (bound) {
-            const choices2 = BOUND_CHOICES[column.key] ?? BOUND_DEFAULT;
+            const choices2 = BOUND_CHOICES[column2.key] ?? BOUND_DEFAULT;
             const chip = element("button", "fg-filter-op", BOUND_MARK[bound]);
             chip.type = "button";
             chip.tabIndex = -1;
             chip.title = `\u3044\u307E\u306F\u300C${BOUND_LABEL[bound]}\u300D\u3002\u30AF\u30EA\u30C3\u30AF\u3067 ${choices2.map((at) => BOUND_LABEL[at]).join("\u30FB")} \u304B\u3089\u9078\u3079\u307E\u3059`;
             chip.addEventListener("mousedown", (event) => event.preventDefault());
-            chip.addEventListener("click", () => this.openBoundMenu(column, chip));
+            chip.addEventListener("click", () => this.openBoundMenu(column2, chip));
             cell.append(chip);
             if (bound === "behind" || bound === "ahead") {
               chip.classList.add("is-wide", "is-on");
@@ -631,28 +641,28 @@
           input.type = "search";
           input.value = current;
           if (current) input.classList.add("is-on");
-          input.placeholder = column.kind === "name" ? t("\u7D5E\u308A\u8FBC\u307F") : "";
+          input.placeholder = column2.kind === "name" ? t("\u7D5E\u308A\u8FBC\u307F") : "";
           if (!input.placeholder && !bound) input.classList.add("has-funnel");
           if (bound) {
             input.classList.add("has-op");
-            input.title = column.kind === "date" ? t("20260805\u30FB8/5\u30FB2026-08-05 \u306E\u3069\u308C\u3067\u3082\u3002\u5DE6\u306E\u30DC\u30BF\u30F3\u3067\u5411\u304D\u3092\u5909\u3048\u3089\u308C\u307E\u3059") : t("\u5DE6\u306E\u30DC\u30BF\u30F3\u3067\u300C\u4EE5\u4E0A\u300D\u300C\u4EE5\u4E0B\u300D\u3092\u5207\u308A\u66FF\u3048\u3089\u308C\u307E\u3059");
+            input.title = column2.kind === "date" ? t("20260805\u30FB8/5\u30FB2026-08-05 \u306E\u3069\u308C\u3067\u3082\u3002\u5DE6\u306E\u30DC\u30BF\u30F3\u3067\u5411\u304D\u3092\u5909\u3048\u3089\u308C\u307E\u3059") : t("\u5DE6\u306E\u30DC\u30BF\u30F3\u3067\u300C\u4EE5\u4E0A\u300D\u300C\u4EE5\u4E0B\u300D\u3092\u5207\u308A\u66FF\u3048\u3089\u308C\u307E\u3059");
           }
-          input.dataset["column"] = column.key;
+          input.dataset["column"] = column2.key;
           input.addEventListener("input", (event) => {
             if (event.isComposing) return;
             const digits = normalizeWidth(input.value).trim();
-            if (column.kind === "date" && /^\d{8}$/.test(digits)) {
+            if (column2.kind === "date" && /^\d{8}$/.test(digits)) {
               input.value = flexibleDate(digits) ?? input.value;
             }
-            this.setFilter(column.key, input.value, input.selectionStart);
+            this.setFilter(column2.key, input.value, input.selectionStart);
           });
           input.addEventListener(
             "compositionend",
-            () => this.setFilter(column.key, input.value, input.selectionStart)
+            () => this.setFilter(column2.key, input.value, input.selectionStart)
           );
           input.addEventListener("keydown", (event) => event.stopPropagation());
           cell.append(input);
-          if (column.kind === "date") {
+          if (column2.kind === "date") {
             const picker = element("input", "fg-datepicker fg-filter-picker");
             picker.type = "date";
             picker.tabIndex = -1;
@@ -664,7 +674,7 @@
               }
             });
             picker.addEventListener("change", () => {
-              if (picker.value) this.setFilter(column.key, picker.value, null);
+              if (picker.value) this.setFilter(column2.key, picker.value, null);
             });
             input.classList.add("has-picker");
             cell.append(picker);
@@ -751,9 +761,9 @@
       return counting.monday || counting.tuesday || counting.wednesday || counting.thursday || counting.friday || counting.saturday || counting.sunday || counting.holidays;
     }
     /** The closed set a column offers, or null when it takes free text. */
-    choicesFor(column) {
-      if (column.kind === "status") return this.data.statuses.map((status) => status.name);
-      return column.kind === "select" ? column.options?.map((option) => option.value) ?? null : null;
+    choicesFor(column2) {
+      if (column2.kind === "status") return this.data.statuses.map((status) => status.name);
+      return column2.kind === "select" ? column2.options?.map((option) => option.value) ?? null : null;
     }
     holidayOn(iso) {
       return this.data.holidays.find((holiday) => holiday.date === iso);
@@ -824,18 +834,18 @@
       const hidden = new Set(this.data.hidden_columns);
       const all = [
         // The name column carries the outline, so it is never optional.
-        ...BASE_COLUMNS.filter((column) => column.kind === "name" || !hidden.has(column.key)).map(
+        ...BASE_COLUMNS.filter((column2) => column2.kind === "name" || !hidden.has(column2.key)).map(
           // The assignee is a menu of the people on the project rather than free
           // text: 山田 and 山田さん are one person to everyone but a computer.
-          (column) => column.key === "assignee" ? {
-            ...column,
+          (column2) => column2.key === "assignee" ? {
+            ...column2,
             kind: "select",
             options: this.data.assignees.map((person) => ({
               value: person.name,
               color: person.color,
               background: person.background
             }))
-          } : column
+          } : column2
         ),
         ...this.data.fields.map((field) => ({
           key: field.id,
@@ -846,9 +856,9 @@
         }))
       ];
       const order = this.data.column_order;
-      const rank = (column) => {
-        const at = order.indexOf(column.key);
-        return at < 0 ? order.length + all.indexOf(column) : at;
+      const rank = (column2) => {
+        const at = order.indexOf(column2.key);
+        return at < 0 ? order.length + all.indexOf(column2) : at;
       };
       return all.sort((a, b) => rank(a) - rank(b));
     }
@@ -866,9 +876,9 @@
       return task.delayed || task.overdue > 0;
     }
     /** Whether one cell satisfies one filter box. */
-    matches(task, column, needle) {
-      const text = this.cellText(task, column);
-      const at = this.boundFor(column);
+    matches(task, column2, needle) {
+      const text = this.cellText(task, column2);
+      const at = this.boundFor(column2);
       if (at === "behind" || at === "ahead") {
         if (at === "behind") return task.delayed;
         return task.targets.length > 0 && !task.delayed;
@@ -878,19 +888,19 @@
       if (!bound.limit) return true;
       const value = normalizeWidth(text).trim();
       if (!value) return false;
-      if (column.kind === "days" || column.kind === "number" || column.kind === "variance" || column.kind === "progress") {
+      if (column2.kind === "days" || column2.kind === "number" || column2.kind === "variance" || column2.kind === "progress") {
         const left = Number(value.replace(/[^0-9-]/g, ""));
         const right = Number(bound.limit.replace(/[^0-9-]/g, ""));
         if (!Number.isFinite(left) || !Number.isFinite(right)) return false;
         return compare(bound.at, left, right);
       }
-      const limit = column.kind === "date" ? flexibleDate(bound.limit) ?? bound.limit : bound.limit;
+      const limit = column2.kind === "date" ? flexibleDate(bound.limit) ?? bound.limit : bound.limit;
       const cut = value.slice(0, limit.length);
       return compare(bound.at, cut, limit);
     }
-    cellText(task, column) {
-      if (column.fieldId) return task.values[column.fieldId] ?? "";
-      switch (column.key) {
+    cellText(task, column2) {
+      if (column2.fieldId) return task.values[column2.fieldId] ?? "";
+      switch (column2.key) {
         case "name":
           return task.name;
         case "start":
@@ -924,25 +934,25 @@
       }
     }
     /** What a cell shows when it is not being edited. */
-    cellDisplay(task, column) {
-      const text = this.cellText(task, column);
-      if (column.key === "progress") return `${task.progress}%`;
-      if (column.kind === "variance") {
+    cellDisplay(task, column2) {
+      const text = this.cellText(task, column2);
+      if (column2.key === "progress") return `${task.progress}%`;
+      if (column2.kind === "variance") {
         if (!text) return "\u2014";
         return this.varianceText(Number(text));
       }
-      if (column.kind === "days" || column.kind === "date") return text || "\u2014";
+      if (column2.kind === "days" || column2.kind === "date") return text || "\u2014";
       return text;
     }
-    editable(task, column) {
+    editable(task, column2) {
       if (!this.data.can_edit) return false;
-      if (column.kind === "days") return false;
-      return !(task.has_children && ROLLED_UP.includes(column.key));
+      if (column2.kind === "days") return false;
+      return !(task.has_children && ROLLED_UP.includes(column2.key));
     }
     // --- selection -----------------------------------------------------------
-    select(row, column) {
+    select(row, column2) {
       this.row = clamp(row, 0, Math.max(0, this.tasks.length - 1));
-      this.column = clamp(column, 0, this.columns.length - 1);
+      this.column = clamp(column2, 0, this.columns.length - 1);
     }
     move(rows, columns) {
       this.select(this.row + rows, this.column + columns);
@@ -1277,31 +1287,31 @@
     }
     async commitEdit(raw, after) {
       const task = this.selected;
-      const column = this.selectedColumn;
-      const value = column.kind === "date" ? flexibleDate(raw) ?? normalizeWidth(raw).trim() : column.kind === "progress" || column.kind === "number" ? normalizeWidth(raw).trim() : raw;
+      const column2 = this.selectedColumn;
+      const value = column2.kind === "date" ? flexibleDate(raw) ?? normalizeWidth(raw).trim() : column2.kind === "progress" || column2.kind === "number" ? normalizeWidth(raw).trim() : raw;
       this.editing = false;
       this.seed = null;
       if (after === "down") this.select(this.row + 1, this.column);
       if (after === "right") this.step(1);
-      if (!task || value === this.cellText(task, column)) {
+      if (!task || value === this.cellText(task, column2)) {
         this.render();
         return;
       }
       const rollback = structuredClone(this.data);
-      this.applyLocally(task, column, value);
+      this.applyLocally(task, column2, value);
       this.render();
       await this.send(`/api/projects/${encodeURIComponent(this.projectId)}/tasks/${task.id}`, {
         method: "POST",
-        body: column.fieldId ? { field: "custom", field_id: column.fieldId, value } : { field: column.key, value },
+        body: column2.fieldId ? { field: "custom", field_id: column2.fieldId, value } : { field: column2.key, value },
         rollback
       });
     }
-    applyLocally(task, column, value) {
-      if (column.fieldId) {
-        task.values[column.fieldId] = value;
+    applyLocally(task, column2, value) {
+      if (column2.fieldId) {
+        task.values[column2.fieldId] = value;
         return;
       }
-      switch (column.key) {
+      switch (column2.key) {
         case "name":
           task.name = value;
           break;
@@ -1743,15 +1753,15 @@
       const left = element("div", "fg-pane-left");
       const table = element("div", "fg-table");
       left.append(table);
-      const tracks = this.columns.map((column) => {
-        const width = this.data.column_widths[column.key];
-        return width ? `${width}px` : TRACKS[column.kind];
+      const tracks = this.columns.map((column2) => {
+        const width = this.data.column_widths[column2.key];
+        return width ? `${width}px` : TRACKS[column2.kind];
       }).join(" ");
       const headings = element("div", "fg-row fg-heading");
       headings.style.gridTemplateColumns = tracks;
-      this.columns.forEach((column, index) => {
-        const heading = element("div", `fg-cell fg-cell-${column.key}`, t(column.label));
-        if (this.workdayBased && (column.kind === "days" || column.kind === "variance")) {
+      this.columns.forEach((column2, index) => {
+        const heading = element("div", `fg-cell fg-cell-${column2.key}`, t(column2.label));
+        if (this.workdayBased && (column2.kind === "days" || column2.kind === "variance")) {
           heading.title = t("\u571F\u65E5\u30FB\u795D\u65E5\u3092\u9664\u3044\u305F\u55B6\u696D\u65E5\u3067\u6570\u3048\u3066\u3044\u307E\u3059");
         }
         if (index < this.data.frozen_columns) heading.classList.add("is-frozen");
@@ -1768,17 +1778,17 @@
         const date = new Date(origin + i * DAY_MS);
         const iso = date.toISOString().slice(0, 10);
         const holiday = this.holidayOn(iso);
-        const column = element("div", "fg-column");
+        const column2 = element("div", "fg-column");
         const note = this.dayNote(iso);
-        if (note) column.title = note;
+        if (note) column2.title = note;
         if (holiday) {
-          column.classList.add("is-holiday");
+          column2.classList.add("is-holiday");
         } else if (date.getUTCDay() === 6) {
-          column.classList.add("is-saturday");
+          column2.classList.add("is-saturday");
         } else if (date.getUTCDay() === 0) {
-          column.classList.add("is-sunday");
+          column2.classList.add("is-sunday");
         }
-        columns.append(column);
+        columns.append(column2);
       }
       body.append(columns);
       if (this.tasks.length === 0) {
@@ -1852,26 +1862,26 @@
       const row = element("div", "fg-row fg-data");
       if (this.behind(task)) row.classList.add("is-delayed");
       if (index === this.row) row.classList.add("is-current");
-      this.columns.forEach((column, columnIndex) => {
-        const cell = element("div", `fg-cell fg-cell-${column.key}`);
+      this.columns.forEach((column2, columnIndex) => {
+        const cell = element("div", `fg-cell fg-cell-${column2.key}`);
         const isSelected = index === this.row && columnIndex === this.column;
         if (isSelected) cell.classList.add("is-selected");
-        if (task.has_children && ROLLED_UP.includes(column.key)) {
+        if (task.has_children && ROLLED_UP.includes(column2.key)) {
           cell.classList.add("is-derived");
         }
-        if (column.kind === "name") {
+        if (column2.kind === "name") {
           cell.style.paddingLeft = `${12 + task.depth * 16}px`;
           if (task.has_children) cell.classList.add("is-summary");
         }
-        if (column.kind === "name") {
+        if (column2.kind === "name") {
           if (this.data.can_edit) cell.append(this.renderHandle(task, index));
           cell.append(this.renderTwisty(task));
         }
         if (isSelected && this.editing) {
           cell.classList.add("is-editing");
-          cell.append(this.renderEditor(task, column));
-          if (column.kind === "date") cell.append(this.renderDatePicker());
-        } else if (column.kind === "name") {
+          cell.append(this.renderEditor(task, column2));
+          if (column2.kind === "date") cell.append(this.renderDatePicker());
+        } else if (column2.kind === "name") {
           const text = element("span", "fg-name-text", task.name || t("\uFF08\u7121\u984C\uFF09"));
           if (!task.name) text.classList.add("is-placeholder");
           cell.append(text);
@@ -1879,16 +1889,16 @@
             cell.append(element("span", "fg-folded", `+${this.hiddenCount(task)}`));
           }
           for (const tag of task.tags) cell.append(element("span", "fg-tag", tag));
-        } else if (column.kind === "status") {
+        } else if (column2.kind === "status") {
           if (task.status) {
             const pill = element("span", "fg-status", task.status);
             const colour = this.data.statuses.find((status) => status.name === task.status)?.color;
             if (colour) pill.style.background = colour;
             cell.append(pill);
           }
-        } else if (column.kind === "select") {
-          const value = this.cellText(task, column);
-          const option = column.options?.find((entry) => entry.value === value);
+        } else if (column2.kind === "select") {
+          const value = this.cellText(task, column2);
+          const option = column2.options?.find((entry) => entry.value === value);
           if (value && (option?.color || option?.background)) {
             const pill = element("span", "fg-status", value);
             if (option.color) pill.style.color = option.color;
@@ -1897,8 +1907,8 @@
           } else if (value) {
             cell.append(element("span", void 0, value));
           }
-        } else if (column.key === "targets") {
-          if (this.editable(task, column)) {
+        } else if (column2.key === "targets") {
+          if (this.editable(task, column2)) {
             const open = element("button", "fg-wait-edit", task.targets.length === 0 ? "\uFF0B" : "\u270E");
             open.type = "button";
             open.title = t("\u4E88\u5B9A\u9032\u6357\u3092\u767B\u9332\u3059\u308B");
@@ -1916,8 +1926,8 @@
             pill.title = target.missed ? t("\u3053\u306E\u65E5\u307E\u3067\u306B\u5C4A\u3044\u3066\u3044\u307E\u305B\u3093") : target.due ? t("\u9054\u6210") : t("\u3053\u308C\u304B\u3089");
             cell.append(pill);
           }
-        } else if (column.key === "waits") {
-          if (this.editable(task, column)) {
+        } else if (column2.key === "waits") {
+          if (this.editable(task, column2)) {
             const open = element("button", "fg-wait-edit", task.waits.length === 0 ? "\uFF0B" : "\u270E");
             open.type = "button";
             open.title = t("\u5F85\u3061\u306E\u671F\u9593\u3092\u767B\u9332\u3059\u308B");
@@ -1943,17 +1953,17 @@
             ].filter(Boolean).join(" ");
             cell.append(pill);
           }
-        } else if (column.kind === "variance") {
-          const span = element("span", void 0, this.cellDisplay(task, column));
+        } else if (column2.kind === "variance") {
+          const span = element("span", void 0, this.cellDisplay(task, column2));
           if (task.has_children) {
             cell.title = t("\u5B50\u30BF\u30B9\u30AF\u306E\u305A\u308C\u3092\u8DB3\u3057\u305F\u3082\u306E\u3067\u3059\uFF08\u3053\u306E\u884C\u306E\u65E5\u4ED8\u306E\u5DEE\u3067\u306F\u3042\u308A\u307E\u305B\u3093\uFF09");
           }
-          const days = column.key === "start_variance" ? task.start_variance : task.end_variance;
+          const days = column2.key === "start_variance" ? task.start_variance : task.end_variance;
           if (days !== null && days > 0) span.classList.add("is-late");
           if (days !== null && days < 0) span.classList.add("is-early");
           cell.append(span);
         } else {
-          cell.append(element("span", void 0, this.cellDisplay(task, column)));
+          cell.append(element("span", void 0, this.cellDisplay(task, column2)));
         }
         if (isSelected && !this.editing) cell.append(this.renderTypist());
         if (columnIndex < this.data.frozen_columns) cell.classList.add("is-frozen");
@@ -2201,13 +2211,13 @@
      */
     beginTyping(input) {
       const task = this.selected;
-      const column = this.selectedColumn;
-      if (!task || !this.editable(task, column)) {
+      const column2 = this.selectedColumn;
+      if (!task || !this.editable(task, column2)) {
         input.value = "";
         this.startEdit(null);
         return;
       }
-      if (column.kind === "status" || column.kind === "select") {
+      if (column2.kind === "status" || column2.kind === "select") {
         input.value = "";
         this.startEdit(null);
         return;
@@ -2242,17 +2252,17 @@
       });
       return picker;
     }
-    renderEditor(task, column) {
-      const choices = this.choicesFor(column);
+    renderEditor(task, column2) {
+      const choices = this.choicesFor(column2);
       if (choices) {
         const select = element("select", "fg-editor");
-        if (column.kind !== "status") select.append(element("option", void 0, ""));
+        if (column2.kind !== "status") select.append(element("option", void 0, ""));
         for (const choice of choices) {
           const option = element("option", void 0, choice);
           option.value = choice;
           select.append(option);
         }
-        select.value = this.cellText(task, column);
+        select.value = this.cellText(task, column2);
         requestAnimationFrame(() => {
           try {
             select.showPicker();
@@ -2267,11 +2277,11 @@
       }
       const input = element("input", "fg-editor");
       input.type = "text";
-      input.value = this.seed ?? this.cellText(task, column);
-      if (column.kind === "suggest" && column.options?.length) {
+      input.value = this.seed ?? this.cellText(task, column2);
+      if (column2.kind === "suggest" && column2.options?.length) {
         const list = element("datalist");
-        list.id = `fg-list-${column.key}`;
-        for (const choice of column.options) {
+        list.id = `fg-list-${column2.key}`;
+        for (const choice of column2.options) {
           const option = element("option");
           option.value = choice.value;
           list.append(option);
@@ -2279,10 +2289,10 @@
         input.setAttribute("list", list.id);
         this.root.querySelector(".fg-grid")?.append(list);
       }
-      if (column.key === "waits") {
+      if (column2.key === "waits") {
         input.placeholder = t("8/17\u301C8/21 \u4ED6\u90E8\u7F72\uFF08\u7D42\u308F\u308A\u7701\u7565\u3067\u7D99\u7D9A\u4E2D\uFF09");
       }
-      if (column.kind === "date") {
+      if (column2.kind === "date") {
         input.placeholder = "20260805 / 8-5";
         input.inputMode = "numeric";
         input.addEventListener("input", () => {
@@ -2295,7 +2305,7 @@
           }
         });
         input.classList.add("has-picker");
-      } else if (column.kind === "progress" || column.kind === "number") {
+      } else if (column2.kind === "progress" || column2.kind === "number") {
         input.inputMode = "numeric";
       }
       input.addEventListener("blur", (event) => {
@@ -2495,7 +2505,7 @@
         const fill = element("div", "fg-bar-fill");
         fill.style.width = `${task.progress}%`;
         bar.append(fill);
-        if (this.editable(task, BASE_COLUMNS[1])) {
+        if (this.editable(task, column("start"))) {
           bar.classList.add("is-draggable");
           const knob = element("span", "fg-grip fg-grip-progress");
           const width = planned.length * this.dayWidth;
@@ -2560,7 +2570,7 @@
         bar.style.width = `${actual.length * this.dayWidth}px`;
         bar.title = task.actual_end ? `\u5B9F\u65BD ${task.actual_start} \u301C ${task.actual_end}` : `\u5B9F\u65BD ${task.actual_start} \u301C\uFF08\u9032\u884C\u4E2D\uFF09`;
         if (!task.actual_end) bar.classList.add("is-open");
-        if (this.editable(task, BASE_COLUMNS[3])) {
+        if (this.editable(task, column("actual_start"))) {
           bar.classList.add("is-draggable");
           bar.append(
             element("span", "fg-grip fg-grip-start"),

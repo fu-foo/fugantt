@@ -1409,9 +1409,10 @@ const planned = await page.evaluate(() => {
   const cells = [...row.querySelectorAll(".fg-cell")].map((c) => c.textContent.trim());
   return { labels, cells };
 });
+// 予定の4つと実施の4つが、同じ形で並んでいること。目で下に追えば対応が読める。
 check(
-  "予定と実施が一行に並ぶ",
-  planned.labels.slice(1, 5).join(",") === "予定開始,予定終了,実施開始,実施終了",
+  "予定と実施が同じ並びで一行に出る",
+  planned.labels.join(",").includes("予定開始,予定終了,予定日数,予定進捗,実施開始,実施終了,実作業日数,実進捗"),
   planned.labels.join(","),
 );
 check(

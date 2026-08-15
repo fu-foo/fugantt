@@ -228,7 +228,24 @@ async fn project_menu(project: &project::Project, l: crate::i18n::Lang) -> Resul
             <span class="mt-3 px-3 pb-1 text-xs tracking-wide text-slate-400">(l.t("データの入出力"))</span>
 
             drawer_link(href: &xlsx, label: l.t("Excel で書き出す"))
-            drawer_link(href: &export_json, label: l.t("JSON で書き出す"))
+
+            // Two buttons rather than a link and a checkbox: a checkbox that is
+            // not ticked sends nothing at all, so the off position would arrive
+            // looking exactly like never having been asked. Each button carries
+            // its own answer.
+            <form method="GET" action=(&export_json) class="flex flex-col items-start px-3 py-1.5">
+                <button name="settings" value="1" class="text-sm underline-offset-2 hover:underline">
+                    (l.t("JSON で書き出す"))
+                </button>
+                <button
+                    name="settings"
+                    value="0"
+                    class="text-xs text-slate-500 underline-offset-2 hover:underline"
+                    title=(l.t("設定・名簿・暦を入れずに、タスクだけを書き出します"))
+                >
+                    (l.t("タスクだけ"))
+                </button>
+            </form>
 
             if project.can_edit() {
                 <form

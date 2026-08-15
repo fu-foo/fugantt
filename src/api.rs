@@ -24,7 +24,7 @@ use topcoat::{
             sse::{Event, KeepAlive, Sse},
         },
         error::{SeeOther, bad_request, forbidden, see_other},
-        headers, route,
+        headers, query_params, route,
     },
 };
 
@@ -219,6 +219,25 @@ async fn fill_in(cx: &Cx, mut project: project::Project) -> Result<project::Proj
     Ok(project)
 }
 
+/// Which parts of the project the file carries.
+///
+/// `settings=0` writes the plan on its own. A program reading the tasks does
+/// not want a page of colours and holiday dates in front of them, and a file
+/// with no settings section leaves that part of the project alone on the way
+/// back in.
+#[query_params(error = bad_request("settings は 0 か 1 です。"))]
+struct Sections {
+    settings: Option<String>,
+}
+
+/// Whether the settings and the master lists travel with the tasks.
+fn wants_settings(cx: &Cx) -> bool {
+    query_params::<Sections>(cx)
+        .ok()
+        .and_then(|sections| sections.settings.clone())
+        .is_none_or(|value| !matches!(value.trim(), "0" | "no" | "false" | "off"))
+}
+
 /// The plan as a document: the same file the export button hands out.
 ///
 /// Read it, work out what should change, and post it back. This is the loop a
@@ -229,7 +248,10 @@ async fn read_document(cx: &Cx) -> Result<Json<serde_json::Value>> {
     let project = fill_in(cx, actor(cx, &project_id).await?.0).await?;
 
     let data = project::grid_data(cx, &project).await?;
-    let extras = project::export_extras(cx, &project.id).await?;
+    let extras = match wants_settings(cx) {
+        true => Some(project::export_extras(cx, &project.id).await?),
+        false => None,
+    };
     let text = crate::interop::json::write(&project.name, &data, extras);
 
     Ok(Json(serde_json::from_str(&text).unwrap_or_default()))
@@ -2315,15 +2337,15 @@ async fn export_json(cx: &Cx) -> Result<Download> {
     let project = project::authorize(cx, &user.id, project_id).await?;
     let data = project::grid_data(cx, &project).await?;
 
+    let extras = match wants_settings(cx) {
+        true => Some(project::export_extras(cx, &project.id).await?),
+        false => None,
+    };
+
     Ok(Download {
         filename: format!("{}.json", project.name),
         content_type: "application/json; charset=utf-8",
-        body: json::write(
-            &project.name,
-            &data,
-            project::export_extras(cx, &project.id).await?,
-        )
-        .into_bytes(),
+        body: json::write(&project.name, &data, extras).into_bytes(),
     })
 }
 

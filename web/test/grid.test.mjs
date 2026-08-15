@@ -3085,6 +3085,69 @@ await setView();
 
 // --- JSON の往復 ---------------------------------------------------------------
 
+// 全部入りの1本しか出せないと、タスクを他所へ渡したい人は毎回削ることになる。
+const onlyTasks = await page.evaluate(async () => {
+  const sections = ["settings", "statuses", "assignees", "holidays", "leaves", "fields"];
+  const read = async (query) =>
+    await (await fetch(`/projects/test-project/export.json${query}`)).json();
+
+  const full = await read("?settings=1");
+  const bare = await read("?settings=0");
+  const bydefault = await read("");
+
+  return {
+    full: sections.filter((name) => name in full),
+    bare: sections.filter((name) => name in bare),
+    bydefault: sections.filter((name) => name in bydefault),
+    tasks: [full.tasks.length, bare.tasks.length],
+    // 取り込めること。設定が無いファイルは、その部分について何も言わないだけ。
+    reimported: (
+      await fetch("/projects/test-project/import.json", {
+        method: "POST",
+        body: (() => {
+          const body = new FormData();
+          body.append("document", new Blob([JSON.stringify(bare)], { type: "application/json" }), "plan.json");
+          return body;
+        })(),
+      })
+    ).ok,
+  };
+});
+
+check(
+  "設定を入れずにタスクだけ書き出せる",
+  onlyTasks.full.length === 6 &&
+    onlyTasks.bare.length === 0 &&
+    onlyTasks.tasks[0] === onlyTasks.tasks[1] &&
+    onlyTasks.tasks[1] > 0,
+  JSON.stringify(onlyTasks),
+);
+check("既定では全部入り", onlyTasks.bydefault.length === 6, JSON.stringify(onlyTasks.bydefault));
+check("設定の無いファイルもそのまま取り込める", onlyTasks.reimported === true);
+
+// 出し分けは画面から。チェックボックスだと「入れない」が送られないので、ボタンを2つ。
+check(
+  "書き出しの出し分けがドロワーにある",
+  await page.evaluate(async () => {
+    const html = await (await fetch("/projects/test-project")).text();
+    const doc = new DOMParser().parseFromString(html, "text/html");
+    const buttons = [...doc.querySelectorAll('form[action$="export.json"] button')].map((b) => [
+      b.getAttribute("value"),
+      b.textContent.trim(),
+    ]);
+
+    return JSON.stringify(buttons);
+  }).then((text) => text.includes('["1","JSON で書き出す"]') && text.includes('["0","タスクだけ"]')),
+  await page.evaluate(async () => {
+    const html = await (await fetch("/projects/test-project")).text();
+    const doc = new DOMParser().parseFromString(html, "text/html");
+    return [...doc.querySelectorAll('form[action$="export.json"] button')]
+      .map((b) => `${b.getAttribute("value")}:${b.textContent.trim()}`)
+      .join(" / ") || "ボタンが無い";
+  }),
+);
+
+
 const round = await page.evaluate(async () => {
   const text = await (await fetch("/projects/test-project/export.json")).text();
   const document_ = JSON.parse(text);

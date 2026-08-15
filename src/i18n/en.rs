@@ -38,6 +38,11 @@ pub fn of(ja: &str) -> Option<&'static str> {
         "データの入出力" => "Import and export",
         "Excel で書き出す" => "Export to Excel",
         "JSON で書き出す" => "Export as JSON",
+        "タスクだけ" => "Tasks only",
+        "設定・名簿・暦を入れずに、タスクだけを書き出します" => {
+            "Writes the tasks on their own, without the settings, the lists or the calendar"
+        }
+        "settings は 0 か 1 です。" => "settings takes 0 or 1.",
         "JSON を取り込む（全置換）" => "Import JSON (replaces everything)",
         "自分" => "You",
         "プロジェクト一覧" => "Projects",

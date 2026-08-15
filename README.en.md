@@ -116,6 +116,11 @@ Excel (`.xlsx`) for reading: the same columns as the screen, with the chart
 drawn cell by cell to its right. JSON for moving: the whole project — settings,
 statuses, people, calendar and tasks — in one file.
 
+The tasks can travel on their own — "Tasks only" in the drawer, `?settings=0`
+on the endpoint — for anyone handing the plan to a program that has no use for
+a page of colours. A file with no settings section still imports; it simply
+says nothing about the parts it leaves out.
+
 The JSON is meant to be read, edited and handed back, including by a program:
 
 ```json

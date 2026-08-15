@@ -157,19 +157,33 @@ pub struct Task {
 /// The project as a document, pretty-printed: these files get read by people.
 ///
 /// `extras` carries what the grid does not: the stored settings and the master
-/// lists, which the caller reads from the database.
-pub fn write(project_name: &str, data: &GridData, extras: Extras) -> String {
+/// lists, which the caller reads from the database. `None` writes the plan on
+/// its own — for anyone taking the tasks somewhere else, where a page of
+/// colours and holiday dates is noise to read past.
+pub fn write(project_name: &str, data: &GridData, extras: Option<Extras>) -> String {
     let labels: std::collections::HashMap<&str, &str> = data
         .fields
         .iter()
         .map(|field| (field.id.as_str(), field.label.as_str()))
         .collect();
 
+    let with_settings = extras.is_some();
+    let (settings, assignees) = match extras {
+        Some(extras) => (Some(extras.settings), Some(extras.assignees)),
+        None => (None, None),
+    };
+    // Every section is optional on the way back in, so leaving them out writes a
+    // file that still imports — it just says nothing about the parts it omits.
+    fn kept<T>(keep: bool, section: T) -> Option<T> {
+        keep.then_some(section)
+    }
+
     let document = Document {
         version: VERSION,
         name: project_name.to_owned(),
-        settings: Some(extras.settings),
-        statuses: Some(
+        settings,
+        statuses: kept(
+            with_settings,
             data.statuses
                 .iter()
                 .map(|status| Status {
@@ -179,8 +193,9 @@ pub fn write(project_name: &str, data: &GridData, extras: Extras) -> String {
                 })
                 .collect(),
         ),
-        assignees: Some(extras.assignees),
-        holidays: Some(
+        assignees,
+        holidays: kept(
+            with_settings,
             data.holidays
                 .iter()
                 .map(|holiday| Holiday {
@@ -189,7 +204,8 @@ pub fn write(project_name: &str, data: &GridData, extras: Extras) -> String {
                 })
                 .collect(),
         ),
-        leaves: Some(
+        leaves: kept(
+            with_settings,
             data.leaves
                 .iter()
                 .map(|leave| Leave {
@@ -201,7 +217,8 @@ pub fn write(project_name: &str, data: &GridData, extras: Extras) -> String {
                 })
                 .collect(),
         ),
-        fields: Some(
+        fields: kept(
+            with_settings,
             data.fields
                 .iter()
                 .map(|field| Field {
@@ -335,7 +352,7 @@ mod tests {
         let text = write(
             "リリース計画",
             &data(vec![view("要件定義", 0, false)]),
-            extras(),
+            Some(extras()),
         );
         let document = read(&text).unwrap();
 
@@ -353,7 +370,7 @@ mod tests {
         let text = write(
             "p",
             &data(vec![view("開発", 0, true), view("設計", 1, false)]),
-            extras(),
+            Some(extras()),
         );
         let document = read(&text).unwrap();
 
@@ -363,9 +380,42 @@ mod tests {
 
     /// Pull it all out and you can take it all with you: the settings and the
     /// lists travel in the same file.
+    /// The plan on its own, for whoever is taking the tasks somewhere else.
+    ///
+    /// Every section is optional on the way back in, so a file written this way
+    /// still imports — it simply says nothing about the parts it left out, and
+    /// those parts of the project stay as they are.
+    #[test]
+    fn the_settings_can_be_left_out() {
+        let text = write("p", &data(vec![view("要件定義", 0, false)]), None);
+        let document: serde_json::Value = serde_json::from_str(&text).unwrap();
+
+        for section in [
+            "settings",
+            "statuses",
+            "assignees",
+            "holidays",
+            "leaves",
+            "fields",
+        ] {
+            assert!(
+                document.get(section).is_none(),
+                "{section} が残っている: {text}"
+            );
+        }
+
+        assert_eq!(document["name"], "p");
+        assert_eq!(document["tasks"].as_array().unwrap().len(), 1);
+
+        // And it still reads back as a document.
+        let read = read(&text).unwrap();
+        assert_eq!(read.tasks.len(), 1);
+        assert!(read.settings.is_none());
+    }
+
     #[test]
     fn the_file_carries_the_whole_project() {
-        let text = write("p", &data(vec![view("要件定義", 0, false)]), extras());
+        let text = write("p", &data(vec![view("要件定義", 0, false)]), Some(extras()));
         let document = read(&text).unwrap();
 
         assert_eq!(
@@ -409,7 +459,7 @@ mod tests {
         let mut task = view("要件定義", 0, false);
         task.id = "t-req".to_owned();
 
-        let text = write("p", &data(vec![task]), extras());
+        let text = write("p", &data(vec![task]), Some(extras()));
         let document = read(&text).unwrap();
 
         assert_eq!(document.tasks[0].id, "t-req");

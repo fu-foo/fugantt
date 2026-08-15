@@ -336,6 +336,64 @@ struct CellEdit {
     field_id: Option<String>,
     /// The raw cell text. An empty string clears a date.
     value: String,
+    /// What the sender believes is there now, as it is stored.
+    ///
+    /// Undo sends this. Putting a value back is only right if the value it is
+    /// putting back is still the one that replaced it — otherwise the person
+    /// pressing Ctrl+Z would silently throw away somebody else's work, which is
+    /// the one thing an undo must never do. Absent means "write it regardless",
+    /// which is what an ordinary edit means.
+    expect: Option<String>,
+}
+
+/// What a cell holds now, in the shape a caller would send it back.
+///
+/// Two of the fields cover two columns at once, and one lives in another table
+/// entirely, so this is not simply the column's text.
+async fn current_cell(cx: &Cx, task_id: &str, edit: &CellEdit) -> String {
+    let pair = |a: String, b: String| format!("{a}/{b}");
+
+    match edit.field {
+        Field::Schedule => pair(
+            history::current_value(cx, task_id, "start_date").await,
+            history::current_value(cx, task_id, "end_date").await,
+        ),
+        Field::ActualSchedule => pair(
+            history::current_value(cx, task_id, "actual_start").await,
+            history::current_value(cx, task_id, "actual_end").await,
+        ),
+        Field::Custom => match edit.field_id.as_deref() {
+            Some(field_id) => project::field_value(cx, task_id, field_id).await,
+            None => String::new(),
+        },
+        _ => {
+            let column = column_of(edit.field);
+            match column.is_empty() {
+                true => String::new(),
+                false => history::current_value(cx, task_id, column).await,
+            }
+        }
+    }
+}
+
+/// The column one field is stored in. Empty for the fields that are not one.
+fn column_of(field: Field) -> &'static str {
+    match field {
+        Field::Name => "name",
+        Field::Start => "start_date",
+        Field::End => "end_date",
+        Field::ActualStart => "actual_start",
+        Field::ActualEnd => "actual_end",
+        Field::Progress => "progress",
+        Field::Status => "status",
+        Field::Assignee => "assignee",
+        Field::Note => "note",
+        Field::Waits => "waits",
+        Field::Targets => "targets",
+        Field::Custom => "",
+        Field::Schedule => "start_date",
+        Field::ActualSchedule => "actual_start",
+    }
 }
 
 #[route(POST "/api/projects/{project_id}/tasks/{task_id}")]
@@ -369,22 +427,17 @@ async fn update_task(cx: &Cx, Json(edit): Json<CellEdit>) -> Result<Json<Mutatio
     // Read before writing: the old value stops existing the moment it is
     // replaced, and history is exactly the record of what it used to be.
     let name = history::task_name(cx, &task_id).await;
-    let column = match edit.field {
-        Field::Name => "name",
-        Field::Start => "start_date",
-        Field::End => "end_date",
-        Field::ActualStart => "actual_start",
-        Field::ActualEnd => "actual_end",
-        Field::Progress => "progress",
-        Field::Status => "status",
-        Field::Assignee => "assignee",
-        Field::Note => "note",
-        Field::Waits => "waits",
-        Field::Targets => "targets",
-        Field::Custom => "",
-        Field::Schedule => "start_date",
-        Field::ActualSchedule => "actual_start",
-    };
+
+    // An undo that arrives after somebody else has touched the same cell is an
+    // undo of their work, not of yours. Refused, and said out loud, so the
+    // person can look before deciding.
+    if let Some(expect) = &edit.expect
+        && current_cell(cx, &task_id, &edit).await != *expect
+    {
+        return Err(bad_request(l.t("他の人が先に変更しています。取り消しませんでした。")).into());
+    }
+
+    let column = column_of(edit.field);
     let before = if column.is_empty() {
         String::new()
     } else {

@@ -136,6 +136,10 @@
     "\uFF08\u7121\u984C\uFF09": "(untitled)",
     "\u7121\u984C\u306E\u30BF\u30B9\u30AF": "Untitled task",
     "\u4FDD\u5B58\u3067\u304D\u307E\u305B\u3093\u3067\u3057\u305F\u3002\u63A5\u7D9A\u3092\u78BA\u8A8D\u3057\u3066\u304F\u3060\u3055\u3044\u3002": "Could not save. Check the connection.",
+    "\u53D6\u308A\u6D88\u305B\u308B\u64CD\u4F5C\u304C\u3042\u308A\u307E\u305B\u3093\u3002": "Nothing to undo.",
+    "\u3084\u308A\u76F4\u305B\u308B\u64CD\u4F5C\u304C\u3042\u308A\u307E\u305B\u3093\u3002": "Nothing to redo.",
+    "\u305D\u306E\u884C\u306F\u3082\u3046\u3042\u308A\u307E\u305B\u3093\u3002": "That row is gone.",
+    "\u884C\u306E\u8FFD\u52A0\u30FB\u524A\u9664\u30FB\u4E26\u3079\u66FF\u3048\u306F\u53D6\u308A\u6D88\u305B\u307E\u305B\u3093\u3002\u3082\u3046\u4E00\u5EA6\u62BC\u3059\u3068\u3001\u305D\u306E\u524D\u306E\u5909\u66F4\u3092\u53D6\u308A\u6D88\u3057\u307E\u3059\u3002": "Adding, deleting and reordering rows cannot be undone. Press again to undo the change before it.",
     "\u9589\u3058\u308B": "Close",
     "\u30BF\u30B9\u30AF\u304C\u3042\u308A\u307E\u305B\u3093\u3002": "No tasks yet.",
     "\u6700\u521D\u306E\u30BF\u30B9\u30AF\u3092\u8FFD\u52A0": "Add the first task",
@@ -369,6 +373,18 @@
       /** What to draw over the chart: this person's view of it, not the project's
           setting. */
       this.shows = loadShows();
+      /**
+       * What this tab has changed, newest last, so it can be put back.
+       *
+       * Only what this tab did. Somebody else's edit is not this person's to take
+       * back, and a stack that outlived the tab would offer to undo work from a
+       * morning nobody remembers. Reloading empties it, which is the honest
+       * boundary: undo goes back as far as you can still see.
+       */
+      this.done = [];
+      this.undone = [];
+      /** Set while undoing, so putting a value back is not itself recorded. */
+      this.replaying = false;
       /** The column whose filter box the caret is in, across a re-render. */
       this.filterFocus = null;
       /** How much of the width the left pane takes, dragged by the splitter. */
@@ -1373,6 +1389,7 @@
           return null;
         }
         const result = await response.json();
+        this.remember(url, options, before, result);
         this.setData(result.grid);
         this.error = null;
         if (options.follow) this.reveal(options.follow);
@@ -1387,6 +1404,141 @@
         this.busy = false;
         this.render();
       }
+    }
+    /** Files one change away, so Ctrl+Z has something to put back. */
+    remember(url, options, before, result) {
+      if (this.replaying || options.method === "GET") return;
+      const body = options.body;
+      const taskId = decodeURIComponent(/\/tasks\/([^/?#]+)$/.exec(url)?.[1] ?? "");
+      if (!body?.field || !taskId) {
+        this.done.push({
+          taskId: taskId ?? "",
+          field: "",
+          before: { send: "", stored: "" },
+          after: { send: "", stored: "" }
+        });
+        this.undone = [];
+        return;
+      }
+      const was = before.tasks.find((task) => task.id === taskId);
+      const now = result.grid.tasks.find((task) => task.id === taskId);
+      if (!was || !now) return;
+      const field = body.field;
+      const fieldId = body.field_id;
+      const step = {
+        taskId,
+        field,
+        fieldId,
+        before: {
+          send: this.sendableValue(was, field, fieldId),
+          stored: this.storedValue(was, field, fieldId)
+        },
+        after: {
+          send: this.sendableValue(now, field, fieldId),
+          stored: this.storedValue(now, field, fieldId)
+        }
+      };
+      if (step.before.stored === step.after.stored) return;
+      this.done.push(step);
+      this.undone = [];
+    }
+    /**
+     * What one field of a task holds, as the server stores it.
+     *
+     * This is what `expect` is compared against, so it has to match the column
+     * exactly — not what the cell shows a person.
+     */
+    storedValue(task, field, fieldId) {
+      switch (field) {
+        case "name":
+          return task.name;
+        case "start":
+          return task.start ?? "";
+        case "end":
+          return task.end ?? "";
+        case "actual_start":
+          return task.actual_start ?? "";
+        case "actual_end":
+          return task.actual_end ?? "";
+        case "schedule":
+          return `${task.start ?? ""}/${task.end ?? ""}`;
+        case "actual_schedule":
+          return `${task.actual_start ?? ""}/${task.actual_end ?? ""}`;
+        case "progress":
+          return String(task.progress);
+        case "status":
+          return task.status;
+        case "assignee":
+          return task.assignee;
+        case "note":
+          return task.note;
+        case "waits":
+          return task.waits.map((wait) => {
+            const range = `${wait.start}/${wait.open ? "" : wait.end}`;
+            return wait.reason ? `${range}:${wait.reason}` : range;
+          }).join("\n");
+        case "targets":
+          return task.targets.map((target) => `${target.date}/${target.percent}`).join("\n");
+        case "custom":
+          return fieldId && task.values[fieldId] || "";
+        default:
+          return "";
+      }
+    }
+    /**
+     * The same value, in a form the server will take back.
+     *
+     * 待ち is kept as `from/to:reason` and written as `8/17〜8/21 reason`; the
+     * parser has never had to read its own output, and teaching it to would be
+     * two ways of saying one thing. Everything else is stored as it is written.
+     */
+    sendableValue(task, field, fieldId) {
+      if (field !== "waits") return this.storedValue(task, field, fieldId);
+      return task.waits.map((wait) => {
+        const range = `${wait.start}\u301C${wait.open ? "" : wait.end}`;
+        return wait.reason ? `${range} ${wait.reason}` : range;
+      }).join("\n");
+    }
+    /**
+     * Puts back the last change this tab made.
+     *
+     * The value it is putting back travels with what it expects to find, so a
+     * cell somebody else has since touched is refused rather than quietly
+     * overwritten. Undo is for taking back your own work.
+     */
+    async replay(direction) {
+      const from = direction === "undo" ? this.done : this.undone;
+      const step = from.pop();
+      if (!step) {
+        this.fail(direction === "undo" ? t("\u53D6\u308A\u6D88\u305B\u308B\u64CD\u4F5C\u304C\u3042\u308A\u307E\u305B\u3093\u3002") : t("\u3084\u308A\u76F4\u305B\u308B\u64CD\u4F5C\u304C\u3042\u308A\u307E\u305B\u3093\u3002"));
+        return;
+      }
+      if (!step.field) {
+        this.fail(
+          t("\u884C\u306E\u8FFD\u52A0\u30FB\u524A\u9664\u30FB\u4E26\u3079\u66FF\u3048\u306F\u53D6\u308A\u6D88\u305B\u307E\u305B\u3093\u3002\u3082\u3046\u4E00\u5EA6\u62BC\u3059\u3068\u3001\u305D\u306E\u524D\u306E\u5909\u66F4\u3092\u53D6\u308A\u6D88\u3057\u307E\u3059\u3002")
+        );
+        return;
+      }
+      if (!this.data.tasks.some((task) => task.id === step.taskId)) {
+        this.fail(t("\u305D\u306E\u884C\u306F\u3082\u3046\u3042\u308A\u307E\u305B\u3093\u3002"));
+        return;
+      }
+      const target = direction === "undo" ? step.before : step.after;
+      const expect = direction === "undo" ? step.after.stored : step.before.stored;
+      this.replaying = true;
+      const result = await this.send(
+        `/api/projects/${encodeURIComponent(this.projectId)}/tasks/${step.taskId}`,
+        {
+          method: "POST",
+          body: { field: step.field, field_id: step.fieldId, value: target.send, expect },
+          follow: step.taskId
+        }
+      );
+      this.replaying = false;
+      if (!result) {
+        return;
+      }
+      (direction === "undo" ? this.undone : this.done).push(step);
     }
     async reason(response) {
       if (response.status === 403) return t("\u96C6\u8A08\u884C\u306E\u65E5\u4ED8\u3068\u9032\u6357\u306F\u5B50\u30BF\u30B9\u30AF\u304B\u3089\u6C7A\u307E\u308A\u307E\u3059\u3002");
@@ -1415,6 +1567,16 @@
         return;
       }
       const meta = event.ctrlKey || event.metaKey;
+      if (meta && (event.key === "z" || event.key === "Z")) {
+        void this.replay(event.shiftKey ? "redo" : "undo");
+        event.preventDefault();
+        return;
+      }
+      if (meta && (event.key === "y" || event.key === "Y")) {
+        void this.replay("redo");
+        event.preventDefault();
+        return;
+      }
       if (event.altKey) {
         switch (event.key) {
           case "ArrowRight":

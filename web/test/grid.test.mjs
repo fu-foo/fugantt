@@ -2518,6 +2518,134 @@ check(
 );
 await clearFilters();
 
+// --- 取り消しとやり直し -------------------------------------------------------------
+
+/** ⌘Z / ⌘Y / ⌘⇧Z。表にフォーカスを戻してから打つ。 */
+const chord = async (key, shift = false) => {
+  await page.evaluate(() => document.querySelector(".fg-grid").focus({ preventScroll: true }));
+  await page.keyboard.down("Meta");
+  if (shift) await page.keyboard.down("Shift");
+  await page.keyboard.press(key);
+  if (shift) await page.keyboard.up("Shift");
+  await page.keyboard.up("Meta");
+  await settle();
+  await settle();
+};
+
+/** 「実装」のコメント欄に打ち込む。 */
+const typeNote = async (text) => {
+  await selectCell((await state()).names.indexOf("実装"), COLUMN["コメント"]);
+  await page.keyboard.press("F2");
+  await replaceEditorText(text);
+  await page.keyboard.press("Enter");
+  await settle();
+  await settle();
+};
+
+const noteNow = () =>
+  page.evaluate(async () => {
+    const grid = await (await fetch("/api/projects/test-project/grid")).json();
+    return grid.tasks.find((task) => task.name === "実装").note;
+  });
+
+await typeNote("いち");
+await typeNote("に");
+
+await chord("KeyZ");
+const undoneOnce = await noteNow();
+await chord("KeyZ");
+const undoneTwice = await noteNow();
+
+check(
+  "⌘Z で1つずつ戻る",
+  undoneOnce === "いち" && undoneTwice === "",
+  `${undoneOnce} / ${undoneTwice}`,
+);
+
+await chord("KeyZ");
+check(
+  "戻すものが無ければそう言う",
+  (await page.evaluate(() => document.querySelector(".fg-error")?.textContent ?? "")).includes(
+    "取り消せる操作がありません",
+  ),
+  await page.evaluate(() => document.querySelector(".fg-error")?.textContent ?? "何も出ていない"),
+);
+
+await chord("KeyY");
+const redoneY = await noteNow();
+await chord("KeyZ", true);
+const redoneShift = await noteNow();
+
+check(
+  "⌘Y と ⌘⇧Z でやり直せる",
+  redoneY === "いち" && redoneShift === "に",
+  `${redoneY} / ${redoneShift}`,
+);
+
+// 取り消しは自分の変更を戻すもの。間に他人が同じセルを触っていたら、
+// それは他人の仕事を消すことになるので止める。
+await page.evaluate(async () => {
+  const grid = await (await fetch("/api/projects/test-project/grid")).json();
+  const id = grid.tasks.find((task) => task.name === "実装").id;
+
+  // 別の画面から入った変更のふりをする（この島を通さない）。
+  await fetch(`/api/projects/test-project/tasks/${id}`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ field: "note", value: "よそから" }),
+  });
+});
+await settle();
+await chord("KeyZ");
+
+check(
+  "他人が先に触っていたら取り消さない",
+  (await noteNow()) === "よそから" &&
+    (await page.evaluate(() => document.querySelector(".fg-error")?.textContent ?? "")).includes(
+      "他の人が先に変更しています",
+    ),
+  `${await noteNow()} / ${await page.evaluate(() => document.querySelector(".fg-error")?.textContent ?? "")}`,
+);
+
+// 行の追加・削除・並べ替えは戻せない。黙って1つ前の値を戻すと、その行が無いまま
+// 別のセルだけが巻き戻ることになる。
+await typeNote("さん");
+await selectCell((await state()).names.indexOf("実装"), 0);
+await page.keyboard.down("Meta");
+await page.keyboard.press("Enter");
+await page.keyboard.up("Meta");
+await settle();
+await settle();
+
+await chord("KeyZ");
+const barrier = await page.evaluate(() => document.querySelector(".fg-error")?.textContent ?? "");
+await chord("KeyZ");
+
+check(
+  "行の増減は取り消せないと言い、もう一度でその前に戻る",
+  barrier.includes("取り消せません") && (await noteNow()) === "よそから",
+  `${barrier} / ${await noteNow()}`,
+);
+
+// 片付け: 足した行を消し、コメントも戻す。
+await page.evaluate(async () => {
+  const grid = await (await fetch("/api/projects/test-project/grid")).json();
+  const spare = grid.tasks.find((task) => !task.name);
+  if (spare) {
+    await fetch(`/api/projects/test-project/tasks/${spare.id}`, { method: "DELETE" });
+  }
+
+  const id = grid.tasks.find((task) => task.name === "実装").id;
+  await fetch(`/api/projects/test-project/tasks/${id}`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ field: "note", value: "" }),
+  });
+});
+await page.reload({ waitUntil: "domcontentloaded" });
+await page.waitForSelector(".fg-grid");
+await settle();
+
 // --- ダイアログ ---------------------------------------------------------------------
 
 // 待ちも休暇も、日付の範囲を複数持つ。セルの一行では扱えないので画面を出す。

@@ -43,6 +43,14 @@ pub fn of(ja: &str) -> Option<&'static str> {
             "Writes the tasks on their own, without the settings, the lists or the calendar"
         }
         "settings は 0 か 1 です。" => "settings takes 0 or 1.",
+        "他の人が先に変更しています。取り消しませんでした。" => {
+            "Somebody else changed this first, so nothing was undone."
+        }
+        "取り消せる操作がありません。" => "Nothing to undo.",
+        "やり直せる操作がありません。" => "Nothing to redo.",
+        "行の追加・削除・並べ替えは取り消せません。もう一度押すと、その前の変更を取り消します。" => {
+            "Adding, deleting and reordering rows cannot be undone. Press again to undo the change before it."
+        }
         "JSON を取り込む（全置換）" => "Import JSON (replaces everything)",
         "自分" => "You",
         "プロジェクト一覧" => "Projects",

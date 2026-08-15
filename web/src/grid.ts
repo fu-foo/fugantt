@@ -95,6 +95,25 @@ interface GridData {
   tasks: Task[];
 }
 
+/**
+ * One change this tab made, in both directions.
+ *
+ * `send` is a value the server will accept; `stored` is the value it keeps.
+ * They are the same for almost every field — 待ち is the exception, whose
+ * written form (`8/17〜8/21 他部署`) is not the form it is kept in.
+ *
+ * A step with no field is a barrier: adding, deleting and reordering rows are
+ * not undoable, and stepping silently past one would undo something older
+ * while the row it was about is still missing.
+ */
+interface Step {
+  taskId: string;
+  field: string;
+  fieldId?: string;
+  before: { send: string; stored: string };
+  after: { send: string; stored: string };
+}
+
 interface Mutation {
   grid: GridData;
   task_id: string | null;
@@ -314,6 +333,11 @@ const EN: Record<string, string> = {
   "（無題）": "(untitled)",
   "無題のタスク": "Untitled task",
   "保存できませんでした。接続を確認してください。": "Could not save. Check the connection.",
+  "取り消せる操作がありません。": "Nothing to undo.",
+  "やり直せる操作がありません。": "Nothing to redo.",
+  "その行はもうありません。": "That row is gone.",
+  "行の追加・削除・並べ替えは取り消せません。もう一度押すと、その前の変更を取り消します。":
+    "Adding, deleting and reordering rows cannot be undone. Press again to undo the change before it.",
   "閉じる": "Close",
   "タスクがありません。": "No tasks yet.",
   "最初のタスクを追加": "Add the first task",
@@ -706,6 +730,19 @@ class Grid {
   /** What to draw over the chart: this person's view of it, not the project's
       setting. */
   private shows: Shows = loadShows();
+
+  /**
+   * What this tab has changed, newest last, so it can be put back.
+   *
+   * Only what this tab did. Somebody else's edit is not this person's to take
+   * back, and a stack that outlived the tab would offer to undo work from a
+   * morning nobody remembers. Reloading empties it, which is the honest
+   * boundary: undo goes back as far as you can still see.
+   */
+  private done: Step[] = [];
+  private undone: Step[] = [];
+  /** Set while undoing, so putting a value back is not itself recorded. */
+  private replaying = false;
   /** The column whose filter box the caret is in, across a re-render. */
   private filterFocus: { key: string; caret: number | null } | null = null;
   /** How much of the width the left pane takes, dragged by the splitter. */
@@ -2090,6 +2127,12 @@ class Grid {
       }
 
       const result = (await response.json()) as Mutation;
+
+      // Recorded here rather than at each of the eight places that change a
+      // cell: this is the one point that knows both what was there (the state
+      // this call started from) and what the server made of what was sent.
+      this.remember(url, options, before, result);
+
       this.setData(result.grid);
       this.error = null;
 
@@ -2113,6 +2156,179 @@ class Grid {
       this.busy = false;
       this.render();
     }
+  }
+
+  /** Files one change away, so Ctrl+Z has something to put back. */
+  private remember(
+    url: string,
+    options: { method: string; body?: unknown; follow?: string },
+    before: GridData,
+    result: Mutation,
+  ): void {
+    if (this.replaying || options.method === "GET") return;
+
+    const body = options.body as { field?: string; field_id?: string } | undefined;
+    // From the address rather than from `follow`, which is about where to leave
+    // the selection and is not passed by the calls that never move a row.
+    const taskId = decodeURIComponent(/\/tasks\/([^/?#]+)$/.exec(url)?.[1] ?? "");
+
+    // Adding, deleting and reordering a row: not undoable, and not skippable
+    // either. A barrier keeps Ctrl+Z from stepping over the gap and undoing
+    // something older while the row it belonged to is still missing.
+    if (!body?.field || !taskId) {
+      this.done.push({
+        taskId: taskId ?? "",
+        field: "",
+        before: { send: "", stored: "" },
+        after: { send: "", stored: "" },
+      });
+      this.undone = [];
+      return;
+    }
+
+    const was = before.tasks.find((task) => task.id === taskId);
+    const now = result.grid.tasks.find((task) => task.id === taskId);
+    if (!was || !now) return;
+
+    const field = body.field;
+    const fieldId = body.field_id;
+
+    const step: Step = {
+      taskId,
+      field,
+      fieldId,
+      before: {
+        send: this.sendableValue(was, field, fieldId),
+        stored: this.storedValue(was, field, fieldId),
+      },
+      after: {
+        send: this.sendableValue(now, field, fieldId),
+        stored: this.storedValue(now, field, fieldId),
+      },
+    };
+
+    // The server may have made nothing of it — a value that normalises to what
+    // was already there. Nothing happened, so there is nothing to take back.
+    if (step.before.stored === step.after.stored) return;
+
+    this.done.push(step);
+    // A new change is a new branch: what was undone is no longer ahead of us.
+    this.undone = [];
+  }
+
+  /**
+   * What one field of a task holds, as the server stores it.
+   *
+   * This is what `expect` is compared against, so it has to match the column
+   * exactly — not what the cell shows a person.
+   */
+  private storedValue(task: Task, field: string, fieldId?: string): string {
+    switch (field) {
+      case "name":
+        return task.name;
+      case "start":
+        return task.start ?? "";
+      case "end":
+        return task.end ?? "";
+      case "actual_start":
+        return task.actual_start ?? "";
+      case "actual_end":
+        return task.actual_end ?? "";
+      case "schedule":
+        return `${task.start ?? ""}/${task.end ?? ""}`;
+      case "actual_schedule":
+        return `${task.actual_start ?? ""}/${task.actual_end ?? ""}`;
+      case "progress":
+        return String(task.progress);
+      case "status":
+        return task.status;
+      case "assignee":
+        return task.assignee;
+      case "note":
+        return task.note;
+      case "waits":
+        return task.waits
+          .map((wait) => {
+            const range = `${wait.start}/${wait.open ? "" : wait.end}`;
+            return wait.reason ? `${range}:${wait.reason}` : range;
+          })
+          .join("\n");
+      case "targets":
+        return task.targets.map((target) => `${target.date}/${target.percent}`).join("\n");
+      case "custom":
+        return (fieldId && task.values[fieldId]) || "";
+      default:
+        return "";
+    }
+  }
+
+  /**
+   * The same value, in a form the server will take back.
+   *
+   * 待ち is kept as `from/to:reason` and written as `8/17〜8/21 reason`; the
+   * parser has never had to read its own output, and teaching it to would be
+   * two ways of saying one thing. Everything else is stored as it is written.
+   */
+  private sendableValue(task: Task, field: string, fieldId?: string): string {
+    if (field !== "waits") return this.storedValue(task, field, fieldId);
+
+    return task.waits
+      .map((wait) => {
+        const range = `${wait.start}〜${wait.open ? "" : wait.end}`;
+        return wait.reason ? `${range} ${wait.reason}` : range;
+      })
+      .join("\n");
+  }
+
+  /**
+   * Puts back the last change this tab made.
+   *
+   * The value it is putting back travels with what it expects to find, so a
+   * cell somebody else has since touched is refused rather than quietly
+   * overwritten. Undo is for taking back your own work.
+   */
+  private async replay(direction: "undo" | "redo"): Promise<void> {
+    const from = direction === "undo" ? this.done : this.undone;
+
+    const step = from.pop();
+    if (!step) {
+      this.fail(direction === "undo" ? t("取り消せる操作がありません。") : t("やり直せる操作がありません。"));
+      return;
+    }
+
+    if (!step.field) {
+      this.fail(
+        t("行の追加・削除・並べ替えは取り消せません。もう一度押すと、その前の変更を取り消します。"),
+      );
+      return;
+    }
+
+    if (!this.data.tasks.some((task) => task.id === step.taskId)) {
+      this.fail(t("その行はもうありません。"));
+      return;
+    }
+
+    const target = direction === "undo" ? step.before : step.after;
+    const expect = direction === "undo" ? step.after.stored : step.before.stored;
+
+    this.replaying = true;
+    const result = await this.send(
+      `/api/projects/${encodeURIComponent(this.projectId)}/tasks/${step.taskId}`,
+      {
+        method: "POST",
+        body: { field: step.field, field_id: step.fieldId, value: target.send, expect },
+        follow: step.taskId,
+      },
+    );
+    this.replaying = false;
+
+    if (!result) {
+      // Refused — by the server or by somebody else's edit. The step stays off
+      // the stack: pressing again should try the one before it, not this one.
+      return;
+    }
+
+    (direction === "undo" ? this.undone : this.done).push(step);
   }
 
   private async reason(response: Response): Promise<string> {
@@ -2154,6 +2370,21 @@ class Grid {
     }
 
     const meta = event.ctrlKey || event.metaKey;
+
+    // Undo and redo, in both spellings: Ctrl+Y is what Windows presses and
+    // ⌘⇧Z is what the Mac does, and neither person should have to learn the
+    // other's. The editor keeps its own undo — this only runs between edits.
+    if (meta && (event.key === "z" || event.key === "Z")) {
+      void this.replay(event.shiftKey ? "redo" : "undo");
+      event.preventDefault();
+      return;
+    }
+
+    if (meta && (event.key === "y" || event.key === "Y")) {
+      void this.replay("redo");
+      event.preventDefault();
+      return;
+    }
 
     // Alt turns the arrows into outline moves, the way every outliner does it.
     // On Windows, Alt+Left/Right is browser back/forward, so the preventDefault

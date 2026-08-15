@@ -1511,6 +1511,21 @@ pub async fn field_values(
     Ok(values)
 }
 
+/// One custom value, or an empty string where there is none.
+pub async fn field_value(cx: &Cx, task_id: &str, field_id: &str) -> String {
+    sqlx::query_as::<_, (String,)>(
+        "SELECT value FROM task_field_values WHERE task_id = ?1 AND field_id = ?2",
+    )
+    .bind(task_id)
+    .bind(field_id)
+    .fetch_optional(db::pool(cx))
+    .await
+    .ok()
+    .flatten()
+    .map(|(value,)| value)
+    .unwrap_or_default()
+}
+
 /// Stores one custom value, removing the row when the value is cleared.
 pub async fn set_field_value(
     cx: &Cx,

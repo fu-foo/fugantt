@@ -1,0 +1,8 @@
+# A Windows build that depends on nothing.
+#
+# The MSVC target links the C runtime dynamically by default, so the executable
+# wants `vcruntime140.dll` — present on most machines, guaranteed on none. This
+# is meant to be one file somebody can copy onto a work PC, and "one file plus
+# whatever Visual Studio left behind" is not that.
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]

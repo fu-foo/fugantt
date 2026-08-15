@@ -34,8 +34,17 @@ cargo build --release    # 配布用の実行ファイル1本
 | --- | --- | --- |
 | `HOST` | `127.0.0.1` | `0.0.0.0` で LAN に公開 |
 | `PORT` | `3000` | |
-| `FUGANTT_DB` | `fugantt.db` | SQLite ファイル。起動時に自動でマイグレーション |
+| `FUGANTT_DB` | 下記 | SQLite ファイル。起動時に自動でマイグレーション |
+| `FUGANTT_OPEN` | `window` / `tab` | 起動時に画面を開く。`0` で開かない |
 | `FUGANTT_ALLOW_HTTP` | — | `1` で平文 HTTP を許可（後述） |
+
+**起動すると画面が開く。** Windows は Edge のアプリウィンドウ（アドレスバー無し）、
+他は既定のブラウザのタブ。127.0.0.1 に立てたときだけで、`0.0.0.0` なら開かない。
+
+**DB の場所**は、`FUGANTT_DB` →（カレントに `fugantt.db` があればそれ）→ 利用者ごとの場所、の順。
+最後は Windows が `%LOCALAPPDATA%\fugantt`、macOS が `~/Library/Application Support/fugantt`、
+Linux が `~/.local/share/fugantt`。起動時に絶対パスを1行出す。
+**すでに `fugantt.db` を置いて使っているなら、そのまま**。実行ファイルを差し替えても場所は動かない。
 
 ```sh
 brew install fu-foo/tap/fugantt                    # macOS / Linux

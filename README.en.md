@@ -97,8 +97,13 @@ docker run -p 3000:3000 -v fugantt:/data ghcr.io/fu-foo/fugantt
 cargo-topcoat dev            # from source. http://127.0.0.1:3000
 ```
 
-The database is created at `FUGANTT_DB` (default `fugantt.db`) and migrated on
-first start. For a release build, `cargo build --release` produces a single
+Started on loopback, it opens the page itself — an Edge application window on
+Windows, a tab elsewhere. `FUGANTT_OPEN=0` if you would rather it did not.
+
+The database is `FUGANTT_DB`, or a `fugantt.db` already in the working
+directory, or the platform's own place for user data — `%LOCALAPPDATA%`,
+`~/Library/Application Support`, `~/.local/share`. Whichever it is, the absolute
+path is printed at startup. It is migrated on first start. For a release build, `cargo build --release` produces a single
 executable with the static files embedded — deploying is that file and a
 database, and nothing else.
 

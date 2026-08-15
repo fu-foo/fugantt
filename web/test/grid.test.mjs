@@ -3266,7 +3266,11 @@ check(
     ]);
 
     return JSON.stringify(buttons);
-  }).then((text) => text.includes('["1","JSON で書き出す"]') && text.includes('["0","タスクだけ"]')),
+  }).then(
+    (text) =>
+      text.includes('["1","JSON で書き出す（タスク＋設定）"]') &&
+      text.includes('["0","JSON で書き出す（タスク）"]'),
+  ),
   await page.evaluate(async () => {
     const html = await (await fetch("/projects/test-project")).text();
     const doc = new DOMParser().parseFromString(html, "text/html");

@@ -386,7 +386,7 @@ pub async fn grid_data(cx: &Cx, project: &Project) -> Result<GridData> {
     let rows = sqlx::query_as::<_, TaskRow>(
         "SELECT id, parent_id, sort_key, name, start_date, end_date,
                 actual_start, actual_end, progress, tags,
-                status, assignee, note, waits, targets
+                status, assignee, note, waits, targets, color, background
            FROM tasks
           WHERE project_id = ?1
           ORDER BY sort_key",
@@ -1034,7 +1034,8 @@ pub async fn import_project(
                     SET parent_id = ?3, sort_key = ?4, name = ?5,
                         start_date = ?6, end_date = ?7, actual_start = ?8, actual_end = ?9,
                         progress = ?10, status = ?11, assignee = ?12, note = ?13, waits = ?14,
-                        targets = ?15, updated_at = ?16, updated_by = ?17
+                        targets = ?15, color = ?16, background = ?17,
+                        updated_at = ?18, updated_by = ?19
                   WHERE id = ?1 AND project_id = ?2",
             )
         } else {
@@ -1042,8 +1043,9 @@ pub async fn import_project(
                 "INSERT INTO tasks (id, project_id, parent_id, sort_key, name,
                                     start_date, end_date, actual_start, actual_end,
                                     progress, status, assignee, note, waits, targets,
-                                    updated_at, updated_by)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
+                                    color, background, updated_at, updated_by)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15,
+                         ?16, ?17, ?18, ?19)",
             )
         }
         .bind(&id)
@@ -1061,6 +1063,8 @@ pub async fn import_project(
         .bind(&task.note)
         .bind(task.waits.join("\n"))
         .bind(task.targets.join("\n"))
+        .bind(&task.color)
+        .bind(&task.background)
         .bind(db::now())
         // An empty author is an access token rather than a person: the column
         // points at an account, and inventing one would put a name on work

@@ -317,6 +317,9 @@ enum Field {
     Waits,
     /// 予定進捗: the checkpoints the plan names — `8/20 30%, 8/28 100%`.
     Targets,
+    /// The row's own colours, `#rrggbb` or empty to take them off.
+    Color,
+    Background,
     /// One of the project's own columns, named by `field_id`.
     Custom,
     /// Both dates at once, as `START/END`. Dragging a bar moves them together,
@@ -390,6 +393,8 @@ fn column_of(field: Field) -> &'static str {
         Field::Note => "note",
         Field::Waits => "waits",
         Field::Targets => "targets",
+        Field::Color => "color",
+        Field::Background => "background",
         Field::Custom => "",
         Field::Schedule => "start_date",
         Field::ActualSchedule => "actual_start",
@@ -500,6 +505,15 @@ async fn update_task(cx: &Cx, Json(edit): Json<CellEdit>) -> Result<Json<Mutatio
         Field::Targets => {
             let stored = parse_targets(value, l)?;
             write_cell(cx, &task_id, &user.id, "targets = ?1", stored).await?;
+        }
+        Field::Color | Field::Background => {
+            let colour = parse_colour(value, l)?;
+            let column = match edit.field {
+                Field::Color => "color = ?1",
+                _ => "background = ?1",
+            };
+
+            write_cell(cx, &task_id, &user.id, column, colour).await?;
         }
         Field::Custom => {
             let field_id = edit
@@ -693,6 +707,8 @@ fn field_label(field: Field) -> &'static str {
         Field::Note => "コメント",
         Field::Waits => "待ち",
         Field::Targets => "予定進捗",
+        Field::Color => "文字色",
+        Field::Background => "背景色",
         Field::Custom => "独自項目",
         Field::Schedule => "期間",
         Field::ActualSchedule => "実施期間",
@@ -1565,8 +1581,9 @@ async fn set_view(
 
 /// The built-in columns a project may turn off.
 /// Every built-in column, in the order they are declared.
-pub const COLUMN_KEYS: [&str; 15] = [
+pub const COLUMN_KEYS: [&str; 16] = [
     "name",
+    "late",
     "assignee",
     "status",
     "start",
@@ -1583,7 +1600,8 @@ pub const COLUMN_KEYS: [&str; 15] = [
     "note",
 ];
 
-pub const OPTIONAL_COLUMNS: [&str; 14] = [
+pub const OPTIONAL_COLUMNS: [&str; 15] = [
+    "late",
     "assignee",
     "status",
     "start",
@@ -2486,6 +2504,25 @@ async fn check_order(cx: &Cx, task_id: &str, field: Field, date: Option<&str>) -
     }
 
     Ok(())
+}
+
+/// A colour, or nothing.
+///
+/// Only `#rrggbb`, and only lower case: the value goes straight into a style
+/// attribute, and a colour is the one kind of user input that has no reason to
+/// be anything but six hex digits.
+fn parse_colour(value: &str, l: crate::i18n::Lang) -> Result<String> {
+    let value = value.trim();
+    if value.is_empty() {
+        return Ok(String::new());
+    }
+
+    let hex = value.strip_prefix('#').unwrap_or(value);
+    if hex.len() != 6 || !hex.chars().all(|c| c.is_ascii_hexdigit()) {
+        return Err(bad_request(l.t("色は #rrggbb の形式で指定してください。")).into());
+    }
+
+    Ok(format!("#{}", hex.to_ascii_lowercase()))
 }
 
 /// Reads a cell of 予定進捗 into the stored form: `YYYY-MM-DD/PERCENT` a line.

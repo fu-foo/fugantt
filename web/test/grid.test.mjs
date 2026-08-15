@@ -34,6 +34,30 @@ const failed = [];
 const check = (name, ok, detail = "") =>
   (ok ? passed : failed).push(detail ? `${name} — ${detail}` : name);
 
+/**
+ * Whatever answers on this port has to be fugantt.
+ *
+ * Port 3000 is a popular address — a container of somebody else's can hold it,
+ * and when the dev server restarts to pick up a change, the browser's next
+ * request lands on that instead. The page then has no island, and the failures
+ * that follow read as "the grid lost every row" rather than as "you are looking
+ * at another program".
+ */
+const insist = async (page) => {
+  const looks = await page.evaluate(() => ({
+    island: !!document.querySelector("#fugantt-grid, .fg-grid"),
+    title: document.title,
+  }));
+
+  if (!looks.island) {
+    console.error(
+      `${BASE} が fugantt を返していません（タイトル: ${looks.title}）。` +
+        "他のプロセスが同じポートを持っていないか確かめてください。",
+    );
+    process.exit(1);
+  }
+};
+
 const browser = await puppeteer.launch({
   executablePath: CHROME,
   headless: "new",
@@ -66,6 +90,7 @@ execFileSync("sh", [join(here, "seed.sh"), DB, EMAIL], { stdio: "inherit" });
 // goes idle. Waiting for the grid itself is both faster and truthful.
 await page.goto(`${BASE}/projects/test-project`, { waitUntil: "domcontentloaded" });
 await page.waitForSelector(".fg-grid");
+await insist(page);
 
 const settle = () => new Promise((resolve) => setTimeout(resolve, 250));
 
@@ -130,6 +155,44 @@ const COLUMN = Object.fromEntries(
     )
   ).map((name, index) => [name, index]),
 );
+
+/**
+ * Every built-in column.
+ *
+ * The settings form means "these and no others", so a list written out by hand
+ * turns off whatever it forgot — and a column added later is forgotten by every
+ * one of them at once.
+ */
+const ALL_COLUMNS = [
+  "name", "late", "assignee", "status", "start", "end", "days", "targets",
+  "actual_start", "actual_end", "actual_days", "progress",
+  "start_variance", "end_variance", "waits", "note",
+];
+
+/**
+ * Reads the column map again.
+ *
+ * The map is built once from the headings, and the tests below hide columns,
+ * reorder them and put them back. A stale map does not fail where it is wrong:
+ * it silently selects the neighbouring cell, and the failure surfaces later as
+ * "the dialog did not open".
+ */
+const refreshColumns = async () => {
+  const heads = await page.evaluate(() =>
+    [...document.querySelectorAll(".fg-heading .fg-cell")].map((cell) => [
+      cell.textContent.trim(),
+      [...cell.classList].find((name) => name.startsWith("fg-cell-"))?.slice("fg-cell-".length),
+    ]),
+  );
+
+  for (const key of Object.keys(COLUMN)) delete COLUMN[key];
+  for (const key of Object.keys(COLUMN_KEY)) delete COLUMN_KEY[key];
+
+  heads.forEach(([label, key], index) => {
+    COLUMN[label] = index;
+    COLUMN_KEY[label] = key;
+  });
+};
 
 /** Selects a cell the way a click would, without depending on its position. */
 const selectCell = (row, column) => {
@@ -253,7 +316,13 @@ check("拒否された編集を元に戻す", s.cells[0][COLUMN["予定開始"]]
 
 // --- rollup -----------------------------------------------------------------
 
-const parentBefore = (await state()).cells[summary][COLUMN["実進捗"]];
+// 読むたびに撮り直す。描き直しの最中に読むと、行がまだ無いことがある。
+const summaryProgress = async () => (await state()).cells[summary]?.[COLUMN["実進捗"]];
+let parentBefore;
+for (let at = 0; at < 20 && parentBefore === undefined; at++) {
+  parentBefore = await summaryProgress();
+  if (parentBefore === undefined) await settle();
+}
 await selectCell((await state()).names.indexOf("設計"), COLUMN["実進捗"]);
 await page.keyboard.press("F2");
 await replaceEditorText("100");
@@ -261,17 +330,14 @@ await page.keyboard.press("Enter");
 
 // 集計はサーバーが返した値。届くのを待つ——固定の待ち時間では、混んだ日に
 // 「変わっていない」と言われて落ちていた。
-const rolled = await until(
-  async () => (await state()).cells[summary][COLUMN["実進捗"]],
-  "42%",
-);
+const rolled = await until(summaryProgress, "42%");
 s = await state();
 check(
   "子の進捗を変えると親の集計が動く",
   rolled,
   // 落ちたときに、どこで止まったのかが分かるように: 子に値が入っているか、
   // 編集欄が開いたままか、サーバーが何か言っているか。
-  `親 ${parentBefore} → ${s.cells[summary][COLUMN["実進捗"]]}` +
+  `親 ${parentBefore} → ${s.cells[summary]?.[COLUMN["実進捗"]]}` +
     ` / 子 ${s.cells[s.names.indexOf("設計")]?.[COLUMN["実進捗"]]}` +
     ` / editing=${s.editing} error=${s.error ?? "なし"}`,
 );
@@ -898,6 +964,7 @@ await page.evaluate(async () => {
   const columns = new URLSearchParams();
   for (const key of [
     "name",
+    "late",
     "start",
     "end",
     "actual_start",
@@ -924,6 +991,10 @@ await page.evaluate(async () => {
   view.set("quarters", "1");
   await fetch("/projects/test-project/view", { method: "POST", body: view });
 });
+await page.reload({ waitUntil: "domcontentloaded" });
+await page.waitForSelector(".fg-grid");
+await settle();
+await refreshColumns();
 
 // メモ。プレーンテキストなので、書いた記号は記号のまま出る。
 const memo = await page.evaluate(async () => {
@@ -1402,6 +1473,7 @@ execFileSync("sh", [join(here, "seed.sh"), DB, EMAIL], { stdio: "inherit" });
 await page.reload({ waitUntil: "domcontentloaded" });
 await page.waitForSelector(".fg-grid");
 await settle();
+await refreshColumns();
 
 const planned = await page.evaluate(() => {
   const labels = [...document.querySelectorAll(".fg-heading .fg-cell")].map((c) => c.textContent.trim());
@@ -1761,6 +1833,7 @@ const setView = (extra = {}) =>
       const columns = new URLSearchParams();
       for (const key of [
         "name",
+        "late",
         "start",
         "end",
         "actual_start",
@@ -2317,19 +2390,14 @@ check("解除で全部戻る（向きの条件も）", (await state()).rowCount 
 
 // --- 固定する列 -------------------------------------------------------------------
 
-const pinned = await page.evaluate(async () => {
+const pinned = await page.evaluate(async (keys) => {
   const body = new URLSearchParams();
-  for (const key of [
-    "start", "end", "actual_start", "actual_end", "days",
-    "actual_days", "start_variance", "end_variance", "progress", "status", "assignee", "note",
-  ]) {
-    body.set(`column_${key}`, "1");
-  }
+  for (const key of keys) body.set(`column_${key}`, "1");
   body.set("skip_leave", "1");
   body.set("frozen_columns", "3");
   await fetch("/projects/test-project/view", { method: "POST", body });
   return true;
-});
+}, ALL_COLUMNS);
 
 await page.reload({ waitUntil: "domcontentloaded" });
 await page.waitForSelector(".fg-grid");
@@ -2393,18 +2461,13 @@ check(
 await page.setViewport({ width: 1680, height: 700 });
 await settle();
 
-await page.evaluate(async () => {
+await page.evaluate(async (keys) => {
   const body = new URLSearchParams();
-  for (const key of [
-    "start", "end", "actual_start", "actual_end", "days",
-    "actual_days", "start_variance", "end_variance", "progress", "status", "assignee", "note",
-  ]) {
-    body.set(`column_${key}`, "1");
-  }
+  for (const key of keys) body.set(`column_${key}`, "1");
   body.set("skip_leave", "1");
   body.set("frozen_columns", "1");
   await fetch("/projects/test-project/view", { method: "POST", body });
-});
+}, ALL_COLUMNS);
 await page.reload({ waitUntil: "domcontentloaded" });
 await page.waitForSelector(".fg-grid");
 await settle();
@@ -3161,14 +3224,9 @@ check(
 );
 
 // 進捗の連動は、その状態が宣言したパーセントに従う。
-const linked = await page.evaluate(async () => {
+const linked = await page.evaluate(async (keys) => {
   const body = new URLSearchParams();
-  for (const key of [
-    "start", "end", "actual_start", "actual_end", "days",
-    "actual_days", "start_variance", "end_variance", "progress", "status", "assignee", "note",
-  ]) {
-    body.set(`column_${key}`, "1");
-  }
+  for (const key of keys) body.set(`column_${key}`, "1");
   body.set("skip_leave", "1");
   body.set("progress_mode", "status");
   await fetch("/projects/test-project/view", { method: "POST", body });
@@ -3182,7 +3240,7 @@ const linked = await page.evaluate(async () => {
   const row = grid.tasks.find((t) => t.id === "t-imp");
 
   return { status: row.status, progress: row.progress };
-});
+}, ALL_COLUMNS);
 check(
   "連動は状態ごとのパーセントに従う",
   linked.status === "レビュー中" && linked.progress === 80,
@@ -3885,7 +3943,155 @@ check(
   ),
 );
 
+// --- 遅延列と行の色 -------------------------------------------------------------
+
+// 遅れは赤い文字ではなく列にする。色は絞り込めないし、行の文字色は人のものになった。
+const lateColumn = await page.evaluate(async () => {
+  const grid = await (await fetch("/api/projects/test-project/grid")).json();
+  const behind = grid.tasks.filter((task) => task.delayed || task.overdue > 0).map((t) => t.name);
+
+  const headings = [...document.querySelectorAll(".fg-heading .fg-cell")].map((c) =>
+    c.textContent.trim(),
+  );
+  const named = [...document.querySelectorAll(".fg-pane-left .fg-row.fg-data .fg-cell-name")].map(
+    (c) => c.textContent.trim(),
+  );
+  const marked = [...document.querySelectorAll(".fg-pane-left .fg-row.fg-data")]
+    .map((row, i) => (row.querySelector(".fg-cell-late .fg-late-mark") ? named[i] : null))
+    .filter(Boolean);
+
+  return {
+    // タスクの次。行を左から読んで、最初に目に入る。
+    place: headings.slice(0, 3),
+    behind,
+    marked,
+    // 名前は赤くない。色は人が塗るためのもの。
+    nameColour: getComputedStyle(
+      document.querySelector(".fg-pane-left .fg-row.fg-data.is-delayed .fg-name-text"),
+    ).color,
+  };
+});
+
+check(
+  "遅延は列として、タスクのすぐ右に出る",
+  lateColumn.place.join(",") === "タスク,遅延,担当者",
+  lateColumn.place.join(","),
+);
+check(
+  "遅れている行にだけ印が付く",
+  lateColumn.marked.length > 0 && lateColumn.marked.join() === lateColumn.behind.join(),
+  `印 ${lateColumn.marked.join(",")} / 実際 ${lateColumn.behind.join(",")}`,
+);
+check(
+  "タスク名はもう赤くない",
+  lateColumn.nameColour !== "rgb(220, 38, 38)",
+  lateColumn.nameColour,
+);
+
+// 列になったので絞り込める。ここが「マークではなく列」にした理由。
+await filterBy("遅延", "遅延");
+const onlyLate = (await state()).names;
+await filterBy("遅延", "順調");
+const onlyFine = (await state()).names;
+await clearFilters();
+
+check(
+  "遅延で絞り込める",
+  onlyLate.length > 0 &&
+    onlyFine.length > 0 &&
+    !onlyLate.some((name) => onlyFine.includes(name)),
+  `遅延 ${onlyLate.join(",")} / 順調 ${onlyFine.join(",")}`,
+);
+
+// 行に色。名前に ★ や【重要】を書いて代用していたものを、その場所から外す。
+const painted = await page.evaluate(async () => {
+  const named = [...document.querySelectorAll(".fg-pane-left .fg-row.fg-data .fg-cell-name")].map(
+    (c) => c.textContent.trim(),
+  );
+  const at = named.findIndex((n) => n.includes("テスト"));
+  const cell = [...document.querySelectorAll(".fg-pane-left .fg-row.fg-data")][at].querySelector(
+    ".fg-cell-name",
+  );
+
+  cell.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+  cell.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, clientX: 100, clientY: 100 }));
+  await new Promise((done) => setTimeout(done, 200));
+
+  const rows = [...document.querySelectorAll(".fg-palette-row")];
+  if (rows.length !== 2) return { rows: rows.length };
+
+  rows[0].querySelectorAll(".fg-swatch")[0].click();
+  await new Promise((done) => setTimeout(done, 700));
+
+  const grid = await (await fetch("/api/projects/test-project/grid")).json();
+  const task = grid.tasks.find((t) => t.name === "テスト");
+  const after = [...document.querySelectorAll(".fg-pane-left .fg-row.fg-data")][at];
+
+  return {
+    rows: rows.length,
+    stored: task.background,
+    painted: getComputedStyle(after.querySelector(".fg-cell-name")).backgroundColor,
+  };
+});
+
+check(
+  "右クリックから行に背景色を付けられる",
+  painted.rows === 2 && /^#[0-9a-f]{6}$/.test(painted.stored ?? "") &&
+    painted.painted !== "rgba(0, 0, 0, 0)",
+  JSON.stringify(painted),
+);
+
+const cleared = await page.evaluate(async () => {
+  const grid = await (await fetch("/api/projects/test-project/grid")).json();
+  const id = grid.tasks.find((t) => t.name === "テスト").id;
+
+  // 文字色も同じ口から。
+  await fetch(`/api/projects/test-project/tasks/${id}`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ field: "color", value: "#b91c1c" }),
+  });
+  const withColour = await (await fetch("/api/projects/test-project/grid")).json();
+
+  // 色でないものは断る。値はそのまま style に入るので。
+  const refused = await fetch(`/api/projects/test-project/tasks/${id}`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ field: "background", value: "red; content: url(x)" }),
+  });
+
+  for (const field of ["color", "background"]) {
+    await fetch(`/api/projects/test-project/tasks/${id}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ field, value: "" }),
+    });
+  }
+  const back = await (await fetch("/api/projects/test-project/grid")).json();
+
+  return {
+    colour: withColour.tasks.find((t) => t.name === "テスト").color,
+    refused: refused.status,
+    cleared: back.tasks.find((t) => t.name === "テスト").background,
+  };
+});
+
+check(
+  "文字色も付けられ、色でないものは断り、消せる",
+  cleared.colour === "#b91c1c" && cleared.refused === 400 && cleared.cleared === "",
+  JSON.stringify(cleared),
+);
+
 // 「3件」だけでは、終わりかけなのか手つかずなのか分からない。
+check(
+  "統計は遅延と、遅れていないものを両方出す",
+  await page.evaluate(async () => {
+    const html = await (await fetch("/projects/test-project/stats")).text();
+    const text = new DOMParser().parseFromString(html, "text/html").body.textContent;
+    return text.includes("遅延中") && text.includes("遅れていない");
+  }),
+);
+
 check(
   "統計に担当者ごとのステータス内訳が出る",
   await page.evaluate(async () => {

@@ -27,6 +27,9 @@ interface Task {
   expected: number | null;
   /** Behind a checkpoint the plan itself named. Never a guess from the dates. */
   delayed: boolean;
+  /** Colours somebody gave this row, `#rrggbb`, or empty. */
+  color: string;
+  background: string;
   has_children: boolean;
   tags: string[];
   values: Record<string, string>;
@@ -155,6 +158,18 @@ function column(key: string): ColumnDef {
 
 const BASE_COLUMNS: ColumnDef[] = [
   { key: "name", label: "タスク", kind: "name" },
+  // Late, as a column rather than as red text. A colour cannot be filtered,
+  // sorted or exported, and the text colour now belongs to whoever painted the
+  // row. A column can be asked a question: show me only these.
+  {
+    key: "late",
+    label: "遅延",
+    kind: "select",
+    options: [
+      { value: "遅延", color: "", background: "" },
+      { value: "順調", color: "", background: "" },
+    ],
+  },
   // Who and what state, before any dates: the two things read at a glance.
   { key: "assignee", label: "担当者", kind: "text" },
   { key: "status", label: "ステータス", kind: "status" },
@@ -285,6 +300,12 @@ const EN: Record<string, string> = {
   "開始差異": "Start variance",
   "終了差異": "End variance",
   "予定進捗": "Planned",
+  "遅延": "Late",
+  "予定進捗に届いていません": "Not up to the checkpoint it promised",
+  "予定終了を過ぎて、実施終了が入っていません": "Past its planned end, with no actual end",
+  "色を消す": "Clear the colour",
+  "背景": "Background",
+  "文字": "Text",
   "実進捗": "Progress",
   "進捗": "Progress",
   "ステータス": "Status",
@@ -637,6 +658,25 @@ const TRACKS: Record<ColumnDef["kind"], string> = {
   number: "4.5rem",
   select: "minmax(5rem, 0.6fr)",
 };
+
+/**
+ * The colours a row can be painted, chosen to stay readable.
+ *
+ * Pale enough that black text still reads on them, and far enough apart that
+ * two rows in different colours are two different marks rather than a gradient.
+ */
+const BACKGROUNDS = [
+  "#fef3c7",
+  "#dcfce7",
+  "#dbeafe",
+  "#fce7f3",
+  "#ede9fe",
+  "#ffe4e6",
+  "#e2e8f0",
+];
+
+/** Dark enough to read on white and on every one of the backgrounds above. */
+const TEXT_COLOURS = ["#0f172a", "#b91c1c", "#a16207", "#15803d", "#1d4ed8", "#7e22ce"];
 
 const PANE_KEY = "fugantt:pane-width";
 const SHOWS_KEY = "fugantt:chart-shows";
@@ -1398,12 +1438,25 @@ class Grid {
       })),
     ];
 
-    // The stored order need not mention every column: one that is missing keeps
-    // its place at the end, so a new column shows up without a settings visit.
+    // The stored order need not mention every column. One that is missing sits
+    // next to the column it was declared after, so a built-in added by an
+    // update turns up where it belongs rather than at the far right edge of a
+    // project somebody arranged a year ago — 遅延 next to タスク, not past コメント.
     const order = this.data.column_order;
     const rank = (column: ColumnDef) => {
       const at = order.indexOf(column.key);
-      return at < 0 ? order.length + all.indexOf(column) : at;
+      if (at >= 0) return at;
+
+      const index = all.indexOf(column);
+      for (let before = index - 1; before >= 0; before--) {
+        const anchor = order.indexOf(all[before]!.key);
+        // A fraction, so several new columns keep their declared order between
+        // two stored ones instead of collapsing onto the same place.
+        if (anchor >= 0) return anchor + (index - before) / (all.length + 1);
+      }
+
+      // Declared before anything the project has an opinion about.
+      return -1;
     };
 
     return all.sort((a, b) => rank(a) - rank(b));
@@ -1500,6 +1553,11 @@ class Grid {
       case "targets":
         // The same shape read or written: `8/20 30%, 8/28 100%`.
         return task.targets.map((target) => `${short(target.date)} ${target.percent}%`).join(", ");
+      case "late":
+        // Both words, always, so the filter can ask for either. Only one of
+        // them is drawn — a column that says 順調 on every quiet row is a
+        // column of noise.
+        return this.behind(task) ? "遅延" : "順調";
       default:
         return task.note;
     }
@@ -1526,6 +1584,8 @@ class Grid {
     if (!this.data.can_edit) return false;
     // The day count comes from the dates; nothing writes to it.
     if (column.kind === "days") return false;
+    // Nor does anything write to 遅延: it is the reading of two other columns.
+    if (column.key === "late" || column.kind === "variance") return false;
 
     // A summary row takes its schedule from its children; writing to it would
     // be discarded on the next read.
@@ -2775,6 +2835,14 @@ class Grid {
     if (this.behind(task)) row.classList.add("is-delayed");
     if (index === this.row) row.classList.add("is-current");
 
+    // The row's own colours, if somebody gave it any. Set as a custom property
+    // rather than on the row: the cells paint their own backgrounds (selection,
+    // hatching, the frozen columns' opaque ground), so each of them has to be
+    // able to pick this up rather than sit on top of it.
+    if (task.background) row.style.setProperty("--fg-row-bg", task.background);
+    if (task.color) row.style.setProperty("--fg-row-color", task.color);
+    if (task.background || task.color) row.classList.add("is-painted");
+
     this.columns.forEach((column, columnIndex) => {
       const cell = element("div", `fg-cell fg-cell-${column.key}`);
       const isSelected = index === this.row && columnIndex === this.column;
@@ -2806,6 +2874,17 @@ class Grid {
         cell.classList.add("is-editing");
         cell.append(this.renderEditor(task, column));
         if (column.kind === "date") cell.append(this.renderDatePicker());
+      } else if (column.key === "late") {
+        // Before the kind-based branches: this column is a select so that its
+        // filter offers 遅延 and 順調, and the select branch would otherwise
+        // print 順調 on every quiet row — a column of noise.
+        if (this.behind(task)) {
+          const mark = element("span", "fg-late-mark", t("遅延"));
+          mark.title = task.delayed
+            ? t("予定進捗に届いていません")
+            : t("予定終了を過ぎて、実施終了が入っていません");
+          cell.append(mark);
+        }
       } else if (column.kind === "name") {
         const text = element("span", "fg-name-text", task.name || t("（無題）"));
         if (!task.name) text.classList.add("is-placeholder");
@@ -4178,6 +4257,11 @@ class Grid {
     item(t("下に行を追加"), `${MOD}Enter`, () => void this.insertRow());
     item(t("行を削除"), `${MOD}Delete`, () => void this.deleteRow());
 
+    if (this.editable(task, column("name"))) {
+      menu.append(element("div", "fg-menu-rule"));
+      menu.append(this.renderPalette(task, close));
+    }
+
     this.root.append(menu);
 
     // Keep the menu on screen when the click lands near an edge.
@@ -4190,6 +4274,84 @@ class Grid {
       document.addEventListener("mousedown", close);
       document.addEventListener("keydown", onEscape);
     });
+  }
+
+  /**
+   * The colours a row can be given, in the right-click menu.
+   *
+   * People were already marking rows by writing ★ or 【重要】 into the task
+   * name, which is a colour with the wrong tool: it sorts, it exports, it is
+   * part of the name for ever. This is the same intent with none of that.
+   *
+   * Swatches rather than a colour picker. A picker offers sixteen million
+   * answers to a question with about eight, and half of them are unreadable
+   * under black text.
+   */
+  private renderPalette(task: Task, close: () => void): HTMLElement {
+    const block = element("div", "fg-palette");
+
+    const row = (
+      label: string,
+      field: "background" | "color",
+      choices: string[],
+      current: string,
+    ) => {
+      const line = element("div", "fg-palette-row");
+      line.append(element("span", "fg-palette-label", label));
+
+      for (const colour of choices) {
+        const swatch = element("button", "fg-swatch") as HTMLButtonElement;
+        swatch.type = "button";
+        swatch.title = colour;
+        swatch.style.background = field === "background" ? colour : "#fff";
+        if (field === "color") {
+          swatch.style.color = colour;
+          swatch.textContent = "A";
+        }
+        if (current.toLowerCase() === colour) swatch.classList.add("is-current");
+
+        swatch.addEventListener("mousedown", (event) => event.preventDefault());
+        swatch.addEventListener("click", () => {
+          close();
+          void this.paint(task, field, current.toLowerCase() === colour ? "" : colour);
+        });
+
+        line.append(swatch);
+      }
+
+      block.append(line);
+    };
+
+    row(t("背景"), "background", BACKGROUNDS, task.background);
+    row(t("文字"), "color", TEXT_COLOURS, task.color);
+
+    const clear = element("button", "fg-menu-item", t("色を消す")) as HTMLButtonElement;
+    clear.type = "button";
+    clear.addEventListener("mousedown", (event) => event.preventDefault());
+    clear.addEventListener("click", () => {
+      close();
+      void this.paint(task, "both", "");
+    });
+    block.append(clear);
+
+    return block;
+  }
+
+  /** Writes one of the row's colours, or clears both. */
+  private async paint(
+    task: Task,
+    which: "background" | "color" | "both",
+    colour: string,
+  ): Promise<void> {
+    const url = `/api/projects/${encodeURIComponent(this.projectId)}/tasks/${task.id}`;
+
+    for (const field of which === "both" ? ["background", "color"] : [which]) {
+      await this.send(url, {
+        method: "POST",
+        body: { field, value: colour },
+        follow: task.id,
+      });
+    }
   }
 
   /** Keeps the keyboard where the user left it across a full re-render. */

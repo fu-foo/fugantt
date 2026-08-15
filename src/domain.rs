@@ -30,6 +30,9 @@ pub struct TaskRow {
     pub waits: String,
     /// 予定進捗: `YYYY-MM-DD/PERCENT` per line.
     pub targets: String,
+    /// The colours this row was given, as `#rrggbb`, or empty for neither.
+    pub color: String,
+    pub background: String,
 }
 
 /// A task as the grid receives it: depth-first order, derived values resolved.
@@ -76,6 +79,9 @@ pub struct TaskView {
     /// never behind — nothing was promised, so nothing was missed. Running past
     /// the planned end is a separate fact, and stays in `overdue`.
     pub delayed: bool,
+    /// The colours this row was given. Empty means the row looks like a row.
+    pub color: String,
+    pub background: String,
     /// Parents are read-only in the grid: their dates and progress are sums.
     pub has_children: bool,
     pub tags: Vec<String>,
@@ -698,6 +704,8 @@ fn visit<'rows>(
         targets: Vec::new(),
         expected: None,
         delayed: false,
+        color: row.color.clone(),
+        background: row.background.clone(),
         has_children,
         tags: row.tags.split_whitespace().map(ToOwned::to_owned).collect(),
         values: HashMap::new(),
@@ -1421,6 +1429,8 @@ mod tests {
             note: String::new(),
             waits: String::new(),
             targets: String::new(),
+            color: String::new(),
+            background: String::new(),
         }
     }
 

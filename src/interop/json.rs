@@ -148,6 +148,11 @@ pub struct Task {
     /// much. The one plan a derived value could never guess.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub targets: Vec<String>,
+    /// The colours somebody gave this row, `#rrggbb`.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub color: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub background: String,
     /// The project's own columns, by their label rather than their id — an id
     /// means nothing in another installation.
     #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
@@ -268,6 +273,8 @@ pub fn write(project_name: &str, data: &GridData, extras: Option<Extras>) -> Str
                     .iter()
                     .map(|target| format!("{}/{}", target.date, target.percent))
                     .collect(),
+                color: task.color.clone(),
+                background: task.background.clone(),
                 fields: task
                     .values
                     .iter()

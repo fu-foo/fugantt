@@ -1253,6 +1253,7 @@ fn column_label(key: &str) -> &str {
         "name" => "タスク",
         "waits" => "待ち",
         "targets" => "予定進捗",
+        "late" => "遅延",
         "note" => "コメント",
         "start" => "予定開始",
         "end" => "予定終了",

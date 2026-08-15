@@ -105,6 +105,15 @@ pub fn of(ja: &str) -> Option<&'static str> {
         "タスク" => "Tasks",
         "平均進捗" => "Average progress",
         "遅延中" => "Late",
+        "遅れていない" => "On time",
+        "予定進捗に届いていません" => "Not up to the checkpoint it promised",
+        "予定終了を過ぎて、実施終了が入っていません" => {
+            "Past its planned end, with no actual end"
+        }
+        "色を消す" => "Clear the colour",
+        "背景" => "Background",
+        "文字" => "Text",
+        "色は #rrggbb の形式で指定してください。" => "A colour is #rrggbb.",
         "作業の遅れ" => "Work behind",
         "ずれの内訳" => "Where the slippage went",
         "ずれ" => "Slippage",
@@ -264,8 +273,6 @@ pub fn of(ja: &str) -> Option<&'static str> {
         "製品" => "Product",
         "種類" => "Kind",
         "選択肢を追加" => "Add a choice",
-        "文字" => "Text",
-        "背景" => "Background",
         "メンバーとタスクに入っている名前が並びます。ここに名前を足せば、アカウントの無い人も選べます。色は全員で共通なので「全体の設定」で決めます——同じ人が案件ごとに違う色だと、いくつも開いたときに読めなくなるためです。" => {
             "The names of members and of anyone written on a task. Add a name here and people without an account can be assigned work too. Colours are shared by everyone and live in the installation settings: one person in two colours is unreadable once you have several projects open."
         }

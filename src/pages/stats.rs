@@ -131,6 +131,9 @@ async fn index(cx: &Cx) -> Result {
     let total_text = total.to_string();
     let progress_text = format!("{progress}%");
     let delayed_text = delayed.to_string();
+    // Said out loud rather than left as a subtraction. "12 late" reads very
+    // differently next to 14 and next to 400.
+    let on_time_text = (total - delayed).to_string();
     let late_text = format!("{late_days}日");
     let wait_text = format!("{wait_days}日");
     let slipped_text = format!("{slipped}日");
@@ -148,6 +151,7 @@ async fn index(cx: &Cx) -> Result {
                     value: &delayed_text,
                     tone: if delayed > 0 { "late" } else { "" },
                 )
+                tile(label: "遅れていない", value: &on_time_text, tone: "")
                 tile(
                     label: "作業の遅れ",
                     value: &late_text,

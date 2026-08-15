@@ -218,10 +218,72 @@ html {
 
 
 
-.fg-row.is-delayed .fg-name-text,
+/* Late says so in words, on a mark of its own.
+   It used to be the row's text colour, which was fine while the tool owned
+   every colour on the screen. Now that a person can paint a row, one property
+   would be carrying two meanings, and the row somebody marked in green would
+   read as on time whatever it was actually doing. */
+.fg-late-mark {
+  flex: 0 0 auto;
+  margin-right: 6px;
+  border-radius: 4px;
+  padding: 1px 5px;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1.4;
+  color: #fff;
+  background: var(--fg-late);
+  white-space: nowrap;
+}
+
 .fg-row.is-delayed .fg-cell-progress {
-  color: var(--fg-late);
   font-weight: 600;
+}
+
+/* The swatches in the right-click menu. */
+.fg-palette {
+  padding: 6px 8px 4px;
+}
+
+.fg-palette-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 0;
+}
+
+.fg-palette-label {
+  width: 2.4em;
+  font-size: 11px;
+  color: var(--fg-muted);
+}
+
+.fg-swatch {
+  width: 20px;
+  height: 20px;
+  border: 1px solid var(--fg-rule-strong);
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0;
+}
+
+.fg-swatch:hover {
+  border-color: #0f172a;
+}
+
+/* The one already on this row, so a second press can take it off again. */
+.fg-swatch.is-current {
+  box-shadow: 0 0 0 2px #0f172a;
+}
+
+/* A row somebody painted. The background travels through the same property the
+   pinned columns already paint themselves with, so the colour reaches the
+   frozen cells instead of stopping at the split. */
+.fg-row.is-painted {
+  color: var(--fg-row-color, inherit);
 }
 
 /* Leaf and summary rows share one left edge per level, so the twisty reserves

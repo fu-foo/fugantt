@@ -6,6 +6,18 @@
   }
   var BASE_COLUMNS = [
     { key: "name", label: "\u30BF\u30B9\u30AF", kind: "name" },
+    // Late, as a column rather than as red text. A colour cannot be filtered,
+    // sorted or exported, and the text colour now belongs to whoever painted the
+    // row. A column can be asked a question: show me only these.
+    {
+      key: "late",
+      label: "\u9045\u5EF6",
+      kind: "select",
+      options: [
+        { value: "\u9045\u5EF6", color: "", background: "" },
+        { value: "\u9806\u8ABF", color: "", background: "" }
+      ]
+    },
     // Who and what state, before any dates: the two things read at a glance.
     { key: "assignee", label: "\u62C5\u5F53\u8005", kind: "text" },
     { key: "status", label: "\u30B9\u30C6\u30FC\u30BF\u30B9", kind: "status" },
@@ -91,6 +103,12 @@
     "\u958B\u59CB\u5DEE\u7570": "Start variance",
     "\u7D42\u4E86\u5DEE\u7570": "End variance",
     "\u4E88\u5B9A\u9032\u6357": "Planned",
+    "\u9045\u5EF6": "Late",
+    "\u4E88\u5B9A\u9032\u6357\u306B\u5C4A\u3044\u3066\u3044\u307E\u305B\u3093": "Not up to the checkpoint it promised",
+    "\u4E88\u5B9A\u7D42\u4E86\u3092\u904E\u304E\u3066\u3001\u5B9F\u65BD\u7D42\u4E86\u304C\u5165\u3063\u3066\u3044\u307E\u305B\u3093": "Past its planned end, with no actual end",
+    "\u8272\u3092\u6D88\u3059": "Clear the colour",
+    "\u80CC\u666F": "Background",
+    "\u6587\u5B57": "Text",
     "\u5B9F\u9032\u6357": "Progress",
     "\u9032\u6357": "Progress",
     "\u30B9\u30C6\u30FC\u30BF\u30B9": "Status",
@@ -320,6 +338,16 @@
     number: "4.5rem",
     select: "minmax(5rem, 0.6fr)"
   };
+  var BACKGROUNDS = [
+    "#fef3c7",
+    "#dcfce7",
+    "#dbeafe",
+    "#fce7f3",
+    "#ede9fe",
+    "#ffe4e6",
+    "#e2e8f0"
+  ];
+  var TEXT_COLOURS = ["#0f172a", "#b91c1c", "#a16207", "#15803d", "#1d4ed8", "#7e22ce"];
   var PANE_KEY = "fugantt:pane-width";
   var SHOWS_KEY = "fugantt:chart-shows";
   function loadShows() {
@@ -858,7 +886,13 @@
       const order = this.data.column_order;
       const rank = (column2) => {
         const at = order.indexOf(column2.key);
-        return at < 0 ? order.length + all.indexOf(column2) : at;
+        if (at >= 0) return at;
+        const index = all.indexOf(column2);
+        for (let before = index - 1; before >= 0; before--) {
+          const anchor = order.indexOf(all[before].key);
+          if (anchor >= 0) return anchor + (index - before) / (all.length + 1);
+        }
+        return -1;
       };
       return all.sort((a, b) => rank(a) - rank(b));
     }
@@ -929,6 +963,8 @@
           return task.waits.map((span) => `${short(span.start)}\u301C${short(span.end)}`).join(", ");
         case "targets":
           return task.targets.map((target) => `${short(target.date)} ${target.percent}%`).join(", ");
+        case "late":
+          return this.behind(task) ? "\u9045\u5EF6" : "\u9806\u8ABF";
         default:
           return task.note;
       }
@@ -947,6 +983,7 @@
     editable(task, column2) {
       if (!this.data.can_edit) return false;
       if (column2.kind === "days") return false;
+      if (column2.key === "late" || column2.kind === "variance") return false;
       return !(task.has_children && ROLLED_UP.includes(column2.key));
     }
     // --- selection -----------------------------------------------------------
@@ -1862,6 +1899,9 @@
       const row = element("div", "fg-row fg-data");
       if (this.behind(task)) row.classList.add("is-delayed");
       if (index === this.row) row.classList.add("is-current");
+      if (task.background) row.style.setProperty("--fg-row-bg", task.background);
+      if (task.color) row.style.setProperty("--fg-row-color", task.color);
+      if (task.background || task.color) row.classList.add("is-painted");
       this.columns.forEach((column2, columnIndex) => {
         const cell = element("div", `fg-cell fg-cell-${column2.key}`);
         const isSelected = index === this.row && columnIndex === this.column;
@@ -1881,6 +1921,12 @@
           cell.classList.add("is-editing");
           cell.append(this.renderEditor(task, column2));
           if (column2.kind === "date") cell.append(this.renderDatePicker());
+        } else if (column2.key === "late") {
+          if (this.behind(task)) {
+            const mark = element("span", "fg-late-mark", t("\u9045\u5EF6"));
+            mark.title = task.delayed ? t("\u4E88\u5B9A\u9032\u6357\u306B\u5C4A\u3044\u3066\u3044\u307E\u305B\u3093") : t("\u4E88\u5B9A\u7D42\u4E86\u3092\u904E\u304E\u3066\u3001\u5B9F\u65BD\u7D42\u4E86\u304C\u5165\u3063\u3066\u3044\u307E\u305B\u3093");
+            cell.append(mark);
+          }
         } else if (column2.kind === "name") {
           const text = element("span", "fg-name-text", task.name || t("\uFF08\u7121\u984C\uFF09"));
           if (!task.name) text.classList.add("is-placeholder");
@@ -2832,6 +2878,10 @@
       menu.append(element("div", "fg-menu-rule"));
       item(t("\u4E0B\u306B\u884C\u3092\u8FFD\u52A0"), `${MOD}Enter`, () => void this.insertRow());
       item(t("\u884C\u3092\u524A\u9664"), `${MOD}Delete`, () => void this.deleteRow());
+      if (this.editable(task, column("name"))) {
+        menu.append(element("div", "fg-menu-rule"));
+        menu.append(this.renderPalette(task, close));
+      }
       this.root.append(menu);
       const box = menu.getBoundingClientRect();
       if (box.right > window.innerWidth) menu.style.left = `${x - box.width}px`;
@@ -2840,6 +2890,64 @@
         document.addEventListener("mousedown", close);
         document.addEventListener("keydown", onEscape);
       });
+    }
+    /**
+     * The colours a row can be given, in the right-click menu.
+     *
+     * People were already marking rows by writing ★ or 【重要】 into the task
+     * name, which is a colour with the wrong tool: it sorts, it exports, it is
+     * part of the name for ever. This is the same intent with none of that.
+     *
+     * Swatches rather than a colour picker. A picker offers sixteen million
+     * answers to a question with about eight, and half of them are unreadable
+     * under black text.
+     */
+    renderPalette(task, close) {
+      const block = element("div", "fg-palette");
+      const row = (label, field, choices, current) => {
+        const line = element("div", "fg-palette-row");
+        line.append(element("span", "fg-palette-label", label));
+        for (const colour of choices) {
+          const swatch = element("button", "fg-swatch");
+          swatch.type = "button";
+          swatch.title = colour;
+          swatch.style.background = field === "background" ? colour : "#fff";
+          if (field === "color") {
+            swatch.style.color = colour;
+            swatch.textContent = "A";
+          }
+          if (current.toLowerCase() === colour) swatch.classList.add("is-current");
+          swatch.addEventListener("mousedown", (event) => event.preventDefault());
+          swatch.addEventListener("click", () => {
+            close();
+            void this.paint(task, field, current.toLowerCase() === colour ? "" : colour);
+          });
+          line.append(swatch);
+        }
+        block.append(line);
+      };
+      row(t("\u80CC\u666F"), "background", BACKGROUNDS, task.background);
+      row(t("\u6587\u5B57"), "color", TEXT_COLOURS, task.color);
+      const clear = element("button", "fg-menu-item", t("\u8272\u3092\u6D88\u3059"));
+      clear.type = "button";
+      clear.addEventListener("mousedown", (event) => event.preventDefault());
+      clear.addEventListener("click", () => {
+        close();
+        void this.paint(task, "both", "");
+      });
+      block.append(clear);
+      return block;
+    }
+    /** Writes one of the row's colours, or clears both. */
+    async paint(task, which, colour) {
+      const url = `/api/projects/${encodeURIComponent(this.projectId)}/tasks/${task.id}`;
+      for (const field of which === "both" ? ["background", "color"] : [which]) {
+        await this.send(url, {
+          method: "POST",
+          body: { field, value: colour },
+          follow: task.id
+        });
+      }
     }
     /** Keeps the keyboard where the user left it across a full re-render. */
     restoreFocus() {

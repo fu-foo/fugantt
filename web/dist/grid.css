@@ -160,10 +160,54 @@ html {
   background: #f1f5f9;
   color: #334155;
 }
-.fg-row.is-delayed .fg-name-text,
+.fg-late-mark {
+  flex: 0 0 auto;
+  margin-right: 6px;
+  border-radius: 4px;
+  padding: 1px 5px;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1.4;
+  color: #fff;
+  background: var(--fg-late);
+  white-space: nowrap;
+}
 .fg-row.is-delayed .fg-cell-progress {
-  color: var(--fg-late);
   font-weight: 600;
+}
+.fg-palette {
+  padding: 6px 8px 4px;
+}
+.fg-palette-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 0;
+}
+.fg-palette-label {
+  width: 2.4em;
+  font-size: 11px;
+  color: var(--fg-muted);
+}
+.fg-swatch {
+  width: 20px;
+  height: 20px;
+  border: 1px solid var(--fg-rule-strong);
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0;
+}
+.fg-swatch:hover {
+  border-color: #0f172a;
+}
+.fg-swatch.is-current {
+  box-shadow: 0 0 0 2px #0f172a;
+}
+.fg-row.is-painted {
+  color: var(--fg-row-color, inherit);
 }
 .fg-handle,
 .fg-twisty {

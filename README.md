@@ -29,7 +29,7 @@
 ## 動かす
 
 ```sh
-cargo-topcoat dev        # 開発。http://127.0.0.1:3000
+cargo-topcoat dev        # 開発。http://127.0.0.1:1861
 cargo build --release    # 配布用の実行ファイル1本
 ```
 
@@ -45,10 +45,14 @@ FUGANTT_DB = D:\plans\fugantt.db
 `fugantt --config` でどの値がどこから来ているか、`fugantt --help` で書ける項目が出る。
 `fugantt.conf` と `.env` も読む。
 
+> **ポートは 1861。** ヘンリー・ガントの生年。3000 や 8080 は開発ツールがひしめいていて、
+> 2つのプログラムが同じポートに居ると「アプリが壊れた」ようにしか見えない失敗をする。
+> 実際それで半日溶かしたので、空いている番号にした。
+
 | 環境変数 / `fugantt.ini` | 既定 | |
 | --- | --- | --- |
 | `HOST` | `127.0.0.1` | `0.0.0.0` で LAN に公開 |
-| `PORT` | `3000` | |
+| `PORT` | `1861` | ヘンリー・ガントの生年。3000 や 8080 は取り合いになる |
 | `FUGANTT_DB` | 下記 | SQLite ファイル。起動時に自動でマイグレーション |
 | `FUGANTT_OPEN` | `window` / `tab` | 起動時に画面を開く。`0` で開かない |
 | `FUGANTT_ALLOW_HTTP` | — | `1` で平文 HTTP を許可（後述） |
@@ -63,7 +67,7 @@ Linux が `~/.local/share/fugantt`。起動時に絶対パスを1行出す。
 
 ```sh
 brew install fu-foo/tap/fugantt                    # macOS / Linux
-docker run -p 3000:3000 -v fugantt:/data ghcr.io/fu-foo/fugantt
+docker run -p 1861:1861 -v fugantt:/data ghcr.io/fu-foo/fugantt
 ```
 
 Windows は[下の節](#windows-に入れる)に。
@@ -330,6 +334,21 @@ curl -H "Authorization: Bearer fug_…" https://example.com/api/summary    # 案
 `/api/summary` は統計画面と同じ計算を、プロジェクト単位で返す
 （`late_days + wait_days = slipped`）。この2つはログイン中のセッションでも叩けて、
 その場合は自分が見られるプロジェクトだけが返る。
+
+## 見た目（自分の設定）
+
+**テーマ**は 自動（OSに合わせる）／明るい／暗い。**自分用の CSS** も書ける。どちらも
+**自分の画面にだけ効く**——ほかの人には見えない。
+
+計画の色（バー・ステータス・担当者）はプロジェクトのものなので、ここでは変わらない。
+同じ計画を見ている二人が違う色で読んでいたら、話が合わなくなる。
+
+自分の CSS は最後に読み込まれるので、ここに書いたものが勝つ。2万文字まで、`@import` は無効化する。
+
+```css
+.fg-bar { border-radius: 0 }        /* バーの角を落とす */
+.fg-row.fg-data { font-size: 13px } /* 表を詰める */
+```
 
 ## 権限と認証
 

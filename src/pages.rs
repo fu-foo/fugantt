@@ -57,9 +57,25 @@ async fn shell(cx: &Cx, slot: Result) -> Result {
     // browser's — which is to say the operating system's.
     let l = crate::i18n::lang(cx).await;
 
+    // Light, dark, or nothing at all — and nothing at all means the stylesheet
+    // asks the machine. One person's answer; the plan's own colours are the
+    // project's and do not move.
+    let theme = user
+        .as_ref()
+        .map(|user| user.theme.as_str())
+        .filter(|theme| *theme == "light" || *theme == "dark")
+        .unwrap_or_default();
+
+    // Linked rather than inlined: a stylesheet in a `<style>` tag has to be
+    // escaped past a `</style>` that would otherwise end it early, and the
+    // browser caches this one like any other.
+    let own_css = user
+        .as_ref()
+        .is_some_and(|user| !user.custom_css.trim().is_empty());
+
     view! {
         <!DOCTYPE html>
-        <html lang=(l.code())>
+        <html lang=(l.code()) data-theme=(theme)>
             <head>
                 <meta charset="utf-8">
                 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -68,6 +84,14 @@ async fn shell(cx: &Cx, slot: Result) -> Result {
                 <link rel="icon" type="image/svg+xml" href=(static_files::favicon())>
                 <link rel="stylesheet" href=(static_files::tailwind_css())>
                 <link rel="stylesheet" href=(static_files::grid_css())>
+                // After the others, so it can answer them.
+                <link rel="stylesheet" href=(static_files::theme_css())>
+
+                if own_css {
+                    // Last of all: whoever wrote it gets the final word on their
+                    // own screen.
+                    <link rel="stylesheet" href="/me/custom.css">
+                }
             </head>
             <body class="flex h-screen flex-col overflow-hidden bg-slate-50 text-slate-900">
                 if user.is_some() {

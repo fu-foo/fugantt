@@ -3,6 +3,7 @@ use topcoat::{
     Result,
     context::Cx,
     router::{
+        Body, Response,
         content::Form,
         error::{RouterErrorExt, SeeOther, bad_request, see_other},
         page, route,
@@ -341,6 +342,62 @@ async fn me(cx: &Cx) -> Result {
             </section>
 
             <section class="mt-6 rounded-xl border border-slate-200 bg-white p-6">
+                <h2 class="text-lg font-semibold">(l.t("見た目"))</h2>
+                <p class="mt-1 text-xs text-slate-500">
+                    (l.t("自分の画面にだけ効きます。ほかの人には見えません。計画の色（バーやステータス）はプロジェクトのものなので、ここでは変わりません。"))
+                </p>
+
+                <form method="POST" action="/me/look" class="mt-4 flex flex-col gap-4">
+                    <div class="flex flex-col gap-1">
+                        <label for="theme" class="text-xs font-medium text-slate-500">
+                            (l.t("テーマ"))
+                        </label>
+                        <select
+                            id="theme"
+                            name="theme"
+                            class="w-56 rounded-lg border border-slate-300 px-3 py-2"
+                        >
+                            for (value, label) in [
+                                ("", "自動（OSに合わせる）"),
+                                ("light", "明るい"),
+                                ("dark", "暗い"),
+                            ] {
+                                <option
+                                    value=(value)
+                                    selected=((user.theme == value).then_some("selected"))
+                                >
+                                    (l.t(label))
+                                </option>
+                            }
+                        </select>
+                    </div>
+
+                    <div class="flex flex-col gap-1">
+                        <label for="css" class="text-xs font-medium text-slate-500">
+                            (l.t("自分用の CSS"))
+                        </label>
+                        <textarea
+                            id="css"
+                            name="css"
+                            rows="8"
+                            spellcheck="false"
+                            placeholder=(".fg-bar { border-radius: 0 }")
+                            class="w-full rounded-lg border border-slate-300 px-3 py-2 font-mono text-xs"
+                        >(&user.custom_css)</textarea>
+                        <p class="text-xs text-slate-400">
+                            (l.t("最後に読み込まれるので、ここに書いたものが勝ちます。2万文字まで。@import は使えません。"))
+                        </p>
+                    </div>
+
+                    <button
+                        class="w-fit rounded-lg bg-blue-600 px-4 py-2 font-medium text-white hover:bg-blue-500"
+                    >
+                        (l.t("保存"))
+                    </button>
+                </form>
+            </section>
+
+            <section class="mt-6 rounded-xl border border-slate-200 bg-white p-6">
                 <h2 class="text-lg font-semibold">"パスワード"</h2>
 
                 <form method="POST" action="/me/password" class="mt-4 flex flex-col gap-3">
@@ -409,6 +466,67 @@ async fn set_my_name(cx: &Cx, Form(form): Form<MyName>) -> Result<SeeOther> {
     users::rename_everywhere(cx, user.display(), name).await?;
 
     Ok(see_other("/me"))
+}
+
+/// How the screen looks, for one person.
+#[derive(Deserialize)]
+struct MyLook {
+    theme: String,
+    css: String,
+}
+
+/// Free text that ends up in a stylesheet, kept to what a stylesheet can hold.
+///
+/// Angle brackets go, because this is served as its own file and one day
+/// somebody will paste it into a page instead. `@import` is defanged because it
+/// fetches from wherever it is pointed, and a settings box is not the place to
+/// arrange that. Neither is a security boundary — the sheet only ever reaches the
+/// person who wrote it — they are the two ways a stylesheet stops being one.
+fn tidy_css(raw: &str) -> String {
+    raw.replace(['<', '>'], "")
+        // Not wrapped in a comment: this runs again when the sheet is served,
+        // and a comment inside a comment ends at the first `*/`.
+        .replace("@import", "x-import")
+        .chars()
+        .take(20_000)
+        .collect()
+}
+
+#[route(POST "/me/look")]
+async fn set_my_look(cx: &Cx, Form(form): Form<MyLook>) -> Result<SeeOther> {
+    let user = require_user(cx).await?;
+
+    let theme = match form.theme.trim() {
+        value @ ("light" | "dark") => value,
+        // Anything else means "ask the machine", which is also what a value
+        // this build does not understand should do.
+        _ => "",
+    };
+
+    sqlx::query("UPDATE users SET theme = ?2, custom_css = ?3 WHERE id = ?1")
+        .bind(&user.id)
+        .bind(theme)
+        .bind(tidy_css(&form.css))
+        .execute(db::pool(cx))
+        .await?;
+
+    Ok(see_other("/me"))
+}
+
+/// One person's own stylesheet, served to that person.
+///
+/// A route rather than a `<style>` block: it is cached like any other
+/// stylesheet, it cannot end early on a stray `</style>`, and the browser
+/// reports its mistakes as CSS rather than as a broken page.
+#[route(GET "/me/custom.css")]
+async fn my_css(cx: &Cx) -> Result<Response> {
+    let user = require_user(cx).await?;
+
+    Ok(Response::builder()
+        .header("Content-Type", "text/css; charset=utf-8")
+        // Nobody else's, so nobody else's cache either.
+        .header("Cache-Control", "private, no-cache")
+        .body(Body::from(tidy_css(&user.custom_css)))?)
 }
 
 #[derive(Deserialize)]

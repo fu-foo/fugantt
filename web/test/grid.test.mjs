@@ -19,7 +19,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
-const BASE = process.env["FUGANTT_URL"] ?? "http://127.0.0.1:3000";
+const BASE = process.env["FUGANTT_URL"] ?? "http://127.0.0.1:1861";
 const DB = process.env["FUGANTT_DB"] ?? "fugantt.db";
 const CHROME =
   process.env["CHROME"] ?? "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
@@ -37,9 +37,9 @@ const check = (name, ok, detail = "") =>
 /**
  * Whatever answers on this port has to be fugantt.
  *
- * Port 3000 is a popular address — a container of somebody else's can hold it,
- * and when the dev server restarts to pick up a change, the browser's next
- * request lands on that instead. The page then has no island, and the failures
+ * A port can be held by somebody else's container, and when the dev server
+ * restarts to pick up a change, the browser's next request lands on that
+ * instead. The page then has no island, and the failures
  * that follow read as "the grid lost every row" rather than as "you are looking
  * at another program".
  */
@@ -4664,6 +4664,70 @@ check(
   "管理者でなければバックアップは触れない",
   notAdmin.download === 404 && notAdmin.restore === 404,
   JSON.stringify(notAdmin),
+);
+
+// --- 見た目（自分の設定）-------------------------------------------------------
+
+// テーマも自分用の CSS も、自分の画面にだけ効く。ほかの人に影響しないことが要件。
+const look = await page.evaluate(async () => {
+  const read = async () => {
+    const html = await (await fetch("/me")).text();
+    const doc = new DOMParser().parseFromString(html, "text/html");
+    return {
+      theme: doc.documentElement.getAttribute("data-theme") ?? "",
+      own: !!doc.querySelector('link[href="/me/custom.css"]'),
+      sheets: [...doc.querySelectorAll("link[rel=stylesheet]")].map((l) => l.getAttribute("href")),
+    };
+  };
+
+  const before = await read();
+
+  await fetch("/me/look", {
+    method: "POST",
+    body: new URLSearchParams({ theme: "dark", css: "h1 { color: red }" }),
+  });
+  const dark = await read();
+  const css = await (await fetch("/me/custom.css")).text();
+
+  // 色でない指定は断らないが、ページを壊せるものは無害にする。
+  await fetch("/me/look", {
+    method: "POST",
+    body: new URLSearchParams({ theme: "なにこれ", css: "@import url(http://example.com/x.css); </style>" }),
+  });
+  const odd = await read();
+  const tidied = await (await fetch("/me/custom.css")).text();
+
+  await fetch("/me/look", { method: "POST", body: new URLSearchParams({ theme: "", css: "" }) });
+  const cleared = await read();
+
+  return { before, dark, css, odd, tidied, cleared };
+});
+
+check(
+  "テーマは自分の設定で切り替わる",
+  look.before.theme === "" && look.dark.theme === "dark" && look.cleared.theme === "",
+  JSON.stringify({ before: look.before.theme, dark: look.dark.theme, cleared: look.cleared.theme }),
+);
+check(
+  "自分用の CSS は自分のページにだけ差し込まれる",
+  !look.before.own && look.dark.own && !look.cleared.own && look.css.includes("color: red"),
+  JSON.stringify({ own: look.dark.own, css: look.css }),
+);
+check(
+  "テーマとスタイルは最後に読み込まれる",
+  (() => {
+    const sheets = look.dark.sheets;
+    const theme = sheets.findIndex((href) => href.includes("theme"));
+    return theme > 0 && sheets.at(-1) === "/me/custom.css";
+  })(),
+  look.dark.sheets.join(" / "),
+);
+check(
+  "分からないテーマは自動に落ち、危ない指定は無害にする",
+  look.odd.theme === "" &&
+    !look.tidied.includes("<") &&
+    !look.tidied.includes("@import"),
+  JSON.stringify({ theme: look.odd.theme, css: look.tidied }),
 );
 
 check("JavaScript エラーが出ていない", pageErrors.length === 0, pageErrors.join(" / "));

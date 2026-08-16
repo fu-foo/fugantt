@@ -22,6 +22,9 @@ const TAILWIND: &str = include_str!(concat!(env!("OUT_DIR"), "/tailwind.css"));
 
 /// The grid island, built by `npm run build` in `web/` and committed.
 const GRID_CSS: &str = include_str!("../web/dist/grid.css");
+/// Dark mode and the colour tokens the pages read. Hand-written, so it is
+/// included from the source rather than from a bundle.
+const THEME_CSS: &str = include_str!("../web/src/theme.css");
 const GRID_JS: &str = include_str!("../web/dist/grid.js");
 const FAVICON: &str = include_str!("../web/dist/favicon.svg");
 
@@ -31,7 +34,12 @@ struct StaticFile {
     content_type: &'static str,
 }
 
-const FILES: [StaticFile; 4] = [
+const FILES: [StaticFile; 5] = [
+    StaticFile {
+        name: "theme.css",
+        body: THEME_CSS,
+        content_type: "text/css; charset=utf-8",
+    },
     StaticFile {
         name: "tailwind.css",
         body: TAILWIND,
@@ -62,20 +70,24 @@ static URLS: LazyLock<Vec<String>> = LazyLock::new(|| {
         .collect()
 });
 
-pub fn tailwind_css() -> &'static str {
+pub fn theme_css() -> &'static str {
     &URLS[0]
 }
 
-pub fn grid_css() -> &'static str {
+pub fn tailwind_css() -> &'static str {
     &URLS[1]
 }
 
-pub fn grid_js() -> &'static str {
+pub fn grid_css() -> &'static str {
     &URLS[2]
 }
 
-pub fn favicon() -> &'static str {
+pub fn grid_js() -> &'static str {
     &URLS[3]
+}
+
+pub fn favicon() -> &'static str {
+    &URLS[4]
 }
 
 /// A short digest of the contents, so a changed file gets a changed URL.

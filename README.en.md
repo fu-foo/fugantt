@@ -142,9 +142,9 @@ words.
 ```sh
 brew install fu-foo/tap/fugantt
 scoop bucket add fu-foo https://github.com/fu-foo/scoop-bucket && scoop install fugantt
-docker run -p 3000:3000 -v fugantt:/data ghcr.io/fu-foo/fugantt
+docker run -p 1861:1861 -v fugantt:/data ghcr.io/fu-foo/fugantt
 
-cargo-topcoat dev            # from source. http://127.0.0.1:3000
+cargo-topcoat dev            # from source. http://127.0.0.1:1861
 ```
 
 On Windows, either unzip `fugantt-windows-x86_64.zip` and double-click the
@@ -172,6 +172,10 @@ file and nothing else. Only the container image is amd64-only: an arm64 image
 would be built under emulation in CI, and a Rust release build in QEMU takes
 long enough to make cutting a release something nobody does. On Apple Silicon,
 `--platform linux/amd64` runs it, or use the native binary.
+
+The port is **1861** — the year Henry Gantt was born. 3000 and 8080 are where
+every second development tool lives, and two programs on one port fail in a way
+that looks like the application being broken rather than the port being taken.
 
 Settings are environment variables, or the same names written in a
 `fugantt.ini` beside the executable — in the working directory, or in the
@@ -273,6 +277,16 @@ curl -H "Authorization: Bearer fug_…" https://example.com/api/summary    # per
 `/api/summary` is the statistics page's arithmetic, one row per project
 (`late_days + wait_days = slipped`). Both work with a signed-in session too, and
 then return only what that person may see.
+
+## How it looks
+
+Theme — automatic, light or dark — and your own CSS, both per person and
+visible to nobody else. The plan's colours are not part of it: bars, statuses
+and people belong to the project, because two people reading the same plan in
+different colours are reading two different plans.
+
+Your CSS is loaded last, so it wins. 20,000 characters, and `@import` is
+defanged.
 
 ## Roles and sign-in
 

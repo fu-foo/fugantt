@@ -160,6 +160,18 @@ pub fn of(ja: &str) -> Option<&'static str> {
         "閲覧者" => "Viewer",
         "無効" => "No access",
         "言語" => "Language",
+        "見た目" => "Appearance",
+        "テーマ" => "Theme",
+        "自動（OSに合わせる）" => "Automatic (follow the system)",
+        "明るい" => "Light",
+        "暗い" => "Dark",
+        "自分用の CSS" => "Your own CSS",
+        "自分の画面にだけ効きます。ほかの人には見えません。計画の色（バーやステータス）はプロジェクトのものなので、ここでは変わりません。" => {
+            "Applies to your screen and nobody else's. The plan's own colours — bars, statuses — belong to the project and do not change here."
+        }
+        "最後に読み込まれるので、ここに書いたものが勝ちます。2万文字まで。@import は使えません。" => {
+            "Loaded last, so what you write here wins. Up to 20,000 characters. @import is not available."
+        }
         "日本語" => "Japanese",
         "英語" => "English",
         "自動（ブラウザに合わせる）" => "Automatic (follow the browser)",

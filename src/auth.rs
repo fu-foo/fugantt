@@ -30,6 +30,11 @@ pub struct User {
     pub base_role: String,
     /// The language of the screen. Empty follows the installation setting.
     pub language: String,
+    /// How this person wants the screen to look: `light`, `dark`, or empty to
+    /// follow whatever their machine says.
+    pub theme: String,
+    /// Their own CSS, served to them and to nobody else.
+    pub custom_css: String,
 }
 
 impl User {
@@ -65,7 +70,8 @@ pub async fn current_user(cx: &Cx) -> Result<Option<User>> {
     };
 
     let user = sqlx::query_as::<_, User>(
-        "SELECT users.id, users.email, users.display_name, users.base_role, users.language
+        "SELECT users.id, users.email, users.display_name, users.base_role, users.language,
+                users.theme, users.custom_css
            FROM sessions
            JOIN users ON users.id = sessions.user_id
           WHERE sessions.token_hash = ?1

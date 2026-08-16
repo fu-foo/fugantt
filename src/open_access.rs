@@ -97,6 +97,10 @@ pub async fn shared_user(cx: &Cx) -> Result<crate::auth::User> {
         display_name: "みんな".to_owned(),
         base_role: "admin".to_owned(),
         language: String::new(),
+        // Without sign-in there is nobody to have a preference: everyone
+        // shares the account, so a theme set here would be set for the room.
+        theme: String::new(),
+        custom_css: String::new(),
     })
 }
 

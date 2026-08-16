@@ -1,0 +1,326 @@
+/*
+ * Dark mode, and the hook a person hangs their own CSS on.
+ *
+ * The pages are Tailwind utilities — `bg-white`, `text-slate-500` — which name
+ * a colour rather than a role, so there is nothing to re-point at a dark
+ * palette. Rewriting every page in `dark:` variants would touch every file and
+ * be wrong again the next time somebody adds a screen.
+ *
+ * Instead the colours become variables here, and the handful of utilities the
+ * app actually uses are re-declared to read them. Light is the default value of
+ * each variable, so a page that never heard of this file looks exactly as it
+ * did. This sheet is linked after Tailwind's, so equal specificity is enough
+ * and nothing needs `!important`.
+ *
+ * The grid island keeps its own variables in `grid.css`; the ones it shares
+ * with the page are overridden at the bottom.
+ */
+
+:root {
+  --page: #f8fafc;
+  --panel: #fff;
+  --panel-soft: #f8fafc;
+  --panel-strong: #f1f5f9;
+  --ink: #0f172a;
+  --ink-soft: #475569;
+  --ink-quiet: #64748b;
+  --ink-faint: #94a3b8;
+  --rule: #e2e8f0;
+  --rule-strong: #cbd5e1;
+  --rule-soft: #f1f5f9;
+  --accent: #2563eb;
+  --accent-hover: #3b82f6;
+  --accent-soft: #eff6ff;
+  --accent-rule: #bfdbfe;
+  --accent-ink: #1e3a8a;
+  --danger: #dc2626;
+  --danger-soft: #fef2f2;
+  --danger-ink: #7f1d1d;
+  --warm-ink: #78350f;
+  --good-soft: #ecfdf5;
+  --good-ink: #064e3b;
+  --inverse: #0f172a;
+  --inverse-hover: #334155;
+  --on-accent: #fff;
+}
+
+/* Chosen deliberately. */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  --page: #0b1220;
+  --panel: #131c2b;
+  --panel-soft: #0f1726;
+  --panel-strong: #1c2740;
+  --ink: #e2e8f0;
+  --ink-soft: #cbd5e1;
+  --ink-quiet: #94a3b8;
+  --ink-faint: #64748b;
+  --rule: #24314a;
+  --rule-strong: #33415c;
+  --rule-soft: #1b2436;
+  --accent: #3b82f6;
+  --accent-hover: #60a5fa;
+  --accent-soft: #17233c;
+  --accent-rule: #2b4570;
+  --accent-ink: #bfdbfe;
+  --danger: #f87171;
+  --danger-soft: #2a1618;
+  --danger-ink: #fecaca;
+  --warm-ink: #fcd34d;
+  --good-soft: #10241d;
+  --good-ink: #a7f3d0;
+  --inverse: #e2e8f0;
+  --inverse-hover: #cbd5e1;
+  --on-accent: #0b1220;
+}
+
+/* Left to the machine: the same palette, when the machine says dark. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+
+    --page: #0b1220;
+    --panel: #131c2b;
+    --panel-soft: #0f1726;
+    --panel-strong: #1c2740;
+    --ink: #e2e8f0;
+    --ink-soft: #cbd5e1;
+    --ink-quiet: #94a3b8;
+    --ink-faint: #64748b;
+    --rule: #24314a;
+    --rule-strong: #33415c;
+    --rule-soft: #1b2436;
+    --accent: #3b82f6;
+    --accent-hover: #60a5fa;
+    --accent-soft: #17233c;
+    --accent-rule: #2b4570;
+    --accent-ink: #bfdbfe;
+    --danger: #f87171;
+    --danger-soft: #2a1618;
+    --danger-ink: #fecaca;
+    --warm-ink: #fcd34d;
+    --good-soft: #10241d;
+    --good-ink: #a7f3d0;
+    --inverse: #e2e8f0;
+    --inverse-hover: #cbd5e1;
+    --on-accent: #0b1220;
+  }
+}
+
+/* --- the utilities the pages actually use -------------------------------- */
+
+.bg-slate-50 {
+  background-color: var(--page);
+}
+
+.bg-white {
+  background-color: var(--panel);
+}
+
+.bg-slate-100 {
+  background-color: var(--panel-strong);
+}
+
+.bg-slate-900 {
+  background-color: var(--inverse);
+}
+
+.bg-slate-700:hover,
+.hover\:bg-slate-700:hover {
+  background-color: var(--inverse-hover);
+}
+
+.hover\:bg-slate-100:hover {
+  background-color: var(--panel-strong);
+}
+
+.bg-slate-300 {
+  background-color: var(--rule-strong);
+}
+
+.bg-blue-600 {
+  background-color: var(--accent);
+}
+
+.bg-blue-500,
+.hover\:bg-blue-500:hover {
+  background-color: var(--accent-hover);
+}
+
+.bg-blue-50 {
+  background-color: var(--accent-soft);
+}
+
+.bg-red-50 {
+  background-color: var(--danger-soft);
+}
+
+.bg-emerald-50 {
+  background-color: var(--good-soft);
+}
+
+.text-slate-900 {
+  color: var(--ink);
+}
+
+.text-slate-700 {
+  color: var(--ink-soft);
+}
+
+.text-slate-600 {
+  color: var(--ink-soft);
+}
+
+.text-slate-500 {
+  color: var(--ink-quiet);
+}
+
+.text-slate-400,
+.text-slate-300 {
+  color: var(--ink-faint);
+}
+
+.text-white {
+  color: var(--on-accent);
+}
+
+.text-red-600,
+.text-red-700 {
+  color: var(--danger);
+}
+
+.text-red-900 {
+  color: var(--danger-ink);
+}
+
+.text-blue-600,
+.text-blue-700 {
+  color: var(--accent);
+}
+
+.text-blue-900 {
+  color: var(--accent-ink);
+}
+
+.text-amber-600,
+.text-amber-900 {
+  color: var(--warm-ink);
+}
+
+.text-emerald-900 {
+  color: var(--good-ink);
+}
+
+.border-slate-200 {
+  border-color: var(--rule);
+}
+
+.border-slate-300 {
+  border-color: var(--rule-strong);
+}
+
+.border-slate-100 {
+  border-color: var(--rule-soft);
+}
+
+.border-blue-200 {
+  border-color: var(--accent-rule);
+}
+
+.border-red-200,
+.border-red-300 {
+  border-color: var(--danger);
+}
+
+.border-emerald-200 {
+  border-color: var(--good-ink);
+}
+
+.divide-slate-100 > :not([hidden]) ~ :not([hidden]) {
+  border-color: var(--rule-soft);
+}
+
+.divide-slate-200 > :not([hidden]) ~ :not([hidden]) {
+  border-color: var(--rule);
+}
+
+/* Fields and menus are drawn by the browser from the page's own colours; the
+   `color-scheme` above turns them, and these two carry the rest. */
+input,
+select,
+textarea {
+  background-color: var(--panel);
+  color: var(--ink);
+}
+
+/* --- the grid island ------------------------------------------------------ */
+
+/*
+ * The chart's palette is the project's, and stays: a plan whose bars are the
+ * colours somebody chose must look the same to everyone reading it. What
+ * changes is the paper it is drawn on.
+ *
+ * Written without a dark selector on purpose. Each of these reads a token whose
+ * light value is the colour that was already there, so in light mode this
+ * section changes nothing at all — and there is one place to edit when a
+ * surface is added.
+ */
+.fg-grid {
+  --fg-rule: var(--rule);
+  --fg-rule-strong: var(--rule-strong);
+  --fg-text: var(--ink);
+  --fg-muted: var(--ink-quiet);
+
+  color: var(--ink);
+}
+
+.fg-pane-left,
+.fg-toolbar,
+.fg-menu,
+.fg-dialog {
+  background: var(--panel);
+  color: var(--ink);
+}
+
+/* The row's background travels with the pinned columns, so it is a variable
+   rather than a paint. */
+.fg-row {
+  --fg-row-bg: var(--panel);
+}
+
+.fg-row.fg-heading,
+.fg-filters,
+.fg-chart-header {
+  --fg-row-bg: var(--panel-soft);
+  background: var(--panel-soft);
+}
+
+.fg-row.is-current {
+  --fg-row-bg: var(--panel-strong);
+  background: var(--panel-strong);
+}
+
+.fg-button,
+.fg-filter,
+.fg-editor,
+.fg-dialog-date,
+.fg-dialog-reason,
+.fg-dialog-percent,
+.fg-dialog-who,
+.fg-dialog-kind {
+  background: var(--panel);
+  color: var(--ink);
+  border-color: var(--rule-strong);
+}
+
+.fg-menu-item {
+  color: var(--ink);
+}
+
+.fg-menu-item:hover {
+  background: var(--panel-strong);
+}
+
+/* The bars keep the project's colours, which are light whatever the page is
+   doing, so the halo on the number beside a mark stays white with them. */

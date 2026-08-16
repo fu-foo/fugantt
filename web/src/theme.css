@@ -37,6 +37,10 @@
      dark ground at full strength they glow, and a weekend ends up shouting
      louder than a late task. */
   --tint: 100%;
+  /* Ink for anything painted from data. Light mode inherits the page's, which
+     is already dark; dark mode cannot, because those paints are pale washes
+     chosen against white paper and the page's ink is now pale too. */
+  --on-tint: inherit;
   --accent: #2563eb;
   --accent-hover: #3b82f6;
   --accent-soft: #eff6ff;
@@ -70,6 +74,7 @@
   --rule-soft: #1b2436;
   --row-current: #2b3a5c;
   --tint: 22%;
+  --on-tint: #0f172a;
   --accent: #3b82f6;
   --accent-hover: #60a5fa;
   --accent-soft: #17233c;
@@ -104,6 +109,7 @@
     --rule-soft: #1b2436;
     --row-current: #2b3a5c;
     --tint: 22%;
+    --on-tint: #0f172a;
     --accent: #3b82f6;
     --accent-hover: #60a5fa;
     --accent-soft: #17233c;
@@ -336,7 +342,9 @@ textarea {
   color: var(--ink);
 }
 
-.fg-menu-item:hover {
+.fg-menu-item:hover,
+.fg-button:hover:not(:disabled),
+.fg-shows:hover {
   background: var(--panel-strong);
 }
 
@@ -346,6 +354,16 @@ textarea {
 .fg-shows-menu .fg-menu-item.is-current {
   background: var(--accent-soft);
   color: var(--accent);
+}
+
+/*
+ * Anything wearing a colour from the database: a status pill, a person's chip,
+ * a swatch. The paint is inline, so it survives; the ink has to come with it,
+ * because the page's ink went pale and these papers did not. An element that
+ * also names its own colour inline still wins — inline beats a stylesheet.
+ */
+[style*="background"] {
+  color: var(--on-tint);
 }
 
 /* --- the calendar's own colours ------------------------------------------- */

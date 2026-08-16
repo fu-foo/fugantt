@@ -85,6 +85,9 @@
     end: "lte",
     actual_end: "lte",
     days: "gte",
+    // Days actually worked is a number like any other: the question asked of it
+    // is "more than five", not "contains a five".
+    actual_days: "gte",
     start_variance: "gte",
     end_variance: "gte"
   };

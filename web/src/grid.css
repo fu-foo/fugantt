@@ -391,6 +391,14 @@ html {
   min-width: 100%;
 }
 
+/* The rows that are not drawn, as a single block of the right height.
+   The scrollbar, and every row's position in it, are unchanged: the browser is
+   simply not asked to keep the ones nobody can see. */
+.fg-spacer {
+  flex: 0 0 auto;
+  pointer-events: none;
+}
+
 /* --- chart --------------------------------------------------------------- */
 
 .fg-canvas {

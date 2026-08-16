@@ -32,6 +32,8 @@ planned, and what happened.
   "show me only the late ones" is a question the table can answer.
 - **Waiting is recorded**, with dates and a reason. Those days count towards
   neither the duration nor the lateness.
+- **Two thousand rows type as fast as ten.** Only the rows on screen are in the
+  document; the rest are a spacer of the right height.
 - **Who has room is a page.** Per person, per month: the days they could work,
   the days already taken, what is left, and which days those are.
 

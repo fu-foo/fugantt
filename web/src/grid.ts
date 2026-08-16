@@ -799,6 +799,24 @@ class Grid {
    * morning nobody remembers. Reloading empties it, which is the honest
    * boundary: undo goes back as far as you can still see.
    */
+  /**
+   * The rows that are actually in the document, as an inclusive range.
+   *
+   * Everything above and below is a spacer of the right height, so the
+   * scrollbar and every row's position are unchanged — the browser is simply
+   * not asked to keep eighty thousand nodes it cannot show. Measured: at two
+   * thousand rows, style and layout over that tree cost 80ms a keystroke no
+   * matter how little work the island itself did.
+   */
+  private first = 0;
+  private last = -1;
+  /** Rows kept beyond each edge, so a small scroll redraws nothing. */
+  private static readonly OVERSCAN = 8;
+  /** Measured from the page: a row's height, and where the rows begin. */
+  private rowPixels = 32;
+  private rowsTop = 0;
+  private scrollTop = 0;
+
   private done: Step[] = [];
   private undone: Step[] = [];
   /** Set while undoing, so putting a value back is not itself recorded. */
@@ -1668,6 +1686,23 @@ class Grid {
       return;
     }
 
+    // The cursor can walk onto a row that was never drawn.
+    this.reachRow(this.row);
+    this.markSelection(true);
+  }
+
+  /**
+   * Puts the marks and the caret on the selected cell.
+   *
+   * Split from `repaintSelection` because the rows can be replaced underneath
+   * it: scrolling to reach a row fires the pane's scroll event a moment later,
+   * the window is drawn again, and the cell holding the keyboard goes with it.
+   * Whatever draws rows calls this afterwards, and the cursor survives.
+   */
+  private markSelection(scroll = false): void {
+    const grid = this.root.querySelector<HTMLElement>(".fg-grid");
+    if (!grid) return;
+
     for (const marked of grid.querySelectorAll(".is-selected, .is-current")) {
       marked.classList.remove("is-selected", "is-current");
     }
@@ -1675,15 +1710,22 @@ class Grid {
     const rows = grid.querySelectorAll<HTMLElement>(".fg-pane-left .fg-row.fg-data");
     const barRows = grid.querySelectorAll<HTMLElement>(".fg-bar-row");
 
-    const row = rows[this.row];
+    const row = rows[this.row - this.first];
     row?.classList.add("is-current");
-    barRows[this.row]?.classList.add("is-current");
+    barRows[this.row - this.first]?.classList.add("is-current");
 
     const cell = row?.children[this.column];
     cell?.classList.add("is-selected");
+
     // `inline` as well as `block`: a narrowed pane clips the right-hand columns,
     // and moving to one that stays off-screen looks exactly like a dead cell.
-    cell?.scrollIntoView({ block: "nearest", inline: "nearest" });
+    if (scroll) cell?.scrollIntoView({ block: "nearest", inline: "nearest" });
+
+    // Only if the keyboard was here to begin with: this also runs on every
+    // scroll, and taking focus from somebody who is reading is rude.
+    if (!grid.contains(document.activeElement) && document.activeElement !== document.body) {
+      return;
+    }
 
     // Carry the caret to the new cell rather than rebuilding it.
     const typist = grid.querySelector<HTMLInputElement>(".fg-editor.is-typist");
@@ -1691,7 +1733,7 @@ class Grid {
       typist.value = "";
       cell.append(typist);
       typist.focus({ preventScroll: true });
-    } else {
+    } else if (scroll) {
       grid.focus({ preventScroll: true });
     }
   }
@@ -2647,6 +2689,9 @@ class Grid {
     const chart = this.root.querySelector<HTMLElement>(".fg-pane-chart");
     if (chart) this.scrollLeft = chart.scrollLeft;
 
+    const left = this.root.querySelector<HTMLElement>(".fg-pane-left");
+    if (left) this.scrollTop = left.scrollTop;
+
     const typing = this.filterFocus;
     this.filterFocus = null;
 
@@ -2708,15 +2753,150 @@ class Grid {
    * Returns false when the row is not on screen, and the caller falls back to
    * drawing everything.
    */
+  /** Which rows are worth having in the document right now. */
+  private rowWindow(): { first: number; last: number } {
+    const total = this.tasks.length;
+    const pane = this.root.querySelector<HTMLElement>(".fg-pane-left");
+
+    const top = pane?.scrollTop ?? this.scrollTop;
+    const height = pane?.clientHeight || 800;
+
+    // The filter row and the headings sit inside the same scrollport, so the
+    // first row starts below them rather than at zero.
+    const from = Math.floor((top - this.rowsTop) / this.rowPixels);
+    const to = Math.ceil((top + height - this.rowsTop) / this.rowPixels);
+
+    return {
+      first: Math.max(0, from - Grid.OVERSCAN),
+      last: Math.min(total - 1, to + Grid.OVERSCAN),
+    };
+  }
+
+  /** A block of nothing, holding the place of the rows that are not drawn. */
+  private spacer(rows: number): HTMLElement | null {
+    if (rows <= 0) return null;
+
+    const gap = element("div", "fg-spacer");
+    gap.style.height = `${rows * this.rowPixels}px`;
+
+    return gap;
+  }
+
+  /**
+   * Redraws the rows that are on screen, leaving everything else alone.
+   *
+   * Called on every scroll, so it does as little as it can: if the window has
+   * not moved, nothing happens at all.
+   */
+  private renderWindow(force = false): void {
+    const table = this.root.querySelector<HTMLElement>(".fg-table");
+    const bars = this.root.querySelector<HTMLElement>(".fg-bars");
+    const heading = this.root.querySelector<HTMLElement>(".fg-heading");
+    if (!table || !bars || !heading) return;
+
+    // Not while somebody is typing: the editor lives in a row, and replacing
+    // the rows underneath a half-finished value throws it away.
+    if (this.editing || this.composing) return;
+
+    const view = this.rowWindow();
+    if (!force && view.first === this.first && view.last === this.last) return;
+
+    this.first = view.first;
+    this.last = view.last;
+
+    // The invisible field that carries the keyboard sits in the selected cell,
+    // which is about to be replaced with its row. Parked on the grid until
+    // there is a cell to put it back in: when it goes out of the document with
+    // its row, focus goes with it and the arrow keys stop arriving.
+    const typist = this.root.querySelector<HTMLElement>(".fg-editor.is-typist");
+    if (typist) this.root.querySelector(".fg-grid")?.append(typist);
+
+    // Built first and swapped in one go. Emptying the table before refilling it
+    // leaves the content shorter than the scroll position for an instant, and
+    // the browser answers that by scrolling back to the top — which is how a
+    // keyboard walk down a long plan used to end at row 22.
+    const origin = parseDate(this.data.range_start);
+    const tracks = heading.style.gridTemplateColumns;
+
+    const rows: HTMLElement[] = [];
+    const drawnBars: HTMLElement[] = [];
+
+    const above = this.spacer(view.first);
+    if (above) {
+      rows.push(above);
+      drawnBars.push(above.cloneNode() as HTMLElement);
+    }
+
+    for (let index = view.first; index <= view.last; index++) {
+      const task = this.tasks[index];
+      if (!task) continue;
+
+      const row = this.renderRow(task, index);
+      row.style.gridTemplateColumns = tracks;
+      rows.push(row);
+      drawnBars.push(this.renderBar(task, origin, index));
+    }
+
+    const below = this.spacer(this.tasks.length - 1 - view.last);
+    if (below) {
+      rows.push(below);
+      drawnBars.push(below.cloneNode() as HTMLElement);
+    }
+
+    // Everything in these two that is not a row keeps its place: the filter row
+    // and the headings above, the day columns behind and today's line in front.
+    const keptAbove = [...table.children].filter(
+      (child) => !child.classList.contains("fg-data") && !child.classList.contains("fg-spacer"),
+    );
+    const columns = bars.querySelector(".fg-columns");
+    const today = bars.querySelector(".fg-today");
+
+    table.replaceChildren(...keptAbove, ...rows);
+    bars.replaceChildren(
+      ...(columns ? [columns] : []),
+      ...drawnBars,
+      ...(today ? [today] : []),
+    );
+
+    this.pinColumns();
+    // The rows that carried the cursor have just been replaced.
+    if (this.row >= view.first && this.row <= view.last) this.markSelection();
+  }
+
+  /**
+   * Brings a row into the document, and into view, before anything looks for it.
+   *
+   * Moving the cursor with the keyboard can land on a row that was never drawn.
+   */
+  private reachRow(index: number): void {
+    if (index >= this.first && index <= this.last) return;
+
+    const pane = this.root.querySelector<HTMLElement>(".fg-pane-left");
+    if (pane) {
+      const wanted = this.rowsTop + index * this.rowPixels;
+      const height = pane.clientHeight || 800;
+
+      if (wanted < pane.scrollTop + this.rowsTop) pane.scrollTop = wanted - this.rowsTop;
+      else if (wanted > pane.scrollTop + height - this.rowPixels * 2) {
+        pane.scrollTop = wanted - height + this.rowPixels * 2;
+      }
+    }
+
+    this.renderWindow();
+  }
+
   private repaintRow(index: number): boolean {
     const grid = this.root.querySelector<HTMLElement>(".fg-grid");
     const task = this.tasks[index];
     if (!grid || !task) return false;
 
+    // A row nobody can see needs no drawing, and that counts as done.
+    if (index < this.first || index > this.last) return true;
+
     const rows = grid.querySelectorAll<HTMLElement>(".fg-pane-left .fg-row.fg-data");
     const bars = grid.querySelectorAll<HTMLElement>(".fg-bar-row");
-    const was = rows[index];
-    const wasBar = bars[index];
+    const was = rows[index - this.first];
+    const wasBar = bars[index - this.first];
     if (!was || !wasBar) return false;
 
     const row = this.renderRow(task, index);
@@ -2919,7 +3099,20 @@ class Grid {
       table.append(element("div", "fg-nomatch", t("条件に合う行がありません。")));
     }
 
-    this.tasks.forEach((task, index) => {
+    // Only the rows that can be seen. `renderWindow` keeps this up to date as
+    // the pane scrolls; here it is just the first cut.
+    const view = this.rowWindow();
+    this.first = view.first;
+    this.last = view.last;
+
+    const above = this.spacer(view.first);
+    if (above) {
+      table.append(above);
+      body.append(above.cloneNode() as HTMLElement);
+    }
+
+    this.tasks.slice(view.first, view.last + 1).forEach((task, offset) => {
+      const index = view.first + offset;
       const row = this.renderRow(task, index);
       row.style.gridTemplateColumns = tracks;
       table.append(row);
@@ -2927,6 +3120,12 @@ class Grid {
     });
 
     const todayIndex = dayIndex(this.data.today, origin);
+    const below = this.spacer(this.tasks.length - 1 - view.last);
+    if (below) {
+      table.append(below);
+      body.append(below.cloneNode() as HTMLElement);
+    }
+
     if (todayIndex >= 0 && todayIndex < days) {
       const marker = element("div", "fg-today");
       marker.style.left = `${todayIndex * this.dayWidth}px`;
@@ -2970,6 +3169,19 @@ class Grid {
       this.scrollLeft || (todayIndex >= 0 ? Math.max(0, (todayIndex - 5) * this.dayWidth) : 0);
     requestAnimationFrame(() => {
       chart.scrollLeft = target;
+
+      // Put the page back where it was, and measure what the rows turned out
+      // to be: the window is worked out in pixels, and guessing them wrong
+      // draws the wrong rows.
+      left.scrollTop = this.scrollTop;
+      chart.scrollTop = this.scrollTop;
+
+      const first = left.querySelector<HTMLElement>(".fg-row.fg-data");
+      if (first) {
+        this.rowPixels = first.offsetHeight || this.rowPixels;
+        this.rowsTop = first.offsetTop - this.first * this.rowPixels;
+        this.renderWindow();
+      }
 
       // Measured rather than guessed: the columns are sized by their content,
       // so their total is only knowable once they are on the page.
@@ -3266,24 +3478,26 @@ class Grid {
 
     const indicator = element("div", "fg-drop");
     grid.append(indicator);
-    rows[index]?.classList.add("is-dragging");
+    // The rows on screen are a window onto the list, so a task's number and its
+    // place in the document are two different things from here on.
+    rows[index - this.first]?.classList.add("is-dragging");
 
     const startX = event.clientX;
     let target: { at: number; depth: number } | null = null;
 
     const preview = (move: PointerEvent) => {
-      // The gap the pointer is nearest to, counted in visible rows.
-      let at = rows.length;
+      // The gap the pointer is nearest to, as a task number.
+      let at = this.first + rows.length;
       for (const [i, row] of rows.entries()) {
         const box = row.getBoundingClientRect();
         if (move.clientY < box.top + box.height / 2) {
-          at = i;
+          at = this.first + i;
           break;
         }
       }
 
       // Landing anywhere inside the dragged subtree means "stay put".
-      while (excluded.has(at) && at < rows.length) at++;
+      while (excluded.has(at) && at < this.tasks.length) at++;
 
       const previous = this.tasks[at - 1];
       const next = this.tasks[at];
@@ -3297,20 +3511,22 @@ class Grid {
 
       target = { at, depth };
 
-      const edge = rows[at] ?? rows[rows.length - 1];
+      const edge = rows[at - this.first] ?? rows[rows.length - 1];
       if (!edge) return;
 
       const box = edge.getBoundingClientRect();
       const gridBox = grid.getBoundingClientRect();
 
-      indicator.style.top = `${(at < rows.length ? box.top : box.bottom) - gridBox.top}px`;
+      indicator.style.top = `${
+        (at < this.first + rows.length ? box.top : box.bottom) - gridBox.top
+      }px`;
       indicator.style.left = `${12 + depth * 16}px`;
     };
 
     const finish = async () => {
       detach();
       indicator.remove();
-      rows[index]?.classList.remove("is-dragging");
+      rows[index - this.first]?.classList.remove("is-dragging");
 
       if (!target) return;
 
@@ -3326,7 +3542,7 @@ class Grid {
     const cancel = () => {
       detach();
       indicator.remove();
-      rows[index]?.classList.remove("is-dragging");
+      rows[index - this.first]?.classList.remove("is-dragging");
     };
 
     function detach(): void {
@@ -4340,6 +4556,16 @@ class Grid {
 
     left.addEventListener("scroll", follow(left, chart));
     chart.addEventListener("scroll", follow(chart, left));
+
+    // The rows that are drawn follow the scroll. Both panes fire it, and only
+    // a scroll that moves the window costs anything.
+    const track = (pane: HTMLElement) => () => {
+      this.scrollTop = pane.scrollTop;
+      this.renderWindow();
+    };
+
+    left.addEventListener("scroll", track(left));
+    chart.addEventListener("scroll", track(chart));
   }
 
   /**

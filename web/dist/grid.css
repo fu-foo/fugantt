@@ -292,6 +292,10 @@ html {
   width: max-content;
   min-width: 100%;
 }
+.fg-spacer {
+  flex: 0 0 auto;
+  pointer-events: none;
+}
 .fg-canvas {
   position: relative;
 }

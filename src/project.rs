@@ -473,7 +473,31 @@ pub async fn grid_data(cx: &Cx, project: &Project) -> Result<GridData> {
     // belongs. Two answers to "which column comes second" is one too many.
     data.column_order = column_order(&data);
 
+    data.filter_sets = filter_sets(cx, &project.id).await?;
+
     Ok(data)
+}
+
+/// The saved filters this person can use: everybody's, then their own.
+///
+/// Somebody else's private view is noise on a screen, so it is not fetched at
+/// all rather than fetched and hidden.
+pub async fn filter_sets(cx: &Cx, project_id: &str) -> Result<Vec<crate::domain::FilterSet>> {
+    let user = crate::auth::current_user(cx).await?;
+    let me = user.map(|user| user.id).unwrap_or_default();
+
+    let sets = sqlx::query_as::<_, crate::domain::FilterSet>(
+        "SELECT id, name, conditions, user_id IS NULL AS shared
+           FROM filter_sets
+          WHERE project_id = ?1 AND (user_id IS NULL OR user_id = ?2)
+          ORDER BY user_id IS NULL DESC, name",
+    )
+    .bind(project_id)
+    .bind(&me)
+    .fetch_all(db::pool(cx))
+    .await?;
+
+    Ok(sets)
 }
 
 /// The sort key that appends a row after every existing one in the project.

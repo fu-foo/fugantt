@@ -78,6 +78,8 @@ interface GridData {
   column_order: string[];
   /// Columns the chart repeats in a bar's tooltip, by key.
   tooltip_columns: string[];
+  /** Saved filter conditions: everybody's first, then this person's. */
+  filter_sets: { id: string; name: string; conditions: string; shared: boolean }[];
   column_widths: Record<string, number>;
   frozen_columns: number;
   counting: {
@@ -327,6 +329,13 @@ const EN: Record<string, string> = {
   "遅れ": "behind",
   "順調": "on track",
   "解除": "Clear",
+  "条件": "Views",
+  "絞り込みの条件を名前をつけて置いておく": "Keep a set of filters under a name",
+  "いまの条件に名前をつけて保存": "Name these filters to keep them",
+  "みんなで使う": "Share with everybody",
+  "みんなの": "Everybody's",
+  "自分の": "Mine",
+  "この条件を消す": "Forget this one",
   "絞り込み": "Filter",
   "20260805・8/5・2026-08-05 のどれでも。左のボタンで向きを変えられます":
     "20260805, 8/5 or 2026-08-05 all work. The button on the left changes the comparison.",
@@ -978,18 +987,177 @@ class Grid {
 
     label.textContent = "";
 
-    if (!this.filtering) return;
+    if (this.filtering) {
+      label.append(
+        element("span", "fg-filter-count", `絞り込み中 ${this.tasks.length} / ${this.data.tasks.length} 行`),
+      );
 
-    label.append(
-      element("span", "fg-filter-count", `絞り込み中 ${this.tasks.length} / ${this.data.tasks.length} 行`),
+      // Filtering hides rows, and a hidden row is easy to forget about; the way
+      // out belongs next to the count that says rows are missing.
+      const clear = element("button", "fg-filter-clear", t("解除"));
+      clear.type = "button";
+      clear.addEventListener("click", () => this.clearFilters());
+      label.append(clear);
+    }
+
+    // Always, unlike the count: the whole point of a saved view is to reach for
+    // it from a table that is not filtered yet.
+    //
+    // The same few questions get asked every week — "遅れているものだけ",
+    // "自分の担当だけ" — and were being typed again every time.
+    const saved = element("button", "fg-filter-sets", t("条件"));
+    saved.type = "button";
+    saved.title = t("絞り込みの条件を名前をつけて置いておく");
+    if (this.data.filter_sets.length > 0) saved.classList.add("is-on");
+    saved.addEventListener("click", () => this.openFilterSets(saved));
+
+    label.append(saved);
+  }
+
+  /**
+   * The saved conditions, and the way to add one.
+   *
+   * Everybody's above, this person's below, because the first question about a
+   * saved view is whose it is.
+   */
+  private openFilterSets(anchor: HTMLElement): void {
+    const box = anchor.getBoundingClientRect();
+    const menu = element("div", "fg-menu fg-sets-menu");
+    menu.style.left = `${box.left}px`;
+    menu.style.top = `${box.bottom + 2}px`;
+
+    const close = (event?: Event) => {
+      if (event && menu.contains(event.target as Node)) return;
+
+      menu.remove();
+      document.removeEventListener("mousedown", close);
+      document.removeEventListener("keydown", onEscape);
+    };
+
+    const onEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") close();
+    };
+
+    const section = (label: string, shared: boolean) => {
+      const sets = this.data.filter_sets.filter((set) => set.shared === shared);
+      if (sets.length === 0) return;
+
+      menu.append(element("div", "fg-menu-label", label));
+
+      for (const set of sets) {
+        const row = element("div", "fg-sets-row");
+
+        const use = element("button", "fg-menu-item", set.name) as HTMLButtonElement;
+        use.type = "button";
+        use.addEventListener("mousedown", (event) => event.preventDefault());
+        use.addEventListener("click", () => {
+          close();
+          this.applyConditions(set.conditions);
+        });
+
+        const drop = element("button", "fg-sets-remove", "×") as HTMLButtonElement;
+        drop.type = "button";
+        drop.title = t("この条件を消す");
+        drop.addEventListener("mousedown", (event) => event.preventDefault());
+        drop.addEventListener("click", async () => {
+          close();
+          await this.send(
+            `/api/projects/${encodeURIComponent(this.projectId)}/filters/remove`,
+            { method: "POST", body: { id: set.id } },
+          );
+        });
+
+        row.append(use, drop);
+        menu.append(row);
+      }
+    };
+
+    section(t("みんなの"), true);
+    section(t("自分の"), false);
+
+    if (this.data.filter_sets.length > 0) menu.append(element("div", "fg-menu-rule"));
+
+    // Saving is part of the same menu: the conditions being saved are the ones
+    // on the screen, and a second place to go would be a second thing to find.
+    const name = element("input", "fg-sets-name") as HTMLInputElement;
+    name.type = "text";
+    name.placeholder = t("いまの条件に名前をつけて保存");
+
+    const mine = element("label", "fg-sets-scope");
+    const tick = element("input") as HTMLInputElement;
+    tick.type = "checkbox";
+    mine.append(tick, element("span", undefined, t("みんなで使う")));
+
+    const save = element("button", "fg-menu-item fg-sets-save", t("保存")) as HTMLButtonElement;
+    save.type = "button";
+    save.addEventListener("mousedown", (event) => event.preventDefault());
+    save.addEventListener("click", async () => {
+      if (!name.value.trim()) {
+        name.focus();
+        return;
+      }
+
+      close();
+      await this.send(`/api/projects/${encodeURIComponent(this.projectId)}/filters`, {
+        method: "POST",
+        body: {
+          name: name.value.trim(),
+          shared: tick.checked,
+          conditions: this.conditions(),
+        },
+      });
+    });
+
+    name.addEventListener("keydown", (event) => {
+      event.stopPropagation();
+      if (event.key === "Enter") save.click();
+    });
+
+    menu.append(name, mine, save);
+    document.body.append(menu);
+
+    const placed = menu.getBoundingClientRect();
+    if (placed.right > window.innerWidth) {
+      menu.style.left = `${Math.max(8, window.innerWidth - placed.width - 8)}px`;
+    }
+
+    name.focus();
+
+    setTimeout(() => {
+      document.addEventListener("mousedown", close);
+      document.addEventListener("keydown", onEscape);
+    });
+  }
+
+  /** The conditions on screen, as one string to keep. */
+  private conditions(): string {
+    return JSON.stringify({
+      filters: Object.fromEntries(this.filters),
+      bounds: Object.fromEntries(this.bounds),
+    });
+  }
+
+  /** Puts a saved set of conditions back on the screen. */
+  private applyConditions(stored: string): void {
+    let saved: { filters?: Record<string, string>; bounds?: Record<string, string> };
+
+    try {
+      saved = JSON.parse(stored) as typeof saved;
+    } catch {
+      // Stored by an older build, or by hand. Nothing to apply, and nothing
+      // worth an error banner over.
+      return;
+    }
+
+    this.filters = new Map(Object.entries(saved.filters ?? {}));
+    this.bounds = new Map(
+      Object.entries(saved.bounds ?? {}).map(([key, value]) => [key, value as Bound]),
     );
 
-    // Filtering hides rows, and a hidden row is easy to forget about; the way
-    // out belongs next to the count that says rows are missing.
-    const clear = element("button", "fg-filter-clear", t("解除"));
-    clear.type = "button";
-    clear.addEventListener("click", () => this.clearFilters());
-    label.append(clear);
+    this.filterFocus = null;
+    this.computeVisible();
+    this.select(this.row, this.column);
+    this.render();
   }
 
   /** Empties every filter box. */

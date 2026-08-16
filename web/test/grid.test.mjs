@@ -4726,6 +4726,79 @@ check(
 check("選んだ数がボタンに出る", label === "2件", label);
 check("解除で全部戻る", (await state()).rowCount === 7, String((await state()).rowCount));
 
+// --- 条件の保存と呼び出し ---------------------------------------------------------
+
+// 「遅れているものだけ」「自分の担当だけ」は毎週おなじ手つきで打ち直されている。
+// 名前をつけて置いておけるようにした。共通と自分の2種類。
+await clearFilters();
+await filterBy("ステータス", "待ち");
+// 行の数で比べる。名前は他のテストが書き換えた直後だと入れ替わることがある。
+const narrowed = (await state()).rowCount;
+
+const sets = await page.evaluate(async () => {
+  const wait = (ms) => new Promise((done) => setTimeout(done, ms));
+
+  document.querySelector(".fg-filter-sets").click();
+  await wait(200);
+
+  document.querySelector(".fg-sets-name").value = "待ちだけ";
+  document.querySelector(".fg-sets-scope input").click();
+  document.querySelector(".fg-sets-save").click();
+  await wait(700);
+
+  const stored = (await (await fetch("/api/projects/test-project/grid")).json()).filter_sets;
+  return stored.map((set) => `${set.shared ? "みんな" : "自分"}:${set.name}`);
+});
+
+check("条件に名前をつけて保存できる", sets.join(",") === "みんな:待ちだけ", JSON.stringify(sets));
+check(
+  "保存しても絞り込みはそのまま",
+  (await state()).rowCount === narrowed,
+  `保存前 ${narrowed}行 / 保存後 ${(await state()).rowCount}行`,
+);
+
+await clearFilters();
+const wide = (await state()).rowCount;
+
+await page.evaluate(async () => {
+  const wait = (ms) => new Promise((done) => setTimeout(done, ms));
+  document.querySelector(".fg-filter-sets").click();
+  await wait(200);
+  [...document.querySelectorAll(".fg-sets-row .fg-menu-item")]
+    .find((entry) => entry.textContent === "待ちだけ")
+    ?.click();
+  await wait(400);
+});
+await settle();
+
+check(
+  "保存した条件を呼び出すと、その絞り込みに戻る",
+  (await state()).rowCount === narrowed && wide > narrowed,
+  `解除 ${wide}行 / 呼び出し ${(await state()).rowCount}行`,
+);
+check(
+  "呼び出すと選択式の欄も戻る",
+  (await page.evaluate(
+    () => document.querySelector(".fg-filters .fg-cell-status .fg-filter-pick")?.textContent,
+  )) === "待ち",
+  await page.evaluate(
+    () => document.querySelector(".fg-filters .fg-cell-status .fg-filter-pick")?.textContent ?? "無し",
+  ),
+);
+
+const left = await page.evaluate(async () => {
+  const wait = (ms) => new Promise((done) => setTimeout(done, ms));
+  document.querySelector(".fg-filter-sets").click();
+  await wait(200);
+  document.querySelector(".fg-sets-remove").click();
+  await wait(600);
+
+  return (await (await fetch("/api/projects/test-project/grid")).json()).filter_sets.length;
+});
+
+check("いらなくなった条件は消せる", left === 0, `${left}件`);
+await clearFilters();
+
 // --- 見た目（自分の設定）-------------------------------------------------------
 
 // テーマも自分用の CSS も、自分の画面にだけ効く。ほかの人に影響しないことが要件。

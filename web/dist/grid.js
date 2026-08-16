@@ -127,6 +127,13 @@
     "\u9045\u308C": "behind",
     "\u9806\u8ABF": "on track",
     "\u89E3\u9664": "Clear",
+    "\u6761\u4EF6": "Views",
+    "\u7D5E\u308A\u8FBC\u307F\u306E\u6761\u4EF6\u3092\u540D\u524D\u3092\u3064\u3051\u3066\u7F6E\u3044\u3066\u304A\u304F": "Keep a set of filters under a name",
+    "\u3044\u307E\u306E\u6761\u4EF6\u306B\u540D\u524D\u3092\u3064\u3051\u3066\u4FDD\u5B58": "Name these filters to keep them",
+    "\u307F\u3093\u306A\u3067\u4F7F\u3046": "Share with everybody",
+    "\u307F\u3093\u306A\u306E": "Everybody's",
+    "\u81EA\u5206\u306E": "Mine",
+    "\u3053\u306E\u6761\u4EF6\u3092\u6D88\u3059": "Forget this one",
     "\u7D5E\u308A\u8FBC\u307F": "Filter",
     "20260805\u30FB8/5\u30FB2026-08-05 \u306E\u3069\u308C\u3067\u3082\u3002\u5DE6\u306E\u30DC\u30BF\u30F3\u3067\u5411\u304D\u3092\u5909\u3048\u3089\u308C\u307E\u3059": "20260805, 8/5 or 2026-08-05 all work. The button on the left changes the comparison.",
     "\u5DE6\u306E\u30DC\u30BF\u30F3\u3067\u300C\u4EE5\u4E0A\u300D\u300C\u4EE5\u4E0B\u300D\u3092\u5207\u308A\u66FF\u3048\u3089\u308C\u307E\u3059": "The button on the left switches between at least and at most.",
@@ -548,14 +555,137 @@
       const label = document.getElementById("fugantt-filter-count");
       if (!label) return;
       label.textContent = "";
-      if (!this.filtering) return;
-      label.append(
-        element("span", "fg-filter-count", `\u7D5E\u308A\u8FBC\u307F\u4E2D ${this.tasks.length} / ${this.data.tasks.length} \u884C`)
+      if (this.filtering) {
+        label.append(
+          element("span", "fg-filter-count", `\u7D5E\u308A\u8FBC\u307F\u4E2D ${this.tasks.length} / ${this.data.tasks.length} \u884C`)
+        );
+        const clear = element("button", "fg-filter-clear", t("\u89E3\u9664"));
+        clear.type = "button";
+        clear.addEventListener("click", () => this.clearFilters());
+        label.append(clear);
+      }
+      const saved = element("button", "fg-filter-sets", t("\u6761\u4EF6"));
+      saved.type = "button";
+      saved.title = t("\u7D5E\u308A\u8FBC\u307F\u306E\u6761\u4EF6\u3092\u540D\u524D\u3092\u3064\u3051\u3066\u7F6E\u3044\u3066\u304A\u304F");
+      if (this.data.filter_sets.length > 0) saved.classList.add("is-on");
+      saved.addEventListener("click", () => this.openFilterSets(saved));
+      label.append(saved);
+    }
+    /**
+     * The saved conditions, and the way to add one.
+     *
+     * Everybody's above, this person's below, because the first question about a
+     * saved view is whose it is.
+     */
+    openFilterSets(anchor) {
+      const box = anchor.getBoundingClientRect();
+      const menu = element("div", "fg-menu fg-sets-menu");
+      menu.style.left = `${box.left}px`;
+      menu.style.top = `${box.bottom + 2}px`;
+      const close = (event) => {
+        if (event && menu.contains(event.target)) return;
+        menu.remove();
+        document.removeEventListener("mousedown", close);
+        document.removeEventListener("keydown", onEscape);
+      };
+      const onEscape = (event) => {
+        if (event.key === "Escape") close();
+      };
+      const section = (label, shared) => {
+        const sets = this.data.filter_sets.filter((set) => set.shared === shared);
+        if (sets.length === 0) return;
+        menu.append(element("div", "fg-menu-label", label));
+        for (const set of sets) {
+          const row = element("div", "fg-sets-row");
+          const use = element("button", "fg-menu-item", set.name);
+          use.type = "button";
+          use.addEventListener("mousedown", (event) => event.preventDefault());
+          use.addEventListener("click", () => {
+            close();
+            this.applyConditions(set.conditions);
+          });
+          const drop = element("button", "fg-sets-remove", "\xD7");
+          drop.type = "button";
+          drop.title = t("\u3053\u306E\u6761\u4EF6\u3092\u6D88\u3059");
+          drop.addEventListener("mousedown", (event) => event.preventDefault());
+          drop.addEventListener("click", async () => {
+            close();
+            await this.send(
+              `/api/projects/${encodeURIComponent(this.projectId)}/filters/remove`,
+              { method: "POST", body: { id: set.id } }
+            );
+          });
+          row.append(use, drop);
+          menu.append(row);
+        }
+      };
+      section(t("\u307F\u3093\u306A\u306E"), true);
+      section(t("\u81EA\u5206\u306E"), false);
+      if (this.data.filter_sets.length > 0) menu.append(element("div", "fg-menu-rule"));
+      const name = element("input", "fg-sets-name");
+      name.type = "text";
+      name.placeholder = t("\u3044\u307E\u306E\u6761\u4EF6\u306B\u540D\u524D\u3092\u3064\u3051\u3066\u4FDD\u5B58");
+      const mine = element("label", "fg-sets-scope");
+      const tick = element("input");
+      tick.type = "checkbox";
+      mine.append(tick, element("span", void 0, t("\u307F\u3093\u306A\u3067\u4F7F\u3046")));
+      const save = element("button", "fg-menu-item fg-sets-save", t("\u4FDD\u5B58"));
+      save.type = "button";
+      save.addEventListener("mousedown", (event) => event.preventDefault());
+      save.addEventListener("click", async () => {
+        if (!name.value.trim()) {
+          name.focus();
+          return;
+        }
+        close();
+        await this.send(`/api/projects/${encodeURIComponent(this.projectId)}/filters`, {
+          method: "POST",
+          body: {
+            name: name.value.trim(),
+            shared: tick.checked,
+            conditions: this.conditions()
+          }
+        });
+      });
+      name.addEventListener("keydown", (event) => {
+        event.stopPropagation();
+        if (event.key === "Enter") save.click();
+      });
+      menu.append(name, mine, save);
+      document.body.append(menu);
+      const placed = menu.getBoundingClientRect();
+      if (placed.right > window.innerWidth) {
+        menu.style.left = `${Math.max(8, window.innerWidth - placed.width - 8)}px`;
+      }
+      name.focus();
+      setTimeout(() => {
+        document.addEventListener("mousedown", close);
+        document.addEventListener("keydown", onEscape);
+      });
+    }
+    /** The conditions on screen, as one string to keep. */
+    conditions() {
+      return JSON.stringify({
+        filters: Object.fromEntries(this.filters),
+        bounds: Object.fromEntries(this.bounds)
+      });
+    }
+    /** Puts a saved set of conditions back on the screen. */
+    applyConditions(stored) {
+      let saved;
+      try {
+        saved = JSON.parse(stored);
+      } catch {
+        return;
+      }
+      this.filters = new Map(Object.entries(saved.filters ?? {}));
+      this.bounds = new Map(
+        Object.entries(saved.bounds ?? {}).map(([key, value]) => [key, value])
       );
-      const clear = element("button", "fg-filter-clear", t("\u89E3\u9664"));
-      clear.type = "button";
-      clear.addEventListener("click", () => this.clearFilters());
-      label.append(clear);
+      this.filterFocus = null;
+      this.computeVisible();
+      this.select(this.row, this.column);
+      this.render();
     }
     /** Empties every filter box. */
     clearFilters() {

@@ -1052,6 +1052,71 @@ input.fg-filter {
   color: var(--fg-bar);
   font-weight: 600;
 }
+.fg-filter-sets {
+  border: none;
+  background: none;
+  padding: 0;
+  font: inherit;
+  font-size: 11px;
+  color: var(--fg-muted);
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.fg-filter-sets.is-on {
+  color: var(--fg-bar);
+}
+.fg-sets-menu {
+  min-width: 15rem;
+  padding-bottom: 6px;
+}
+.fg-menu-label {
+  padding: 6px 10px 2px;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  color: var(--fg-muted);
+}
+.fg-sets-row {
+  display: flex;
+  align-items: center;
+}
+.fg-sets-row .fg-menu-item {
+  flex: 1;
+}
+.fg-sets-remove {
+  border: none;
+  background: none;
+  padding: 0 10px;
+  font-size: 14px;
+  line-height: 1;
+  color: var(--fg-muted);
+  cursor: pointer;
+}
+.fg-sets-remove:hover {
+  color: var(--fg-late);
+}
+.fg-sets-name {
+  display: block;
+  width: calc(100% - 20px);
+  margin: 6px 10px 2px;
+  border: 1px solid var(--fg-rule-strong);
+  border-radius: 6px;
+  padding: 4px 8px;
+  font: inherit;
+  font-size: 12px;
+}
+.fg-sets-scope {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  font-size: 11px;
+  color: var(--fg-muted);
+  cursor: pointer;
+}
+.fg-sets-save {
+  font-weight: 600;
+}
 .fg-filter-pick {
   text-align: left;
   cursor: pointer;

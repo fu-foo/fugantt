@@ -47,6 +47,7 @@ pub fn of(ja: &str) -> Option<&'static str> {
         "他の人が先に変更しています。取り消しませんでした。" => {
             "Somebody else changed this first, so nothing was undone."
         }
+        "名前を入れてください。" => "Give it a name.",
         "取り消せる操作がありません。" => "Nothing to undo.",
 
         // --- backups ------------------------------------------------------

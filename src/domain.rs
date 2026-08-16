@@ -122,6 +122,8 @@ pub struct GridData {
     /// 製品 off the table and still being able to ask a bar about it is most of
     /// why this exists.
     pub tooltip_columns: Vec<String>,
+    /// Saved filters: the team's, then this person's own.
+    pub filter_sets: Vec<FilterSet>,
     /// Widths in pixels, by column key. Absent means the column sizes itself.
     pub column_widths: HashMap<String, u32>,
     /// How many columns stay put when the table scrolls sideways.
@@ -163,6 +165,7 @@ impl GridData {
             hidden_columns: Vec::new(),
             column_order: Vec::new(),
             tooltip_columns: Vec::new(),
+            filter_sets: Vec::new(),
             column_widths: HashMap::new(),
             frozen_columns: 1,
             counting: Counting::default(),
@@ -642,6 +645,9 @@ pub fn build(
     }
 
     GridData {
+        // Filled in by the caller: the sets live in the database, and this
+        // function is given a table rather than a connection.
+        filter_sets: Vec::new(),
         project_id: project_id.to_owned(),
         revision,
         // The caller decides: it is the one that knows who is reading.
@@ -675,6 +681,18 @@ pub fn build(
         can_edit,
         tasks,
     }
+}
+
+/// A named set of filter conditions.
+#[derive(Debug, Clone, Serialize, sqlx::FromRow)]
+pub struct FilterSet {
+    pub id: String,
+    pub name: String,
+    /// What the grid puts back: filters and directions, as the island wrote it.
+    pub conditions: String,
+    /// Whether it belongs to everybody. The alternative is "mine", because a
+    /// list of somebody else's private views is noise on a screen.
+    pub shared: bool,
 }
 
 /// One person's days over a stretch of the calendar.

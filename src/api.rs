@@ -1815,6 +1815,100 @@ async fn remove_field(cx: &Cx, Form(form): Form<RemoveField>) -> Result<SeeOther
 /// to live beside the fields they reorder — and a form cannot nest in a form.
 /// Pressing ↑ submits the same form, so the widths typed alongside are saved
 /// rather than discarded.
+/// A named set of conditions, as the island writes it.
+#[derive(Deserialize)]
+struct SaveFilterSet {
+    name: String,
+    conditions: String,
+    /// Everybody's, or only mine.
+    shared: bool,
+}
+
+/// Keeps a set of filter conditions under a name.
+///
+/// Shared or personal, because both are real: "遅れているものだけ" is how a team
+/// looks at a plan on a Monday, and "自分の担当だけ" is nobody else's business.
+#[route(POST "/api/projects/{project_id}/filters")]
+async fn save_filter_set(cx: &Cx, Json(set): Json<SaveFilterSet>) -> Result<Json<Mutation>> {
+    let l = crate::i18n::lang(cx).await;
+    let user = require_user(cx).await?;
+    let project_id = project::id_from_path(cx)?.to_owned();
+    let project = project::authorize(cx, &user.id, &project_id).await?;
+
+    let name = set.name.trim();
+    if name.is_empty() {
+        return Err(bad_request(l.t("名前を入れてください。")).into());
+    }
+
+    // Same name, same owner, same project: the second save is an edit. Anything
+    // else fills a menu with three entries called 遅れているもの.
+    sqlx::query(
+        "DELETE FROM filter_sets
+          WHERE project_id = ?1 AND name = ?2
+            AND ((user_id IS NULL AND ?3) OR user_id = ?4)",
+    )
+    .bind(&project_id)
+    .bind(name)
+    .bind(set.shared)
+    .bind(if set.shared { "" } else { user.id.as_str() })
+    .execute(db::pool(cx))
+    .await?;
+
+    sqlx::query(
+        "INSERT INTO filter_sets (id, project_id, user_id, name, conditions, created_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+    )
+    .bind(uuid::Uuid::new_v4().to_string())
+    .bind(&project_id)
+    .bind((!set.shared).then_some(user.id.as_str()))
+    .bind(name)
+    .bind(set.conditions.chars().take(4_000).collect::<String>())
+    .bind(db::now())
+    .execute(db::pool(cx))
+    .await?;
+
+    let data = project::grid_data(cx, &project).await?;
+
+    Ok(Json(Mutation {
+        grid: data,
+        task_id: None,
+        note: None,
+    }))
+}
+
+/// Forgets one.
+#[route(POST "/api/projects/{project_id}/filters/remove")]
+async fn remove_filter_set(cx: &Cx, Json(which): Json<Named>) -> Result<Json<Mutation>> {
+    let user = require_user(cx).await?;
+    let project_id = project::id_from_path(cx)?.to_owned();
+    let project = project::authorize(cx, &user.id, &project_id).await?;
+
+    // Mine, or — if it belongs to everybody — anybody's to tidy up. A shared
+    // view that only its author can remove outlives the author's interest in it.
+    sqlx::query(
+        "DELETE FROM filter_sets
+          WHERE id = ?1 AND project_id = ?2 AND (user_id IS NULL OR user_id = ?3)",
+    )
+    .bind(&which.id)
+    .bind(&project_id)
+    .bind(&user.id)
+    .execute(db::pool(cx))
+    .await?;
+
+    let data = project::grid_data(cx, &project).await?;
+
+    Ok(Json(Mutation {
+        grid: data,
+        task_id: None,
+        note: None,
+    }))
+}
+
+#[derive(Deserialize)]
+struct Named {
+    id: String,
+}
+
 /// Which columns a bar repeats when somebody points at it.
 ///
 /// Kept apart from the column form: this is about the chart, and it may name a

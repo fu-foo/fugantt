@@ -98,7 +98,48 @@ pub async fn from_url(cx: &Cx, user_id: &str) -> Option<Project> {
         return None;
     }
 
-    authorize(cx, user_id, id).await.ok()
+    authorize(cx, user_id, &decode(id)).await.ok()
+}
+
+/// `%E8%A8%88%E7%94%BB` back to `計画`.
+///
+/// Ids are made from the project's name, so most of them are Japanese, and an
+/// address carries them encoded. Read straight off the path, none of those
+/// names matched a project — and the drawer for a project opened by its own
+/// URL quietly lost its half: schedule, stats, settings, the lot.
+fn decode(text: &str) -> String {
+    let bytes = text.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut at = 0;
+
+    while at < bytes.len() {
+        let pair = (at + 2 < bytes.len() && bytes[at] == b'%')
+            .then(|| Some(hex(bytes[at + 1])? * 16 + hex(bytes[at + 2])?))
+            .flatten();
+
+        match pair {
+            Some(byte) => {
+                out.push(byte);
+                at += 3;
+            }
+            None => {
+                out.push(bytes[at]);
+                at += 1;
+            }
+        }
+    }
+
+    // Anything that is not valid UTF-8 was not one of our ids to begin with.
+    String::from_utf8(out).unwrap_or_else(|_| text.to_owned())
+}
+
+fn hex(digit: u8) -> Option<u8> {
+    match digit {
+        b'0'..=b'9' => Some(digit - b'0'),
+        b'a'..=b'f' => Some(digit - b'a' + 10),
+        b'A'..=b'F' => Some(digit - b'A' + 10),
+        _ => None,
+    }
 }
 
 /// Which projects a caller may see.
@@ -1639,7 +1680,7 @@ pub async fn next_key(cx: &Cx, sql: &str, scope: &str) -> Result<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{column_order, slugify};
+    use super::{column_order, decode, slugify};
     use crate::domain::GridData;
 
     /// A column an old setting never heard of goes where it was declared, not
@@ -1705,5 +1746,26 @@ mod tests {
     fn a_name_with_nothing_usable_slugs_to_nothing() {
         assert_eq!(slugify("///"), "");
         assert_eq!(slugify("   "), "");
+    }
+
+    /// The round trip that matters: a name becomes an id, a browser encodes it
+    /// into the address, and the drawer has to find the project again.
+    #[test]
+    fn an_encoded_address_reads_back_as_the_id() {
+        assert_eq!(decode("%E3%83%AA%E3%83%AA%E3%83%BC%E3%82%B9"), "リリース");
+        assert_eq!(decode("test-project"), "test-project");
+        assert_eq!(
+            decode("2026%E5%B9%B4%E5%BA%A6-%E4%B8%8A%E6%9C%9F"),
+            "2026年度-上期"
+        );
+    }
+
+    /// Half-written escapes belong to no project, and answering with a panic
+    /// would make a stray address a way to take the app down.
+    #[test]
+    fn a_broken_escape_is_left_alone() {
+        assert_eq!(decode("%"), "%");
+        assert_eq!(decode("%zz"), "%zz");
+        assert_eq!(decode("%E3%"), "%E3%");
     }
 }

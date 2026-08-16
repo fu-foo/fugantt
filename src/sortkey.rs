@@ -52,7 +52,7 @@ fn midpoint(a: &str, b: Option<&str>) -> String {
     };
 
     // Room for a digit between them: one character is enough.
-    if high - low > 1 {
+    if high.saturating_sub(low) > 1 {
         return char::from(DIGITS[(low + high) / 2]).to_string();
     }
 
@@ -69,8 +69,15 @@ fn midpoint(a: &str, b: Option<&str>) -> String {
     }
 }
 
+/// Where a character sits in the alphabet the keys are made of.
+///
+/// Keys only ever come out of `between`, so they are all `a`–`z` — until a
+/// restored backup or an imported file carries something else. Reading that as
+/// a position off the end of the alphabet used to overflow, and an overflow in
+/// a handler answers with a dropped connection: the browser sits there holding
+/// a keystroke that will never come back, which looks exactly like a hung app.
 fn index_of(digit: u8) -> usize {
-    usize::from(digit - DIGITS[0])
+    usize::from(digit.clamp(DIGITS[0], DIGITS[DIGITS.len() - 1]) - DIGITS[0])
 }
 
 #[cfg(test)]
@@ -128,6 +135,15 @@ mod tests {
 
             key = next;
         }
+    }
+
+    /// A key from somewhere else — a restored backup, a hand-written import —
+    /// has to produce a key, not take the request down with it.
+    #[test]
+    fn a_key_outside_the_alphabet_still_answers() {
+        assert!(!between(Some("000123"), None).is_empty());
+        assert!(!between(Some("ZZZ"), Some("aaa")).is_empty());
+        assert!(!between(None, Some("42")).is_empty());
     }
 
     /// Keys with a shared prefix are the ones a naive midpoint gets wrong.

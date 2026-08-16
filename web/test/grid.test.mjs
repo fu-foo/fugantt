@@ -4536,6 +4536,15 @@ await selectCell(0, 0);
 
 // --- 言語 ---------------------------------------------------------------------
 
+// 全体の設定で言語を決めてあると、ブラウザの言語はそもそも見られない——
+// 本物のデータベースで動かすと、ここだけ落ちる。測りたいのは「決めていないとき」
+// の振る舞いなので、借りているあいだだけ自動に戻す。
+const appLanguage = execFileSync("sqlite3", [
+  DB,
+  "SELECT value FROM app_settings WHERE key = 'language'",
+]).toString().trim();
+execFileSync("sqlite3", [DB, "UPDATE app_settings SET value = 'auto' WHERE key = 'language'"]);
+
 // ブラウザが送ってくる言語は、その人の OS の設定。サーバーの OS ではない。
 const languages = await page.evaluate(async () => {
   const read = async (accept) => {
@@ -4567,6 +4576,13 @@ const languages = await page.evaluate(async () => {
 
   return { english, japanese, chosen, back };
 });
+
+if (appLanguage) {
+  execFileSync("sqlite3", [
+    DB,
+    `UPDATE app_settings SET value = '${appLanguage}' WHERE key = 'language'`,
+  ]);
+}
 
 check(
   "ブラウザ（OS）の言語で画面が変わる",
@@ -4861,6 +4877,68 @@ check(
     !look.tidied.includes("<") &&
     !look.tidied.includes("@import"),
   JSON.stringify({ theme: look.odd.theme, css: look.tidied }),
+);
+
+// --- ⌘Enter の連打 -----------------------------------------------------------
+
+// 行を作りながら打ち込むときは、この打鍵を押しっぱなしにする。だから
+// 100 行あたりで表が真っ白になり、それきり何を押しても戻らなかった——
+// 描き直しの計測が、もうページに載っていない表を測って、窓の起点を
+// 何千ピクセルも下に狂わせていた。
+const hammer = await (async () => {
+  const id = await page.evaluate(async () => {
+    const name = `連打テスト ${Date.now()}`;
+    await fetch("/projects", { method: "POST", body: new URLSearchParams({ name }), redirect: "manual" });
+
+    const html = await (await fetch("/")).text();
+    return [...html.matchAll(/href="\/projects\/([^"]+)"/g)]
+      .map((m) => decodeURIComponent(m[1]))
+      .find((slug) => slug.startsWith("連打テスト-"));
+  });
+
+  await page.goto(`${BASE}/projects/${encodeURIComponent(id)}`, { waitUntil: "domcontentloaded" });
+  await settle();
+  await page.click(".fg-pane-left .fg-row.fg-data .fg-cell");
+
+  const presses = 60;
+  for (let i = 0; i < presses; i++) {
+    await page.keyboard.down("Control");
+    await page.keyboard.press("Enter");
+    await page.keyboard.up("Control");
+    await page.evaluate(
+      () => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))),
+    );
+  }
+
+  const drawn = await page.evaluate(() => document.querySelectorAll(".fg-pane-left .fg-row.fg-data").length);
+  const rows = await page.evaluate(
+    async (id) => (await (await fetch(`/api/projects/${encodeURIComponent(id)}/grid`)).json()).tasks.length,
+    id,
+  );
+
+  return { presses, drawn, rows };
+})();
+
+// 打った数だけ行が増える。編集中の ⌘Enter が「閉じるだけ」だったころは、
+// 2回に1回しか行にならなかった。
+check(
+  "⌘Enter は1打ごとに1行になる",
+  hammer.rows === hammer.presses + 1,
+  JSON.stringify(hammer),
+);
+check("連打しても表は描かれたまま", hammer.drawn > 0, JSON.stringify(hammer));
+
+// ID は名前から作るので、たいていのプロジェクトの ID は日本語。住所はそれを
+// 符号化して運ぶ——引き出しは住所からプロジェクトを引き当てているので、
+// 符号を戻さないかぎり、日本語の名前の計画では左のメニューが半分消えていた。
+check(
+  "日本語の名前のプロジェクトでもメニューにその計画が出る",
+  await page.evaluate(() => {
+    const menu = document.querySelector("aside");
+    const links = [...menu.querySelectorAll("a")].map((a) => a.getAttribute("href"));
+    return links.some((href) => href.includes("/capacity")) && links.some((href) => href.includes("/settings"));
+  }),
+  page.url(),
 );
 
 // --- 引き出しメニュー -------------------------------------------------------

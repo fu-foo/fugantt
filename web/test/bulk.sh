@@ -28,11 +28,21 @@ random.seed(1)
 start = datetime.date(2026, 4, 1)
 rows = []
 people = ["山田", "佐藤", ""]
+
+# 並び順の鍵は a〜z しか使わない（src/sortkey.rs）。数字で埋めると、その計画に
+# 行を1つ足しただけでサーバーが落ちる——測る前に、測る道具が嘘をつく。
+def key(i):
+    out = ""
+    for _ in range(5):
+        i, digit = divmod(i, 26)
+        out = chr(ord("a") + digit) + out
+    return out
+
 for i in range(n):
     at = start + datetime.timedelta(days=(i * 300) // max(n - 1, 1))
     end = at + datetime.timedelta(days=random.randint(2, 20))
     rows.append((
-        f"{pid}-t{i:05d}", pid, None, f"{i:06d}", f"タスク {i + 1}",
+        f"{pid}-t{i:05d}", pid, None, key(i), f"タスク {i + 1}",
         at.isoformat(), end.isoformat(),
         at.isoformat() if i % 3 else None, None,
         random.choice([0, 10, 40, 60, 100]), "", "未着手", people[i % 3], "", "", "", "", "",

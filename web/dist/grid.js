@@ -1636,6 +1636,11 @@ ${lines.join("\n")}` : "";
       }
     }
     // --- rows ----------------------------------------------------------------
+    /** Keeps what was typed, then opens a fresh row under it. */
+    async commitAndInsert(raw) {
+      await this.commitEdit(raw, "stay");
+      await this.insertRow();
+    }
     async insertRow() {
       if (!this.data.can_edit) return;
       const after = this.selected?.id ?? null;
@@ -1985,7 +1990,8 @@ ${lines.join("\n")}` : "";
       const input = event.target;
       switch (event.key) {
         case "Enter":
-          void this.commitEdit(input.value, "down");
+          if (event.ctrlKey || event.metaKey) void this.commitAndInsert(input.value);
+          else void this.commitEdit(input.value, "down");
           break;
         case "Tab":
           void this.commitEdit(input.value, event.shiftKey ? "stay" : "right");
@@ -2057,9 +2063,10 @@ ${lines.join("\n")}` : "";
       const height = pane?.clientHeight || 800;
       const from = Math.floor((top - this.rowsTop) / this.rowPixels);
       const to = Math.ceil((top + height - this.rowsTop) / this.rowPixels);
+      const last = Math.min(total - 1, to + _Grid.OVERSCAN);
       return {
-        first: Math.max(0, from - _Grid.OVERSCAN),
-        last: Math.min(total - 1, to + _Grid.OVERSCAN)
+        first: Math.min(Math.max(0, from - _Grid.OVERSCAN), Math.max(0, last)),
+        last
       };
     }
     /** A block of nothing, holding the place of the rows that are not drawn. */
@@ -2350,6 +2357,7 @@ ${lines.join("\n")}` : "";
         chart.scrollLeft = target;
         left.scrollTop = this.scrollTop;
         chart.scrollTop = this.scrollTop;
+        if (!left.isConnected) return;
         const first = left.querySelector(".fg-row.fg-data");
         if (first) {
           this.rowPixels = first.offsetHeight || this.rowPixels;

@@ -2450,6 +2450,12 @@ class Grid {
 
   // --- rows ----------------------------------------------------------------
 
+  /** Keeps what was typed, then opens a fresh row under it. */
+  private async commitAndInsert(raw: string): Promise<void> {
+    await this.commitEdit(raw, "stay");
+    await this.insertRow();
+  }
+
   private async insertRow(): Promise<void> {
     if (!this.data.can_edit) return;
 
@@ -2927,7 +2933,12 @@ class Grid {
 
     switch (event.key) {
       case "Enter":
-        void this.commitEdit(input.value, "down");
+        // ⌘Enter means "add a row below" everywhere else in the grid, and a
+        // half-typed name is no reason for it to mean something else: typing a
+        // list is exactly when it is held down. Without this, every second
+        // press only closed the editor, and the row came on the press after.
+        if (event.ctrlKey || event.metaKey) void this.commitAndInsert(input.value);
+        else void this.commitEdit(input.value, "down");
         break;
       case "Tab":
         void this.commitEdit(input.value, event.shiftKey ? "stay" : "right");
@@ -3025,9 +3036,14 @@ class Grid {
     const from = Math.floor((top - this.rowsTop) / this.rowPixels);
     const to = Math.ceil((top + height - this.rowsTop) / this.rowPixels);
 
+    // Whatever the arithmetic says, a plan with rows in it draws some of them.
+    // A window that starts past the last row draws nothing at all, and a table
+    // showing nothing is indistinguishable from a broken one.
+    const last = Math.min(total - 1, to + Grid.OVERSCAN);
+
     return {
-      first: Math.max(0, from - Grid.OVERSCAN),
-      last: Math.min(total - 1, to + Grid.OVERSCAN),
+      first: Math.min(Math.max(0, from - Grid.OVERSCAN), Math.max(0, last)),
+      last,
     };
   }
 
@@ -3434,6 +3450,15 @@ class Grid {
       // draws the wrong rows.
       left.scrollTop = this.scrollTop;
       chart.scrollTop = this.scrollTop;
+
+      // Another render may have landed in the meantime — a keystroke and the
+      // answer to the one before it easily share a frame. What this callback
+      // measures is then a table that is no longer on the page, where every
+      // offset reads zero, and `rowsTop` comes out thousands of pixels
+      // negative. From there the window is worked out past the end of the
+      // plan, nothing is drawn, and the grid is blank for good: the way it
+      // used to give out at around a hundred rows of holding down ⌘Enter.
+      if (!left.isConnected) return;
 
       const first = left.querySelector<HTMLElement>(".fg-row.fg-data");
       if (first) {

@@ -84,6 +84,11 @@ await page.evaluate(
   PASSWORD,
 );
 
+// The project's own settings survive between runs, and half the tests below
+// read numbers that depend on them — how days are counted, which columns are
+// on, what a bar says on hover. A run that starts from whatever the last one
+// left behind fails in places that have nothing to do with what changed.
+execFileSync("sqlite3", [DB, "DELETE FROM project_settings WHERE project_id = 'test-project'"]);
 execFileSync("sh", [join(here, "seed.sh"), DB, EMAIL], { stdio: "inherit" });
 
 // Not `networkidle0`: the live-update stream stays open, so the network never
@@ -330,7 +335,9 @@ await page.keyboard.press("Enter");
 
 // 集計はサーバーが返した値。届くのを待つ——固定の待ち時間では、混んだ日に
 // 「変わっていない」と言われて落ちていた。
-const rolled = await until(summaryProgress, "42%");
+// 15営業日の子が 100%、25営業日の子が 10%: (1500 + 250) / 40 = 43%。
+// 土日を数えていた頃は 42% だった——数え方の設定が変われば、この数字も変わる。
+const rolled = await until(summaryProgress, "43%");
 s = await state();
 check(
   "子の進捗を変えると親の集計が動く",
@@ -2680,6 +2687,11 @@ await page.keyboard.down("Meta");
 await page.keyboard.press("Enter");
 await page.keyboard.up("Meta");
 await settle();
+await settle();
+
+// 足した行は名前を入れるところから始まるので、編集が開いている。開いている間の
+// ⌘Z は入力欄のもので、表のものではない。
+await page.keyboard.press("Escape");
 await settle();
 
 await chord("KeyZ");

@@ -470,10 +470,18 @@
           `/api/projects/${encodeURIComponent(this.projectId)}/grid`
         );
         if (!response.ok) return;
+        const shape = this.shape();
+        const rows = this.tasks.map((task) => JSON.stringify(task));
         this.setData(await response.json());
         const moved = here ? this.tasks.findIndex((task) => task.id === here) : -1;
         this.select(moved >= 0 ? moved : this.row, this.column);
-        this.showNotice(`${actor} \u304C\u66F4\u65B0\u3057\u307E\u3057\u305F`);
+        this.notice = `${actor} \u304C\u66F4\u65B0\u3057\u307E\u3057\u305F`;
+        window.clearTimeout(this.noticeTimer);
+        this.noticeTimer = window.setTimeout(() => {
+          this.notice = null;
+          this.paintNotice();
+        }, 4e3);
+        this.repaintChanged(shape, rows);
       } catch {
       }
     }
@@ -1078,7 +1086,8 @@ ${lines.join("\n")}` : "";
       }
       this.editing = true;
       this.seed = seed;
-      this.render();
+      if (this.repaintRow(this.row)) this.restoreFocus();
+      else this.render();
     }
     /**
      * Leave, by assignee.
@@ -1343,7 +1352,8 @@ ${lines.join("\n")}` : "";
     cancelEdit() {
       this.editing = false;
       this.seed = null;
-      this.render();
+      if (this.repaintRow(this.row)) this.restoreFocus();
+      else this.render();
     }
     async commitEdit(raw, after) {
       const task = this.selected;
@@ -1445,6 +1455,8 @@ ${lines.join("\n")}` : "";
     async send(url, options) {
       const before = options.rollback ?? this.data;
       this.busy = true;
+      let shape = null;
+      let rows = [];
       try {
         const headers = { "x-fugantt-client": CLIENT_ID };
         if (options.body) headers["content-type"] = "application/json";
@@ -1460,6 +1472,8 @@ ${lines.join("\n")}` : "";
         }
         const result = await response.json();
         this.remember(url, options, before, result);
+        shape = this.shape();
+        rows = this.tasks.map((task) => JSON.stringify(task));
         this.setData(result.grid);
         this.error = null;
         if (options.follow) this.reveal(options.follow);
@@ -1472,7 +1486,8 @@ ${lines.join("\n")}` : "";
         return null;
       } finally {
         this.busy = false;
-        this.render();
+        if (shape === null) this.render();
+        else this.repaintChanged(shape, rows);
       }
     }
     /** Files one change away, so Ctrl+Z has something to put back. */
@@ -1622,12 +1637,29 @@ ${lines.join("\n")}` : "";
     /** A passing line that clears itself. Not an error, so not the error bar. */
     showNotice(message) {
       this.notice = message;
-      this.render();
+      this.paintNotice();
       window.clearTimeout(this.noticeTimer);
       this.noticeTimer = window.setTimeout(() => {
         this.notice = null;
-        this.render();
+        this.paintNotice();
       }, 4e3);
+    }
+    /**
+     * Puts the passing line on screen, or takes it off.
+     *
+     * On its own, rather than by drawing the table again: the line says somebody
+     * else changed something, and at two thousand rows redrawing everything to
+     * say so costs a second — for a sentence that leaves again in four.
+     */
+    paintNotice() {
+      const showing = this.root.querySelector(".fg-notice");
+      if (this.notice === null) {
+        showing?.remove();
+        return;
+      }
+      const line = element("div", "fg-notice", this.notice);
+      if (showing) showing.replaceWith(line);
+      else this.root.prepend(line);
     }
     // --- keyboard ------------------------------------------------------------
     onKeyDown(event) {
@@ -1773,6 +1805,93 @@ ${lines.join("\n")}` : "";
           return;
         }
       }
+      this.restoreFocus();
+    }
+    /**
+     * Redraws one row, both panes, instead of the whole island.
+     *
+     * Opening an editor changes one cell. Rebuilding every row to do it costs
+     * 0.4ms a row — measured — which is nothing at ten rows and two thirds of a
+     * second at two thousand. `repaintSelection` already does the same trick for the
+     * cursor; this is the same idea for the row under it.
+     *
+     * Returns false when the row is not on screen, and the caller falls back to
+     * drawing everything.
+     */
+    repaintRow(index) {
+      const grid = this.root.querySelector(".fg-grid");
+      const task = this.tasks[index];
+      if (!grid || !task) return false;
+      const rows = grid.querySelectorAll(".fg-pane-left .fg-row.fg-data");
+      const bars = grid.querySelectorAll(".fg-bar-row");
+      const was = rows[index];
+      const wasBar = bars[index];
+      if (!was || !wasBar) return false;
+      const row = this.renderRow(task, index);
+      row.style.gridTemplateColumns = was.style.gridTemplateColumns;
+      was.replaceWith(row);
+      wasBar.replaceWith(this.renderBar(task, parseDate(this.data.range_start), index));
+      this.pinRow(row);
+      return true;
+    }
+    /** Parks one row's frozen cells where the columns before them end. */
+    pinRow(row) {
+      const left = this.root.querySelector(".fg-pane-left");
+      if (!left) return;
+      const heads = [...left.querySelectorAll(".fg-heading .fg-cell")];
+      let offset = 0;
+      for (let i = 0; i < this.data.frozen_columns && i < heads.length; i++) {
+        const cell = row.children[i];
+        if (cell instanceof HTMLElement) cell.style.left = `${offset}px`;
+        offset += heads[i].getBoundingClientRect().width;
+      }
+    }
+    /**
+     * Everything the grid draws apart from the rows' own values.
+     *
+     * Two of these being equal means the table has the same shape it had a
+     * moment ago — same columns, same rows in the same order, same dates across
+     * the top — and only the contents of some rows can have moved.
+     */
+    shape() {
+      return [
+        this.data.range_start,
+        this.data.range_end,
+        this.data.frozen_columns,
+        this.data.day_width,
+        this.data.column_order.join(" "),
+        this.data.hidden_columns.join(" "),
+        this.data.tooltip_columns.join(" "),
+        this.data.fields.map((field) => field.id).join(" "),
+        this.data.statuses.map((status) => status.name).join(" "),
+        this.tasks.map((task) => task.id).join(" ")
+      ].join("|");
+    }
+    /**
+     * Draws the difference between the table on screen and the one in hand.
+     *
+     * A cell edit comes back as the whole grid, because one value can move every
+     * ancestor's dates — but almost always only a few rows actually changed, and
+     * the rest of the table is already correct on screen.
+     */
+    repaintChanged(was, before) {
+      const showing = this.root.querySelector(".fg-error") !== null;
+      if (was !== this.shape() || showing !== (this.error !== null)) {
+        this.render();
+        return;
+      }
+      this.paintNotice();
+      const now = this.tasks;
+      for (let index = 0; index < now.length; index++) {
+        if (before[index] !== JSON.stringify(now[index])) {
+          if (!this.repaintRow(index)) {
+            this.render();
+            return;
+          }
+        }
+      }
+      this.root.querySelector(".fg-toolbar")?.replaceWith(this.renderToolbar());
+      this.updateFilterCount();
       this.restoreFocus();
     }
     renderEmpty() {

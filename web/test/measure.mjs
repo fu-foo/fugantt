@@ -100,6 +100,15 @@ for (const project of projects) {
     return +samples[Math.floor(samples.length / 2)].toFixed(1);
   })();
 
+  // 横スクロール1回ぶんの再描画。チャートは日付の数だけ要素がある。
+  const scroll = await page.evaluate(async () => {
+    const chart = document.querySelector(".fg-pane-chart");
+    const at = performance.now();
+    chart.scrollLeft += 800;
+    await new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done)));
+    return +(performance.now() - at).toFixed(1);
+  });
+
   // 値を1つ確定する往復。返ってくるのは表まるごとなので、その大きさも見る。
   const commit = await page.evaluate(async (project) => {
     const response0 = await fetch(`/api/projects/${project}/grid`);
@@ -117,15 +126,6 @@ for (const project of projects) {
 
     return { ms: +(performance.now() - at).toFixed(1), kb: Math.round(JSON.stringify(body).length / 1024) };
   }, project);
-
-  // 横スクロール1回ぶんの再描画。チャートは日付の数だけ要素がある。
-  const scroll = await page.evaluate(async () => {
-    const chart = document.querySelector(".fg-pane-chart");
-    const at = performance.now();
-    chart.scrollLeft += 800;
-    await new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done)));
-    return +(performance.now() - at).toFixed(1);
-  });
 
   results.push({
     project,

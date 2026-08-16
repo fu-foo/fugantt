@@ -150,8 +150,23 @@
   background-color: var(--inverse-hover);
 }
 
-.hover\:bg-slate-100:hover {
+.hover\:bg-slate-100:hover,
+/* A row that lifts under the pointer. On dark paper the light grey it lifts to
+   was brighter than the text standing on it. */
+.hover\:bg-slate-50:hover {
   background-color: var(--panel-strong);
+}
+
+.hover\:bg-red-100:hover {
+  background-color: var(--danger-soft);
+}
+
+.hover\:text-red-600:hover {
+  color: var(--danger);
+}
+
+.hover\:text-blue-600:hover {
+  color: var(--accent);
 }
 
 .bg-slate-300 {

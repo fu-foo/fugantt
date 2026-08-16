@@ -1098,6 +1098,83 @@ class Grid {
     });
   }
 
+  /**
+   * The list of values a column can hold, with ticks against the chosen ones.
+   *
+   * Parked on `document.body` like the other menus: the island replaces its own
+   * children whenever a filter changes, and a menu inside it would be thrown
+   * away by the first tick — leaving no way to make the second.
+   */
+  private openChoices(column: ColumnDef, choices: string[], anchor: HTMLElement): void {
+    const box = anchor.getBoundingClientRect();
+    const menu = element("div", "fg-menu fg-pick-menu");
+    menu.style.left = `${box.left}px`;
+    menu.style.top = `${box.bottom + 2}px`;
+
+    const chosen = new Set((this.filters.get(column.key) ?? "").split("\n").filter(Boolean));
+
+    const close = (event?: Event) => {
+      if (event && menu.contains(event.target as Node)) return;
+
+      menu.remove();
+      document.removeEventListener("mousedown", close);
+      document.removeEventListener("keydown", onEscape);
+    };
+
+    const onEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") close();
+    };
+
+    const all = element("button", "fg-menu-item", t("すべて")) as HTMLButtonElement;
+    all.type = "button";
+    all.addEventListener("mousedown", (event) => event.preventDefault());
+    all.addEventListener("click", () => {
+      chosen.clear();
+      close();
+      this.setChoices(column.key, []);
+    });
+    menu.append(all, element("div", "fg-menu-rule"));
+
+    for (const choice of choices) {
+      const item = element("label", "fg-menu-item fg-pick-item");
+      const tick = element("input") as HTMLInputElement;
+      tick.type = "checkbox";
+      tick.checked = chosen.has(choice);
+      tick.addEventListener("change", () => {
+        if (tick.checked) chosen.add(choice);
+        else chosen.delete(choice);
+
+        this.setChoices(column.key, [...chosen]);
+      });
+
+      item.append(tick, element("span", undefined, choice));
+      menu.append(item);
+    }
+
+    document.body.append(menu);
+
+    const placed = menu.getBoundingClientRect();
+    if (placed.right > window.innerWidth) {
+      menu.style.left = `${Math.max(8, window.innerWidth - placed.width - 8)}px`;
+    }
+
+    setTimeout(() => {
+      document.addEventListener("mousedown", close);
+      document.addEventListener("keydown", onEscape);
+    });
+  }
+
+  /** Sets which values of a list column are being asked for. */
+  private setChoices(key: string, values: string[]): void {
+    if (values.length > 0) this.filters.set(key, values.join("\n"));
+    else this.filters.delete(key);
+
+    this.filterFocus = null;
+    this.computeVisible();
+    this.select(this.row, this.column);
+    this.render();
+  }
+
   private setFilter(key: string, text: string, caret: number | null): void {
     const value = text.trim().toLowerCase();
 
@@ -1134,18 +1211,22 @@ class Grid {
       const choices = this.choicesFor(column);
 
       if (choices) {
-        const select = element("select", "fg-filter");
-        if (current) select.classList.add("is-on");
-        select.dataset["column"] = column.key;
-        select.append(element("option", undefined, ""));
-        for (const choice of choices) {
-          const option = element("option", undefined, choice);
-          option.value = choice.toLowerCase();
-          select.append(option);
-        }
-        select.value = current;
-        select.addEventListener("change", () => this.setFilter(column.key, select.value, null));
-        cell.append(select);
+        // A list of choices asks "which of these", and the answer is often more
+        // than one: 待ち and 保留 are the same question. A `<select>` can only
+        // hold one, so this is a button that opens the list with ticks in it.
+        const chosen = current ? current.split("\n") : [];
+
+        const box = element("button", "fg-filter fg-filter-pick");
+        box.type = "button";
+        box.dataset["column"] = column.key;
+        if (chosen.length > 0) box.classList.add("is-on");
+
+        box.textContent =
+          chosen.length === 0 ? "" : chosen.length === 1 ? chosen[0]! : `${chosen.length}件`;
+        box.title = chosen.length > 0 ? chosen.join("、") : t("選んで絞り込む");
+
+        box.addEventListener("click", () => this.openChoices(column, choices, box));
+        cell.append(box);
       } else {
         const bound = this.boundFor(column);
 
@@ -1548,6 +1629,13 @@ class Grid {
     if (at === "behind" || at === "ahead") {
       if (at === "behind") return task.delayed;
       return task.targets.length > 0 && !task.delayed;
+    }
+
+    // A column with a list of values is asked "which of these", so the answer is
+    // a set and the test is equality. Contains would put 完了 under 未完了.
+    if (this.choicesFor(column)) {
+      const wanted = needle.split("\n").filter(Boolean);
+      return wanted.length === 0 || wanted.some((value) => text === value);
     }
 
     const bound = parseBound(needle, at);

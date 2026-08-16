@@ -578,8 +578,26 @@ const filterBy = async (column, text) => {
   const box = `.fg-filter[data-column="${COLUMN_KEY[column]}"]`;
   const tag = await page.evaluate((box) => document.querySelector(box)?.tagName, box);
 
-  // 担当者 and ステータス are menus; the rest are typed into.
-  if (tag === "SELECT") {
+  // 担当者・ステータス・遅延は一覧から選ぶ。複数選べるので、選択式は
+  // セレクトではなくチェックの並んだメニュー。
+  if (tag === "BUTTON") {
+    await page.$eval(box, (button) => button.click());
+    await settle();
+    // 「この値で絞る」なので、前に選んだものは外してから。足していく操作は
+    // 複数選択のテストが自分でやる。
+    await page.evaluate(() => document.querySelector(".fg-pick-menu .fg-menu-item")?.click());
+    await settle();
+
+    await page.$eval(box, (button) => button.click());
+    await settle();
+    await page.evaluate((wanted) => {
+      const items = [...document.querySelectorAll(".fg-pick-menu .fg-pick-item")];
+      const item = items.find((entry) => entry.textContent.trim() === wanted);
+      item?.querySelector("input")?.click();
+    }, text);
+    await settle();
+    await page.keyboard.press("Escape");
+  } else if (tag === "SELECT") {
     await page.select(box, text.toLowerCase());
   } else {
     // click ではなく focus。絞り込みの欄は横に流れる領域にあり、固定列の下に
@@ -598,8 +616,11 @@ const filterBy = async (column, text) => {
 };
 
 const clearFilters = async () => {
+  // 画面の「解除」を押す。欄を空にして回るやり方は、選択式がボタンになった時点で
+  // 半分しか消えなくなった——人が使う道と同じ道を通す。
   await page.evaluate(() => {
-    for (const box of document.querySelectorAll(".fg-filter")) {
+    document.querySelector(".fg-filter-clear")?.click();
+    for (const box of document.querySelectorAll("input.fg-filter, select.fg-filter")) {
       box.value = "";
       box.dispatchEvent(new Event(box.tagName === "SELECT" ? "change" : "input", { bubbles: true }));
     }
@@ -611,6 +632,8 @@ await filterBy("担当者", "佐藤");
 s = await state();
 check("列の絞り込みが効く", s.names.includes("設計") && !s.names.includes("テスト"), s.names.join(","));
 check("一致した行の親は残る", s.names.includes("開発"), s.names.join(","));
+// 打ち込む欄で確かめる: 選択式は一覧から選ぶので、キャレットの話ではない。
+await filterBy("タスク", "設");
 check(
   "入力中もフォーカスがその欄に残る",
   await page.evaluate(() => document.activeElement?.classList.contains("fg-filter") === true),
@@ -4668,6 +4691,40 @@ check(
   notAdmin.download === 404 && notAdmin.restore === 404,
   JSON.stringify(notAdmin),
 );
+
+// --- 選択肢は複数選べる -----------------------------------------------------------
+
+// 「待ちと保留を出して」は一つの質問。セレクトは一つしか持てないので、
+// チェックの並んだメニューにしてある。
+await clearFilters();
+await filterBy("ステータス", "待ち");
+const onlyWaiting = (await state()).names;
+
+await page.evaluate(() => document.querySelector('.fg-filters .fg-cell-status .fg-filter-pick').click());
+await settle();
+await page.evaluate(() => {
+  const items = [...document.querySelectorAll(".fg-pick-menu .fg-pick-item")];
+  items.find((entry) => entry.textContent.trim() === "未着手")?.querySelector("input")?.click();
+});
+await settle();
+await settle();
+const both = (await state()).names;
+const label = await page.evaluate(
+  () => document.querySelector('.fg-filters .fg-cell-status .fg-filter-pick').textContent,
+);
+
+await page.keyboard.press("Escape");
+await clearFilters();
+
+check(
+  "選択肢は複数選べて、どれかに当てはまれば残る",
+  onlyWaiting.length > 0 &&
+    both.length > onlyWaiting.length &&
+    onlyWaiting.every((name) => both.includes(name)),
+  `待ち ${onlyWaiting.join(",")} / 待ち+未着手 ${both.join(",")}`,
+);
+check("選んだ数がボタンに出る", label === "2件", label);
+check("解除で全部戻る", (await state()).rowCount === 7, String((await state()).rowCount));
 
 // --- 見た目（自分の設定）-------------------------------------------------------
 

@@ -1052,6 +1052,25 @@ input.fg-filter {
   color: var(--fg-bar);
   font-weight: 600;
 }
+.fg-filter-pick {
+  text-align: left;
+  cursor: pointer;
+  color: var(--fg-text);
+}
+.fg-filter-pick:empty::before {
+  content: "\2014";
+  color: var(--fg-muted);
+}
+.fg-pick-menu {
+  max-height: 60vh;
+  overflow-y: auto;
+}
+.fg-pick-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
 .fg-filter-op {
   position: absolute;
   left: 6px;

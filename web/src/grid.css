@@ -1401,6 +1401,31 @@ input.fg-filter {
   font-weight: 600;
 }
 
+/* A list column's filter: a button that says what is being asked for, and opens
+   the list to change it. Sized like the boxes beside it so the row stays even. */
+.fg-filter-pick {
+  text-align: left;
+  cursor: pointer;
+  color: var(--fg-text);
+}
+
+.fg-filter-pick:empty::before {
+  content: "—";
+  color: var(--fg-muted);
+}
+
+.fg-pick-menu {
+  max-height: 60vh;
+  overflow-y: auto;
+}
+
+.fg-pick-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+
 /* The direction, as a button rather than a hint: it sits inside the box's left
    edge the way the calendar sits inside its right one. */
 .fg-filter-op {

@@ -28,6 +28,10 @@
   --rule: #e2e8f0;
   --rule-strong: #cbd5e1;
   --rule-soft: #f1f5f9;
+  /* The row the cursor is on. Its own token: on a dark ground the neighbouring
+     panel greys are half a step apart, and the row a person is standing on
+     stops being visible. */
+  --row-current: #f1f5f9;
   --accent: #2563eb;
   --accent-hover: #3b82f6;
   --accent-soft: #eff6ff;
@@ -59,6 +63,7 @@
   --rule: #24314a;
   --rule-strong: #33415c;
   --rule-soft: #1b2436;
+  --row-current: #2b3a5c;
   --accent: #3b82f6;
   --accent-hover: #60a5fa;
   --accent-soft: #17233c;
@@ -91,6 +96,7 @@
     --rule: #24314a;
     --rule-strong: #33415c;
     --rule-soft: #1b2436;
+    --row-current: #2b3a5c;
     --accent: #3b82f6;
     --accent-hover: #60a5fa;
     --accent-soft: #17233c;
@@ -297,8 +303,8 @@ textarea {
 }
 
 .fg-row.is-current {
-  --fg-row-bg: var(--panel-strong);
-  background: var(--panel-strong);
+  --fg-row-bg: var(--row-current);
+  background: var(--row-current);
 }
 
 .fg-button,

@@ -105,8 +105,12 @@ async fn shell(cx: &Cx, slot: Result) -> Result {
                         class="fixed inset-0 z-30 hidden bg-slate-900/20 peer-checked/nav:block"
                     ></label>
 
+                    // Scrolls on its own. The page behind it does not scroll —
+                    // the grid owns that — so a drawer taller than the window
+                    // simply lost its last entries, and on a phone the
+                    // administrator's section was the part that fell off.
                     <aside
-                        class="fixed inset-y-0 left-0 z-40 flex w-72 -translate-x-full flex-col gap-6 border-r border-slate-200 bg-white px-5 py-4 transition-transform duration-150 peer-checked/nav:translate-x-0"
+                        class="fixed inset-y-0 left-0 z-40 flex w-72 -translate-x-full flex-col gap-6 overflow-y-auto overscroll-contain border-r border-slate-200 bg-white px-5 py-4 transition-transform duration-150 peer-checked/nav:translate-x-0"
                     >
                         <div class="flex items-center justify-between">
                             <span class="font-semibold tracking-tight">(&name)</span>

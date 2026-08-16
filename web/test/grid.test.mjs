@@ -4863,6 +4863,49 @@ check(
   JSON.stringify({ theme: look.odd.theme, css: look.tidied }),
 );
 
+// --- 引き出しメニュー -------------------------------------------------------
+
+// 丈の足りない画面では、メニューの下（管理の節やログアウト）が切れたまま
+// どこにも行けなくなっていた。ページ自体はスクロールしない——そこは表の担当なので、
+// メニューが自分でスクロールするしかない。
+await page.setViewport({ width: 430, height: 420 });
+await settle();
+
+const drawer = await page.evaluate(async () => {
+  const wait = (ms) => new Promise((done) => setTimeout(done, ms));
+  const box = document.querySelector("#fg-drawer");
+  box.checked = true;
+  box.dispatchEvent(new Event("change", { bubbles: true }));
+  await wait(300);
+
+  const menu = document.querySelector("aside");
+  const over = menu.scrollHeight - menu.clientHeight;
+  menu.scrollTop = menu.scrollHeight;
+  await wait(200);
+
+  const last = [...menu.querySelectorAll("a, button")].pop();
+  const where = last.getBoundingClientRect();
+
+  box.checked = false;
+  box.dispatchEvent(new Event("change", { bubbles: true }));
+
+  return {
+    over,
+    scrolled: Math.round(menu.scrollTop),
+    last: last.textContent.trim(),
+    seen: where.bottom <= window.innerHeight && where.top >= 0,
+  };
+});
+
+check(
+  "はみ出したメニューはスクロールして最後まで届く",
+  drawer.over > 0 && drawer.scrolled > 0 && drawer.seen,
+  JSON.stringify(drawer),
+);
+
+await page.setViewport({ width: 1680, height: 700 });
+await settle();
+
 check("JavaScript エラーが出ていない", pageErrors.length === 0, pageErrors.join(" / "));
 
 await browser.close();

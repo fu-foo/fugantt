@@ -404,11 +404,20 @@
       this.error = null;
       /** True while an IME conversion is open, so nothing may re-render under it. */
       this.composing = false;
+      /** True while the open editor is being carried to its rebuilt cell. */
+      this.moving = false;
       /** A passing line about someone else's change, not a problem to fix. */
       this.notice = null;
       this.noticeTimer = 0;
       this.busy = false;
-      this.scrollLeft = 0;
+      /**
+       * Where the chart is scrolled to sideways, or null before it has been drawn.
+       *
+       * Null rather than zero: a plan that starts in April is *at* zero when
+       * somebody is reading April, and taking that for "never scrolled" sent them
+       * back to today on every edit.
+       */
+      this.scrollLeft = null;
       /** `data.tasks` minus everything inside a folded row. All indices are into this. */
       this.visible = [];
       /** One filter per column, ANDed together. Empty entries are ignored. */
@@ -2031,6 +2040,13 @@ ${lines.join("\n")}` : "";
       parts.push(this.data.tasks.length === 0 ? this.renderEmpty() : this.renderGrid());
       parts.push(this.renderToolbar());
       this.root.replaceChildren(...parts);
+      const backLeft = this.root.querySelector(".fg-pane-left");
+      const backChart = this.root.querySelector(".fg-pane-chart");
+      if (backLeft) backLeft.scrollTop = this.scrollTop;
+      if (backChart) {
+        backChart.scrollTop = this.scrollTop;
+        if (this.scrollLeft !== null) backChart.scrollLeft = this.scrollLeft;
+      }
       this.updateFilterCount();
       if (typing) {
         const box = this.root.querySelector(
@@ -2055,10 +2071,30 @@ ${lines.join("\n")}` : "";
      * Returns false when the row is not on screen, and the caller falls back to
      * drawing everything.
      */
+    /**
+     * Takes the row height and where the rows begin from the page itself.
+     *
+     * Both are read off a row that is actually drawn, using the index that row
+     * carries — never a field on the island, which the next render moves. Read
+     * the two out of step and the origin lands hundreds of pixels from the
+     * truth, which draws a window nowhere near what the pane is showing: rows
+     * exist, and the screen is blank.
+     *
+     * Returns false when there is nothing to measure.
+     */
+    measureRows(pane) {
+      const row = pane.querySelector(".fg-row.fg-data");
+      const index = Number(row?.dataset["index"]);
+      if (!row || !Number.isFinite(index)) return false;
+      this.rowPixels = row.offsetHeight || this.rowPixels;
+      this.rowsTop = row.offsetTop - index * this.rowPixels;
+      return true;
+    }
     /** Which rows are worth having in the document right now. */
     rowWindow() {
       const total = this.tasks.length;
       const pane = this.root.querySelector(".fg-pane-left");
+      if (pane) this.measureRows(pane);
       const top = pane?.scrollTop ?? this.scrollTop;
       const height = pane?.clientHeight || 800;
       const from = Math.floor((top - this.rowsTop) / this.rowPixels);
@@ -2087,9 +2123,19 @@ ${lines.join("\n")}` : "";
       const bars = this.root.querySelector(".fg-bars");
       const heading = this.root.querySelector(".fg-heading");
       if (!table || !bars || !heading) return;
-      if (this.editing || this.composing) return;
+      if (this.composing) return;
       const view = this.rowWindow();
       if (!force && view.first === this.first && view.last === this.last) return;
+      const editor = this.root.querySelector(".fg-editor:not(.is-typist)");
+      const caret = editor ? { from: editor.selectionStart ?? 0, to: editor.selectionEnd ?? 0 } : null;
+      if (editor && (this.row < view.first || this.row > view.last)) {
+        void this.commitEdit(editor.value, "stay");
+        return;
+      }
+      if (editor) {
+        this.moving = true;
+        this.root.querySelector(".fg-grid")?.append(editor);
+      }
       this.first = view.first;
       this.last = view.last;
       const typist = this.root.querySelector(".fg-editor.is-typist");
@@ -2129,6 +2175,16 @@ ${lines.join("\n")}` : "";
       );
       this.pinColumns();
       if (this.row >= view.first && this.row <= view.last) this.markSelection();
+      if (editor) {
+        const cell = this.root.querySelectorAll(".fg-pane-left .fg-row.fg-data")[this.row - view.first]?.children[this.column];
+        if (cell) {
+          cell.querySelector(".fg-editor.is-typist")?.remove();
+          cell.append(editor);
+          editor.focus({ preventScroll: true });
+          if (caret) editor.setSelectionRange(caret.from, caret.to);
+        }
+        this.moving = false;
+      }
       const parked = this.root.querySelector(".fg-grid > .fg-editor.is-typist");
       if (parked && this.root.querySelectorAll(".fg-editor.is-typist").length > 1) {
         parked.remove();
@@ -2356,18 +2412,13 @@ ${lines.join("\n")}` : "";
       grid.style.setProperty("--fg-leave", this.data.theme.leave);
       grid.style.setProperty("--fg-wait", this.data.theme.wait);
       grid.append(left, this.renderSplitter(grid), chart);
-      const target = this.scrollLeft || (todayIndex >= 0 ? Math.max(0, (todayIndex - 5) * this.dayWidth) : 0);
+      const target = this.scrollLeft ?? (todayIndex >= 0 ? Math.max(0, (todayIndex - 5) * this.dayWidth) : 0);
       requestAnimationFrame(() => {
         chart.scrollLeft = target;
         left.scrollTop = this.scrollTop;
         chart.scrollTop = this.scrollTop;
         if (!left.isConnected) return;
-        const first = left.querySelector(".fg-row.fg-data");
-        if (first) {
-          this.rowPixels = first.offsetHeight || this.rowPixels;
-          this.rowsTop = first.offsetTop - this.first * this.rowPixels;
-          this.renderWindow();
-        }
+        if (this.measureRows(left)) this.renderWindow();
         if (this.capPaneWidth) {
           const cap = Math.max(320, grid.clientWidth - 480);
           const dates = left.querySelector(".fg-heading .fg-cell-end");
@@ -2402,6 +2453,7 @@ ${lines.join("\n")}` : "";
     }
     renderRow(task, index) {
       const row = element("div", "fg-row fg-data");
+      row.dataset["index"] = String(index);
       if (this.behind(task)) row.classList.add("is-delayed");
       if (index === this.row) row.classList.add("is-current");
       if (task.background) row.style.setProperty("--fg-row-bg", task.background);
@@ -2748,7 +2800,7 @@ ${lines.join("\n")}` : "";
         if (!this.editing) this.beginTyping(input);
       });
       input.addEventListener("blur", () => {
-        if (this.editing && !input.classList.contains("is-typist")) {
+        if (this.editing && !this.moving && !input.classList.contains("is-typist")) {
           void this.commitEdit(input.value, "stay");
         }
       });

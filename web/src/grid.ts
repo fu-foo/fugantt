@@ -775,11 +775,20 @@ class Grid {
   private error: string | null = null;
   /** True while an IME conversion is open, so nothing may re-render under it. */
   private composing = false;
+  /** True while the open editor is being carried to its rebuilt cell. */
+  private moving = false;
   /** A passing line about someone else's change, not a problem to fix. */
   private notice: string | null = null;
   private noticeTimer = 0;
   private busy = false;
-  private scrollLeft = 0;
+  /**
+   * Where the chart is scrolled to sideways, or null before it has been drawn.
+   *
+   * Null rather than zero: a plan that starts in April is *at* zero when
+   * somebody is reading April, and taking that for "never scrolled" sent them
+   * back to today on every edit.
+   */
+  private scrollLeft: number | null = null;
 
   /**
    * The summary rows whose subtrees are folded away.
@@ -2993,6 +3002,18 @@ class Grid {
 
     this.root.replaceChildren(...parts);
 
+    // 貼った直後の表はいちばん上にいる。この下の `restoreFocus` は選択セルを
+    // 見えるところへ持ってくるので、上にいるまま呼ぶと「見えるところ」を作るために
+    // 計画のほうが動いてしまう——下のほうで行を1つ足すと、その行が画面のいちばん下に
+    // 来て景色が飛ぶ、あれの正体。測る前・焦点を戻す前に、まず元の位置へ。
+    const backLeft = this.root.querySelector<HTMLElement>(".fg-pane-left");
+    const backChart = this.root.querySelector<HTMLElement>(".fg-pane-chart");
+    if (backLeft) backLeft.scrollTop = this.scrollTop;
+    if (backChart) {
+      backChart.scrollTop = this.scrollTop;
+      if (this.scrollLeft !== null) backChart.scrollLeft = this.scrollLeft;
+    }
+
     this.updateFilterCount();
 
     // Put the caret back where it was: the filter row is rebuilt with the rest
@@ -3023,10 +3044,37 @@ class Grid {
    * Returns false when the row is not on screen, and the caller falls back to
    * drawing everything.
    */
+  /**
+   * Takes the row height and where the rows begin from the page itself.
+   *
+   * Both are read off a row that is actually drawn, using the index that row
+   * carries — never a field on the island, which the next render moves. Read
+   * the two out of step and the origin lands hundreds of pixels from the
+   * truth, which draws a window nowhere near what the pane is showing: rows
+   * exist, and the screen is blank.
+   *
+   * Returns false when there is nothing to measure.
+   */
+  private measureRows(pane: HTMLElement): boolean {
+    const row = pane.querySelector<HTMLElement>(".fg-row.fg-data");
+    const index = Number(row?.dataset["index"]);
+    if (!row || !Number.isFinite(index)) return false;
+
+    this.rowPixels = row.offsetHeight || this.rowPixels;
+    this.rowsTop = row.offsetTop - index * this.rowPixels;
+
+    return true;
+  }
+
   /** Which rows are worth having in the document right now. */
   private rowWindow(): { first: number; last: number } {
     const total = this.tasks.length;
     const pane = this.root.querySelector<HTMLElement>(".fg-pane-left");
+
+    // Off the page every time, rather than once at the end of a render: a row
+    // is 32 pixels until somebody's own CSS says otherwise, and an origin
+    // measured a render ago describes a table that is no longer there.
+    if (pane) this.measureRows(pane);
 
     const top = pane?.scrollTop ?? this.scrollTop;
     const height = pane?.clientHeight || 800;
@@ -3069,12 +3117,33 @@ class Grid {
     const heading = this.root.querySelector<HTMLElement>(".fg-heading");
     if (!table || !bars || !heading) return;
 
-    // Not while somebody is typing: the editor lives in a row, and replacing
-    // the rows underneath a half-finished value throws it away.
-    if (this.editing || this.composing) return;
+    // Not mid-conversion: an IME hands its characters to the element it started
+    // in, and replacing the rows underneath throws the conversion away.
+    if (this.composing) return;
 
     const view = this.rowWindow();
     if (!force && view.first === this.first && view.last === this.last) return;
+
+    // An open editor holds what somebody is typing. Scrolling used to leave
+    // every row alone rather than disturb it, which meant a plan scrolled
+    // while a cell was open simply stopped drawing: rows where the pane had
+    // been, blank space where it now was. The editor travels instead — into
+    // the rebuilt cell if its row is still drawn, and otherwise its value is
+    // kept, the same as clicking on another cell keeps it.
+    const editor = this.root.querySelector<HTMLInputElement>(".fg-editor:not(.is-typist)");
+    const caret = editor ? { from: editor.selectionStart ?? 0, to: editor.selectionEnd ?? 0 } : null;
+
+    if (editor && (this.row < view.first || this.row > view.last)) {
+      void this.commitEdit(editor.value, "stay");
+      return;
+    }
+
+    if (editor) {
+      // Moving an element blurs it, and this one commits on blur. It is going
+      // straight back into its cell, so that is not a person leaving the cell.
+      this.moving = true;
+      this.root.querySelector(".fg-grid")?.append(editor);
+    }
 
     this.first = view.first;
     this.last = view.last;
@@ -3136,6 +3205,22 @@ class Grid {
     this.pinColumns();
     // The rows that carried the cursor have just been replaced.
     if (this.row >= view.first && this.row <= view.last) this.markSelection();
+
+    // The editor goes back where it was being typed into, caret and all.
+    if (editor) {
+      const cell = this.root
+        .querySelectorAll<HTMLElement>(".fg-pane-left .fg-row.fg-data")
+        [this.row - view.first]?.children[this.column];
+
+      if (cell) {
+        cell.querySelector(".fg-editor.is-typist")?.remove();
+        cell.append(editor);
+        editor.focus({ preventScroll: true });
+        if (caret) editor.setSelectionRange(caret.from, caret.to);
+      }
+
+      this.moving = false;
+    }
 
     // Parking was only somewhere to stand while the row was replaced, and the
     // rebuilt selected cell comes with a field of its own. Left behind, the
@@ -3451,7 +3536,7 @@ class Grid {
     // A schedule opened at the far left rarely shows the part anyone cares
     // about, so bring today into view the first time.
     const target =
-      this.scrollLeft || (todayIndex >= 0 ? Math.max(0, (todayIndex - 5) * this.dayWidth) : 0);
+      this.scrollLeft ?? (todayIndex >= 0 ? Math.max(0, (todayIndex - 5) * this.dayWidth) : 0);
     requestAnimationFrame(() => {
       chart.scrollLeft = target;
 
@@ -3470,12 +3555,7 @@ class Grid {
       // used to give out at around a hundred rows of holding down ⌘Enter.
       if (!left.isConnected) return;
 
-      const first = left.querySelector<HTMLElement>(".fg-row.fg-data");
-      if (first) {
-        this.rowPixels = first.offsetHeight || this.rowPixels;
-        this.rowsTop = first.offsetTop - this.first * this.rowPixels;
-        this.renderWindow();
-      }
+      if (this.measureRows(left)) this.renderWindow();
 
       // Measured rather than guessed: the columns are sized by their content,
       // so their total is only knowable once they are on the page.
@@ -3531,6 +3611,11 @@ class Grid {
     // `fg-data` marks the rows that hold tasks: the heading and the filter row
     // are also `.fg-row`, and picking them up shifts every index by one.
     const row = element("div", "fg-row fg-data");
+    // Which row of the plan this is. The window is worked out in pixels, and
+    // the sum only comes out right if the row being measured says where it
+    // belongs — a field on the island can be a render out of date by the time
+    // anything is measured.
+    row.dataset["index"] = String(index);
     if (this.behind(task)) row.classList.add("is-delayed");
     if (index === this.row) row.classList.add("is-current");
 
@@ -4026,7 +4111,7 @@ class Grid {
       // Only commit if this field became the editor. F2 opens a fresh editor
       // and re-renders, which blurs this one out of existence — committing its
       // empty value there would wipe the cell being opened.
-      if (this.editing && !input.classList.contains("is-typist")) {
+      if (this.editing && !this.moving && !input.classList.contains("is-typist")) {
         void this.commitEdit(input.value, "stay");
       }
     });

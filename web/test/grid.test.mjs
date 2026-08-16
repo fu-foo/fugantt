@@ -4941,6 +4941,115 @@ check(
   page.url(),
 );
 
+// --- 行を足したときの景色 -----------------------------------------------------
+
+// 下のほうで ⌘Enter を押すと、足した行が画面のいちばん下に来て景色が飛んでいた。
+// 貼り直した表はいったんいちばん上に戻るので、そこで「選択セルを見えるところへ」を
+// やると、セルではなく計画のほうが動く。足した行は、押した行のすぐ下に出る。
+const added = await (async () => {
+  await page.evaluate(() => {
+    document.querySelector(".fg-pane-left").scrollTop = 600;
+  });
+  await settle();
+
+  const spot = await page.evaluate(() => {
+    const rows = [...document.querySelectorAll(".fg-pane-left .fg-row.fg-data")];
+    const seen = rows.filter((row) => {
+      const box = row.getBoundingClientRect();
+      return box.top > 260 && box.bottom < window.innerHeight - 100;
+    });
+    const cell = seen[Math.floor(seen.length / 2)].querySelector(".fg-cell");
+    const box = cell.getBoundingClientRect();
+    return { x: Math.round(box.x + box.width / 2), y: Math.round(box.y + box.height / 2) };
+  });
+
+  await page.mouse.click(spot.x, spot.y);
+  await settle();
+
+  const read = () =>
+    page.evaluate(() => {
+      const current = document.querySelector(".fg-row.fg-data.is-current");
+      const editing = document.querySelector(".fg-editor:not(.is-typist)")?.closest(".fg-row.fg-data");
+      const top = (el) => (el ? Math.round(el.getBoundingClientRect().y) : null);
+      return {
+        上: Math.round(document.querySelector(".fg-pane-left").scrollTop),
+        押した行のy: top(current),
+        足した行のy: top(editing),
+      };
+    });
+
+  const before = await read();
+  await page.keyboard.down("Control");
+  await page.keyboard.press("Enter");
+  await page.keyboard.up("Control");
+  await settle();
+  await settle();
+
+  return { before, after: await read() };
+})();
+
+check(
+  "行を足しても景色が動かない",
+  added.after.上 === added.before.上 && added.after.押した行のy === added.before.押した行のy,
+  JSON.stringify(added),
+);
+check(
+  "足した行は押した行のすぐ下に出る",
+  added.after.足した行のy !== null && added.after.足した行のy - added.after.押した行のy === 32,
+  JSON.stringify(added),
+);
+
+// 行を足したあとスクロールすると、行はあるのに画面が真っ白になっていた。窓の起点を
+// 「1つ前の描画の値」で割り出していたためで、いまは描かれている行が自分の番号を
+// 持っていて、そこから測る。
+check(
+  "行を足したあとスクロールしても行が見えている",
+  await page.evaluate(async () => {
+    const pane = document.querySelector(".fg-pane-left");
+    pane.scrollTop = pane.scrollHeight / 2;
+    await new Promise((done) => setTimeout(done, 400));
+    pane.scrollTop += 400;
+    await new Promise((done) => setTimeout(done, 400));
+
+    return [...document.querySelectorAll(".fg-pane-left .fg-row.fg-data")].filter((row) => {
+      const box = row.getBoundingClientRect();
+      return box.bottom > 0 && box.top < window.innerHeight;
+    }).length;
+  }),
+);
+
+// チャートを4月まで戻して1つ直すと、8月（今日）に飛んでいた。いちばん左は 0 で、
+// 0 を「まだ見ていない」と読んでいたため。4月から始まる計画では、いちばん左が4月。
+const chartPlace = await (async () => {
+  // 見えている行を1つ選び直してから。窓の外の行は描かれていないので、F2 は開かない。
+  const spot = await page.evaluate(() => {
+    const row = [...document.querySelectorAll(".fg-pane-left .fg-row.fg-data")].find((row) => {
+      const box = row.getBoundingClientRect();
+      return box.top > 260 && box.bottom < window.innerHeight - 100;
+    });
+    const box = row.querySelector(".fg-cell").getBoundingClientRect();
+    return { x: Math.round(box.x + box.width / 2), y: Math.round(box.y + box.height / 2) };
+  });
+  await page.mouse.click(spot.x, spot.y);
+  await settle();
+
+  await page.evaluate(() => {
+    document.querySelector(".fg-pane-chart").scrollLeft = 0;
+  });
+  await settle();
+
+  await page.keyboard.press("F2");
+  await settle();
+  await page.keyboard.type("左端で直した");
+  await page.keyboard.press("Enter");
+  await settle();
+  await settle();
+
+  return page.evaluate(() => Math.round(document.querySelector(".fg-pane-chart").scrollLeft));
+})();
+
+check("直したあともチャートは見ていた場所のまま", chartPlace === 0, `左から ${chartPlace}px`);
+
 // --- 縦スクロール -------------------------------------------------------------
 
 // 見えている行だけを描き直すとき、キーボードを預かる透明な入力欄はいったん島の上に

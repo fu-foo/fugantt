@@ -1203,6 +1203,10 @@ html {
   padding: 0 10px;
   color: transparent;
   background: transparent;
+  /* It is here for the keyboard, never for the mouse. Clicks and the wheel
+     belong to the cell and the pane underneath — an invisible field that
+     answers the mouse is a field that swallows the scroll. */
+  pointer-events: none;
 }
 
 .fg-cell-name .fg-editor.is-typist {

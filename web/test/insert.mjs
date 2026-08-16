@@ -83,6 +83,7 @@ for (let i = 0; i < times; i++) {
         丈: pane?.scrollHeight ?? -1,
         枠: pane?.clientHeight ?? -1,
         余白: spacers.join("+"),
+        焦点: (document.activeElement?.className || document.activeElement?.tagName || "?").slice(0, 28),
       };
     },
     sent,
@@ -134,7 +135,7 @@ for (let i = 0; i < times; i++) {
   console.log(
     `${String(i + 1).padStart(3)} 打目  全体 ${String(last.全体).padStart(6)}ms` +
       `  往復 ${String(last.往復).padStart(6)}ms  ${last.KB}KB  行 ${last.行}` +
-      `  上 ${last.上}/${last.丈} 枠 ${last.枠}  余白 ${last.余白}`,
+      `  上 ${last.上}/${last.丈}  焦点 ${last.焦点}`,
   );
 }
 

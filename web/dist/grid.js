@@ -2129,6 +2129,10 @@ ${lines.join("\n")}` : "";
       );
       this.pinColumns();
       if (this.row >= view.first && this.row <= view.last) this.markSelection();
+      const parked = this.root.querySelector(".fg-grid > .fg-editor.is-typist");
+      if (parked && this.root.querySelectorAll(".fg-editor.is-typist").length > 1) {
+        parked.remove();
+      }
     }
     /**
      * Brings a row into the document, and into view, before anything looks for it.

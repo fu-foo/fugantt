@@ -898,6 +898,7 @@ html {
   padding: 0 10px;
   color: transparent;
   background: transparent;
+  pointer-events: none;
 }
 .fg-cell-name .fg-editor.is-typist {
   padding: 0;

@@ -4941,6 +4941,40 @@ check(
   page.url(),
 );
 
+// --- 縦スクロール -------------------------------------------------------------
+
+// 見えている行だけを描き直すとき、キーボードを預かる透明な入力欄はいったん島の上に
+// 「置いて」おく。置きっぱなしにすると、`inset: 0` なので島いっぱいに広がった
+// 入力欄が1枚かぶさる。何も見えないのに、ホイールは表ではなくそれに当たり、
+// 画面に入りきらない計画が縦にスクロールできなくなっていた。
+const wheel = await (async () => {
+  await selectCell(0, 0);
+  for (let i = 0; i < 40; i++) await page.keyboard.press("ArrowDown");
+  await settle();
+
+  return page.evaluate(() => {
+    const pane = document.querySelector(".fg-pane-left");
+    const box = pane.getBoundingClientRect();
+    const under = document.elementFromPoint(
+      Math.round(box.x + box.width / 2),
+      Math.round(box.y + box.height / 2),
+    );
+
+    return {
+      欄: document.querySelectorAll(".fg-editor.is-typist").length,
+      置きっぱなし: document.querySelectorAll(".fg-grid > .fg-editor.is-typist").length,
+      指の下: under?.className ?? "",
+      はみ出し: pane.scrollHeight - pane.clientHeight,
+    };
+  });
+})();
+
+check(
+  "透明な入力欄が表の上にかぶさっていない",
+  wheel.欄 === 1 && wheel.置きっぱなし === 0 && !wheel.指の下.includes("is-typist"),
+  JSON.stringify(wheel),
+);
+
 // --- 引き出しメニュー -------------------------------------------------------
 
 // 丈の足りない画面では、メニューの下（管理の節やログアウト）が切れたまま

@@ -3136,6 +3136,16 @@ class Grid {
     this.pinColumns();
     // The rows that carried the cursor have just been replaced.
     if (this.row >= view.first && this.row <= view.last) this.markSelection();
+
+    // Parking was only somewhere to stand while the row was replaced, and the
+    // rebuilt selected cell comes with a field of its own. Left behind, the
+    // parked one covers the island — it is `inset: 0` and the grid is the
+    // nearest positioned ancestor — so the wheel lands on an invisible input
+    // instead of the pane, and a plan too long to fit stops scrolling.
+    const parked = this.root.querySelector(".fg-grid > .fg-editor.is-typist");
+    if (parked && this.root.querySelectorAll(".fg-editor.is-typist").length > 1) {
+      parked.remove();
+    }
   }
 
   /**

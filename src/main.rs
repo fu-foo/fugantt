@@ -121,7 +121,19 @@ async fn serve(settings: config::Loaded) -> Result<(), Box<dyn Error>> {
     let open = browser::wanted(&host);
     tokio::spawn(async move { browser::open_when_ready(open, &host, port).await });
 
-    topcoat::start(router).await?;
+    if let Err(error) = topcoat::start(router).await {
+        // The one failure that is somebody else's fault and looks like ours: a
+        // raw "Address already in use" reads as a crash to whoever just
+        // double-clicked this.
+        if error.kind() == std::io::ErrorKind::AddrInUse {
+            eprintln!("{port} は他のプログラムが使っています。");
+            eprintln!("別の番号にするには、fugantt.ini に PORT = 1862 のように書くか、");
+            eprintln!("PORT=1862 を渡してください。");
+            std::process::exit(1);
+        }
+
+        return Err(error.into());
+    }
 
     Ok(())
 }

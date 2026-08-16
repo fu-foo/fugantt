@@ -18,7 +18,7 @@
  */
 import puppeteer from "puppeteer-core";
 
-const BASE = process.env["FUGANTT_URL"] ?? "http://127.0.0.1:3000";
+const BASE = process.env["FUGANTT_URL"] ?? "http://127.0.0.1:1861";
 const CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 
 const browser = await puppeteer.launch({ executablePath: CHROME, headless: "new", args: ["--no-sandbox"] });

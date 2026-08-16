@@ -20,6 +20,16 @@ use std::path::PathBuf;
 /// read because somebody will reach for them out of habit.
 const NAMES: [&str; 3] = ["fugantt.ini", "fugantt.conf", ".env"];
 
+/// The port this listens on when nobody says otherwise.
+///
+/// 1861 is the year Henry Gantt was born, which makes it easy to remember and,
+/// more to the point, empty. 3000 and 8080 are where every second development
+/// tool lives: two of them on one machine means the wrong program answers, and
+/// the failure looks like the app being broken rather than the port being
+/// taken — an afternoon was lost to exactly that on the machine this was
+/// written on.
+const DEFAULT_PORT: &str = "1861";
+
 /// The settings a file may carry.
 ///
 /// A closed list, so a typo is caught and said out loud rather than silently
@@ -67,6 +77,13 @@ pub unsafe fn load() -> Loaded {
         unknown: Vec::new(),
     };
 
+    // Set before the file is read, so the file can still override it and the
+    // environment still overrides both.
+    if std::env::var_os("PORT").is_none() {
+        // SAFETY: the caller promises nothing else is running yet.
+        unsafe { std::env::set_var("PORT", DEFAULT_PORT) };
+    }
+
     let Some(path) = path else {
         return loaded;
     };
@@ -83,8 +100,10 @@ pub unsafe fn load() -> Loaded {
 
         // The environment wins. Docker and Fly pass these in, and a file that
         // could quietly overrule them would change a deployment by being
-        // copied into place.
-        if std::env::var_os(&key).is_some() {
+        // copied into place. The port is the exception: what is there is this
+        // program's own default, not somebody's decision.
+        let ours = key == "PORT" && std::env::var("PORT").as_deref() == Ok(DEFAULT_PORT);
+        if !ours && std::env::var_os(&key).is_some() {
             loaded.overridden.push(key);
             continue;
         }
@@ -237,7 +256,7 @@ pub fn help() -> String {
             "HOST",
             "待ち受けるアドレス。既定 127.0.0.1、0.0.0.0 で LAN に公開",
         ),
-        ("PORT", "待ち受けるポート。既定 3000"),
+        ("PORT", "待ち受けるポート。既定 1861（ガントの生年）"),
         (
             "FUGANTT_DB",
             "データベースのファイル。既定は利用者ごとの場所",

@@ -23,7 +23,7 @@ primary_region = "nrt"
   memory = "512mb"
 
 [http_service]
-  internal_port = 3000
+  internal_port = 1861
   force_https = true
   # Never zero, never two. Stopping the machine would take the database's only
   # reader and writer with it; starting a second would split the data.

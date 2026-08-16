@@ -21,9 +21,9 @@ COPY --from=build /src/target/release/fugantt /usr/local/bin/fugantt
 COPY LICENSE NOTICE /usr/share/doc/fugantt/
 
 # Listen on every interface: inside a container there is nothing else to reach.
-ENV HOST=0.0.0.0 PORT=3000 FUGANTT_DB=/data/fugantt.db
+ENV HOST=0.0.0.0 PORT=1861 FUGANTT_DB=/data/fugantt.db
 VOLUME /data
-EXPOSE 3000
+EXPOSE 1861
 
 # Not root. The volume is the only thing it needs to write.
 RUN useradd --system --uid 10001 fugantt && mkdir -p /data && chown fugantt /data

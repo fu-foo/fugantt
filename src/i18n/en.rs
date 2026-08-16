@@ -33,7 +33,7 @@ pub fn of(ja: &str) -> Option<&'static str> {
         "このプロジェクト" => "This project",
         "スケジュール" => "Schedule",
         "統計" => "Statistics",
-        "変更履歴" => "History",
+        "タスク変更履歴" => "Task history",
         "設定" => "Settings",
         "データの入出力" => "Import and export",
         "Excel で書き出す" => "Export to Excel",
@@ -56,14 +56,14 @@ pub fn of(ja: &str) -> Option<&'static str> {
         "バックアップから戻す" => "Restore from a backup",
         "このファイルの内容に戻す" => "Restore this file",
         "いま使っているファイル" => "In use",
-        "いまの中身をまるごと1つのファイルに落とします。開いている人がいても、途中の状態にはなりません。" => {
-            "Writes everything to a single file. Consistent even while people are working in it."
+        "現在のデータを1つのファイルに出力します。" => {
+            "Writes the current data to a single file."
         }
-        "いまのプロジェクト・タスク・設定はすべて、選んだファイルの中身に置き換わります。戻す直前の中身は、データベースの隣に1つ自動で控えます。" => {
-            "Every project, task and setting is replaced by what is in the file you choose. What was there a moment before is kept, automatically, next to the database."
+        "現在のデータはすべて、選んだファイルの内容に置き換わります。復元前のデータは自動で控えます。" => {
+            "All current data is replaced by what is in the file you choose. What was there before is kept automatically."
         }
-        "アカウントとパスワードもその時点に戻ります。いまログインしている人は入り直しになることがあります。" => {
-            "Accounts and passwords go back too. Anyone signed in may have to sign in again."
+        "アカウントとパスワードも復元されます。再ログインが必要になる場合があります。" => {
+            "Accounts and passwords are restored as well. You may have to sign in again."
         }
         "いまの中身は、選んだファイルの中身に置き換わります。よろしいですか？" => {
             "Everything here will be replaced by the contents of that file. Continue?"
@@ -109,17 +109,17 @@ pub fn of(ja: &str) -> Option<&'static str> {
         "遅れていない" => "On time",
 
         // --- capacity -----------------------------------------------------
-        "余力" => "Capacity",
-        "稼働できる" => "Available",
-        "過ぎた" => "Elapsed",
-        "埋まっている" => "Committed",
-        "空き" => "Free",
-        "重なり" => "Overlapping",
+        "空き検索" => "Availability",
+        "稼働可能日数" => "Available days",
+        "経過済" => "Elapsed",
+        "割当済" => "Committed",
+        "空き日数" => "Free days",
+        "重複" => "Overlapping",
         "開始月" => "From",
         "終了月" => "To",
         "この期間で見る" => "Show this range",
-        "今日から先を数えます（過ぎた日は「過ぎた」に分けます）。同じ日に2つのタスクがあっても、その日は1日。何重かは「重なり」に出ます。終わったタスクと集計行は数えません。休暇はその人の稼働から引きます。" => {
-            "Counted from today: days already gone are their own column, so what is left is what is left. Two tasks on one day is one day; how many deep is in Overlapping. Finished tasks and summary rows are not counted, and leave comes off the person's available days."
+        "今日から先を数えます。同じ日に複数のタスクがあっても1日と数え、その重なりは「重複」に出ます。終わったタスクと集計行は数えません。休暇は稼働可能日数から引きます。" => {
+            "Counted from today. Two tasks on one day is one day; how many deep is in Overlapping. Finished tasks and summary rows are not counted, and leave comes off the available days."
         }
         "予定進捗に届いていません" => "Not up to the checkpoint it promised",
         "予定終了を過ぎて、実施終了が入っていません" => {
@@ -145,9 +145,9 @@ pub fn of(ja: &str) -> Option<&'static str> {
         // --- settings -----------------------------------------------------
         "表示" => "Display",
         "列" => "Columns",
-        "チャートの吹き出し" => "What a bar says",
-        "バーにポインタを合わせたときに、日付のほかに出す項目です。表から外した列も選べます——チャートの上で確かめられるなら、その列はいつも出しておかなくていい。" => {
-            "What a bar shows besides its dates when you point at it. Columns you have taken off the table can be named here: if you can check it on the chart, it need not sit on the screen all day."
+        "チャートマウスオーバー時の表示" => "What a bar shows on hover",
+        "バーにポインタを合わせたときに、日付のほかに出す項目です。表から外した列も選べます。表示することでチャート上で確認することができます。" => {
+            "What a bar shows besides its dates when you point at it. Columns you have taken off the table can be named here, and checked on the chart instead."
         }
         "（非表示）" => "(hidden)",
         "日付だけです。" => "Dates only.",
@@ -161,17 +161,17 @@ pub fn of(ja: &str) -> Option<&'static str> {
         "閲覧者" => "Viewer",
         "無効" => "No access",
         "言語" => "Language",
-        "見た目" => "Appearance",
+        "外観" => "Appearance",
         "テーマ" => "Theme",
         "自動（OSに合わせる）" => "Automatic (follow the system)",
         "明るい" => "Light",
         "暗い" => "Dark",
         "自分用の CSS" => "Your own CSS",
-        "自分の画面にだけ効きます。ほかの人には見えません。計画の色（バーやステータス）はプロジェクトのものなので、ここでは変わりません。" => {
-            "Applies to your screen and nobody else's. The plan's own colours — bars, statuses — belong to the project and do not change here."
+        "自分の画面にだけ効きます。ほかの人には見えません。" => {
+            "Applies to your screen and nobody else's."
         }
-        "最後に読み込まれるので、ここに書いたものが勝ちます。2万文字まで。@import は使えません。" => {
-            "Loaded last, so what you write here wins. Up to 20,000 characters. @import is not available."
+        "最後に読み込まれるため、ここでの指定が優先されます。2万文字まで。@import は使えません。" => {
+            "Loaded last, so what you write here takes priority. Up to 20,000 characters. @import is not available."
         }
         "日本語" => "Japanese",
         "英語" => "English",
@@ -236,25 +236,25 @@ pub fn of(ja: &str) -> Option<&'static str> {
 
         // --- settings and administration -----------------------------------
         "アプリの名前（左上に出ます）" => "The name of this app (shown top left)",
-        "既定です。自分の設定で選んだ人は、そちらが優先されます。「自動」は、その人のブラウザ（OS）の言語に合わせます。" => {
-            "The default. Anyone who picks a language in their own settings keeps that choice. \"Automatic\" follows each person's browser, which follows their operating system."
+        "既定の言語です。自分の設定が優先されます。「自動」はブラウザの言語に合わせます。" => {
+            "The default language. A person's own setting takes priority. \"Automatic\" follows their browser."
         }
-        "1行に「開始日 名称」。新しい元号が決まったら、ここに1行足すだけで済みます。読めない行は無視します。" => {
-            "One era per line: start date, then name. When a new era is announced, adding a line here is the whole change. Lines that cannot be read are ignored."
+        "1行に「開始日 名称」。新しい元号が決まったら、ここに設定します。" => {
+            "One era per line: start date, then name. Add a line here when a new era is announced."
         }
-        "新しく決めるときだけ効きます。いま使っているパスワードは、次に変えるまでそのまま使えます。" => {
-            "This applies when a password is set. Passwords already in use keep working until they are next changed."
+        "新しく設定するときにだけ適用されます。" => {
+            "Applies when a password is set."
         }
         "最低文字数" => "Minimum length",
         "何もチェックしなければ指定なし。日本語は記号に数えます" => {
             "Tick nothing to require none. Non-Latin characters count as symbols"
         }
         "使わせない語" => "Words to refuse",
-        "1行に1語。これを含むパスワードは断ります（大文字小文字は問いません）。会社名や製品名を足しておくと効きます。空にすれば、この検査はしません。" => {
-            "One word per line. A password containing any of them is refused, whatever the case. Adding your company or product name is worth doing. Leave it empty to skip this check."
+        "1行に1語。これを含むパスワードは使えません（大文字小文字は区別しません）。空欄なら検査しません。" => {
+            "One word per line. A password containing any of them is refused, whatever the case. Leave it empty to skip this check."
         }
-        "会社の暦です。すべてのプロジェクトが、まずここを見ます。現場ごとの違いは、それぞれのプロジェクトの設定で足したり外したりできます。" => {
-            "The company calendar. Every project starts from this list, and each one can add to it or opt out of a day in its own settings."
+        "全プロジェクト共通の暦です。プロジェクトごとの違いは各プロジェクトの設定で調整します。" => {
+            "The calendar every project shares. Differences per project are set in that project's own settings."
         }
         "日本の祝日をまとめて入れる" => "Add a year of Japanese public holidays",
         "振替休日と国民の休日も計算します。同じ日付が既にあれば残します。" => {
@@ -262,8 +262,8 @@ pub fn of(ja: &str) -> Option<&'static str> {
         }
         "創立記念日" => "Founders' Day",
         "担当者の色" => "Assignee colours",
-        "同じ人はどのプロジェクトでも同じ色にします。アカウントの無い名前（協力会社・他部署）も登録できます。" => {
-            "One person, one colour, in every project. Names without an account — contractors, other teams — can be listed here too."
+        "担当者の色は全プロジェクト共通です。アカウントの無い名前も登録できます。" => {
+            "Assignee colours are shared by every project. Names without an account can be listed here too."
         }
         "協力会社 A" => "Contractor A",
         "背景色" => "Background",
@@ -279,13 +279,10 @@ pub fn of(ja: &str) -> Option<&'static str> {
         "日数の数え方は編集者が設定します。" => {
             "How days are counted is set by an editor."
         }
-        "週の何曜を休みにするかは現場ごと。既定はどれも外しません。" => {
-            "Which weekdays are off differs by workplace. By default none of them are."
-        }
         "進捗の入れ方" => "How progress is set",
         "手入力" => "Typed in",
-        "連動しても、進捗を決めていないステータスは手入力のままです。進捗を 100% にすると、実施終了が空なら今日の日付が入ります。" => {
-            "Even when linked, a status with no progress of its own leaves the number as typed. Setting progress to 100% fills in today as the actual end, if it is empty."
+        "進捗を設定していないステータスは手入力のままです。進捗を 100% にすると、実施終了が空欄なら今日の日付が入ります。" => {
+            "A status with no progress of its own leaves the number as typed. Setting progress to 100% fills in today as the actual end, if it is empty."
         }
         "年度の開始月" => "Business year starts in",
         "月" => "月",
@@ -293,12 +290,12 @@ pub fn of(ja: &str) -> Option<&'static str> {
         "1日の幅" => "Width of a day",
         "四半期の帯を出す" => "Show the quarter band",
         "年を和暦で表示する" => "Show years as Japanese eras",
-        "表示・幅（px、空欄で自動）・並び順。タスク名は先頭で固定です。↑↓ を押すと、入力中の幅も一緒に保存されます。" => {
-            "Shown or hidden, width in pixels (empty means automatic), and order. The task name stays first. Pressing the arrows saves the width you are typing as well."
+        "表示・幅（px、空欄で自動）・並び順。タスク名は先頭で固定です。" => {
+            "Shown or hidden, width in pixels (empty means automatic), and order. The task name stays first."
         }
         "自動" => "Automatic",
-        "名前・色・その状態が意味する進捗。進捗を空にすると、その状態では手入力のままになります。" => {
-            "Name, colour, and the progress that state implies. Leave the progress empty and that state keeps whatever was typed."
+        "進捗を空欄にすると、そのステータスでは手入力のままです。" => {
+            "Leave the progress empty and that status keeps whatever was typed."
         }
         "レビュー中" => "In review",
         "進捗（任意）" => "Progress (optional)",
@@ -306,12 +303,10 @@ pub fn of(ja: &str) -> Option<&'static str> {
         "製品" => "Product",
         "種類" => "Kind",
         "選択肢を追加" => "Add a choice",
-        "メンバーとタスクに入っている名前が並びます。ここに名前を足せば、アカウントの無い人も選べます。色は全員で共通なので「全体の設定」で決めます——同じ人が案件ごとに違う色だと、いくつも開いたときに読めなくなるためです。" => {
-            "The names of members and of anyone written on a task. Add a name here and people without an account can be assigned work too. Colours are shared by everyone and live in the installation settings: one person in two colours is unreadable once you have several projects open."
+        "メンバーとタスクに入っている名前が並びます。ここに名前を足せば、アカウントの無い人も選べます。色は全員で共通なので「全体の設定」で決めます。" => {
+            "The names of members and of anyone written on a task. Add a name here and people without an account can be assigned work too. Colours are shared by everyone and live in the installation settings."
         }
-        "土日と同じように網かけします。日数の計算は変わりません。日本の祝日は「全体の設定」に入れておくと、どのプロジェクトにも出ます。ここで扱うのは、この現場だけの違いです。" => {
-            "Shaded like a weekend; the day count is unaffected. Public holidays belong in the installation settings, where every project picks them up. What you set here is this project's own difference."
-        }
+        "日数の計算は変わりません。" => "The day count is unaffected.",
         "日付" => "Date",
         "名称" => "Name",
         "現場の休業日" => "Site closure",
@@ -319,8 +314,8 @@ pub fn of(ja: &str) -> Option<&'static str> {
         "全体" => "Shared",
         "このプロジェクトでは働く" => "Working here",
         "平均 " => "average ",
-        "ここで作った人がログインできます。ベース権限は、そのプロジェクトに名前が無いときに使われる既定です。「無効」にすると、招かれたプロジェクトだけが見えます。" => {
-            "Anyone made here can sign in. The base role is what applies to a project that does not name them; \"no access\" means they see only the projects they were added to."
+        "ベース権限は、プロジェクトに個別の指定が無いときの既定です。「無効」の場合は招待されたプロジェクトのみ表示します。" => {
+            "The base role applies to any project that does not name the person; \"no access\" shows only the projects they were added to."
         }
         "ベース権限" => "Base role",
         "新しいパスワード（変えるときだけ）" => "New password (only to change it)",
@@ -331,8 +326,8 @@ pub fn of(ja: &str) -> Option<&'static str> {
 
         // --- API トークン ---------------------------------------------------
         "API トークン" => "API tokens",
-        "ブラウザ以外からこのプロジェクトだけを読み書きするための鍵です。書き出した JSON を読ませて、考えさせて、書き戻す——その往復に使います。" => {
-            "Keys that let something other than a browser read and write this project alone. For the loop of reading the plan, working out what should change, and writing it back."
+        "ブラウザ以外からこのプロジェクトだけを読み書きするための API トークンです。" => {
+            "An API token that lets something other than a browser read and write this project alone."
         }
         "いま作ったトークンです。この画面を離れると二度と出ません。" => {
             "The token you just made. It is not shown again once you leave this page."
@@ -353,8 +348,8 @@ pub fn of(ja: &str) -> Option<&'static str> {
 
         // --- 既定のステータス -----------------------------------------------
         "既定のステータス" => "Default statuses",
-        "新しいプロジェクトはこの一覧を写して始まります。写したあとはそのプロジェクトのものなので、ここを直しても、既にあるプロジェクトの色や進捗は動きません。" => {
-            "A new project starts from a copy of this list. The copy belongs to that project, so changing it here moves neither the colours nor the progress of any project that already exists."
+        "新しいプロジェクトの初期値です。既存のプロジェクトには反映されません。" => {
+            "The starting point for new projects. Projects that already exist are not affected."
         }
         "手入力のまま" => "left as typed",
 
@@ -372,8 +367,8 @@ pub fn of(ja: &str) -> Option<&'static str> {
 
         // --- 全プロジェクトのトークン ---------------------------------------
         "全プロジェクトの API トークン" => "API tokens for every project",
-        "すべてのプロジェクトを読める鍵です。案件をまたいだ集計に使います。1つのプロジェクトだけでよいなら、そのプロジェクトの設定で発行してください。" => {
-            "A key that reads every project, for numbers gathered across them. If one project is enough, issue the token in that project's settings."
+        "すべてのプロジェクトを読める API トークンです。案件をまたいだ集計に使います。1つのプロジェクトだけでよいなら、そのプロジェクトの設定で発行してください。" => {
+            "An API token that reads every project, for numbers gathered across them. If one project is enough, issue the token in that project's settings."
         }
         "全案件の遅延を集める" => "Collecting lateness across projects",
 

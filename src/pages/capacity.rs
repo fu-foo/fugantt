@@ -69,7 +69,7 @@ async fn index(cx: &Cx) -> Result {
 
     view! {
         <div class="mx-auto w-full max-w-4xl">
-            <h1 class="text-2xl font-bold tracking-tight">(l.t("余力"))</h1>
+            <h1 class="text-2xl font-bold tracking-tight">(l.t("空き検索"))</h1>
             <p class="mt-1 text-sm text-slate-500">(&project.name)</p>
 
             <form method="GET" class="mt-6 flex flex-wrap items-end gap-3">
@@ -104,11 +104,11 @@ async fn index(cx: &Cx) -> Result {
                     <thead class="bg-slate-50 text-xs text-slate-500">
                         <tr>
                             <th class="px-4 py-2 text-left font-medium">(l.t("担当者"))</th>
-                            <th class="px-4 py-2 text-right font-medium">(l.t("稼働できる"))</th>
-                            <th class="px-4 py-2 text-right font-medium">(l.t("過ぎた"))</th>
-                            <th class="px-4 py-2 text-right font-medium">(l.t("埋まっている"))</th>
-                            <th class="px-4 py-2 text-right font-medium">(l.t("空き"))</th>
-                            <th class="px-4 py-2 text-right font-medium">(l.t("重なり"))</th>
+                            <th class="px-4 py-2 text-right font-medium">(l.t("稼働可能日数"))</th>
+                            <th class="px-4 py-2 text-right font-medium">(l.t("経過済"))</th>
+                            <th class="px-4 py-2 text-right font-medium">(l.t("割当済"))</th>
+                            <th class="px-4 py-2 text-right font-medium">(l.t("空き日数"))</th>
+                            <th class="px-4 py-2 text-right font-medium">(l.t("重複"))</th>
                             <th class="w-1/3 px-4 py-2 text-left font-medium"></th>
                         </tr>
                     </thead>
@@ -177,12 +177,12 @@ async fn index(cx: &Cx) -> Result {
                                         // is the answer to half a question.
                                         if !row.free_spans.is_empty() {
                                             <p class="mt-1 text-xs text-slate-500">
-                                                (l.t("空き")) ": " (&spans(&row.free_spans))
+                                                (l.t("空き日数")) ": " (&spans(&row.free_spans))
                                             </p>
                                         }
                                         if !row.overlap_spans.is_empty() {
                                             <p class="mt-0.5 text-xs text-amber-600">
-                                                (l.t("重なり")) ": " (&spans(&row.overlap_spans))
+                                                (l.t("重複")) ": " (&spans(&row.overlap_spans))
                                             </p>
                                         }
                                     </td>
@@ -194,7 +194,7 @@ async fn index(cx: &Cx) -> Result {
             </section>
 
             <p class="mt-3 text-xs text-slate-400">
-                (l.t("今日から先を数えます（過ぎた日は「過ぎた」に分けます）。同じ日に2つのタスクがあっても、その日は1日。何重かは「重なり」に出ます。終わったタスクと集計行は数えません。休暇はその人の稼働から引きます。"))
+                (l.t("今日から先を数えます。同じ日に複数のタスクがあっても1日と数え、その重なりは「重複」に出ます。終わったタスクと集計行は数えません。休暇は稼働可能日数から引きます。"))
             </p>
         </div>
     }

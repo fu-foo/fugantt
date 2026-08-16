@@ -127,7 +127,7 @@
     "\u9045\u308C": "behind",
     "\u9806\u8ABF": "on track",
     "\u89E3\u9664": "Clear",
-    "\u6761\u4EF6": "Views",
+    "\u691C\u7D22\u6761\u4EF6": "Saved filters",
     "\u7D5E\u308A\u8FBC\u307F\u306E\u6761\u4EF6\u3092\u540D\u524D\u3092\u3064\u3051\u3066\u7F6E\u3044\u3066\u304A\u304F": "Keep a set of filters under a name",
     "\u3044\u307E\u306E\u6761\u4EF6\u306B\u540D\u524D\u3092\u3064\u3051\u3066\u4FDD\u5B58": "Name these filters to keep them",
     "\u307F\u3093\u306A\u3067\u4F7F\u3046": "Share with everybody",
@@ -564,7 +564,7 @@
         clear.addEventListener("click", () => this.clearFilters());
         label.append(clear);
       }
-      const saved = element("button", "fg-filter-sets", t("\u6761\u4EF6"));
+      const saved = element("button", "fg-filter-sets", t("\u691C\u7D22\u6761\u4EF6"));
       saved.type = "button";
       saved.title = t("\u7D5E\u308A\u8FBC\u307F\u306E\u6761\u4EF6\u3092\u540D\u524D\u3092\u3064\u3051\u3066\u7F6E\u3044\u3066\u304A\u304F");
       if (this.data.filter_sets.length > 0) saved.classList.add("is-on");

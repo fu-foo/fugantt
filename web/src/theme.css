@@ -372,6 +372,57 @@ textarea {
 }
 
 /*
+ * Chosen, and saying so. The pale blue that marks a filter which is doing
+ * something, the 表示 button when a column is hidden, the cell the cursor is
+ * in. Each was a highlight on white paper and a white patch on dark — with the
+ * page's now-pale ink standing on it, which is how a filter that reads 「4件」
+ * ends up saying nothing.
+ */
+.fg-filter.is-on,
+.fg-filter-op.is-on,
+.fg-shows.is-on,
+.fg-cell.is-selected {
+  background: var(--accent-soft);
+  color: var(--ink);
+}
+
+/*
+ * The small painted things inside a cell: the ✎ that opens the 待ち dialog, and
+ * the pill carrying a promised percentage. White paper with dark ink, which is
+ * the row turned inside out once the page goes dark. The missed one keeps its
+ * red — that colour has a job.
+ */
+.fg-wait-edit {
+  background: var(--panel);
+  color: var(--ink-quiet);
+}
+
+.fg-target-pill {
+  color: var(--ink-soft);
+}
+
+.fg-target-pill.is-met {
+  background: var(--panel-strong);
+  color: var(--ink-faint);
+}
+
+/* Late, written rather than drawn. The light theme's red is a shade away from
+   the navy of the row a person is standing on, so the number that matters most
+   is the one that disappears. The bars keep their own red. */
+.fg-cell .is-late,
+.fg-variance.is-late {
+  color: var(--danger);
+}
+
+/* Somebody else changed the plan. Not an error, so it keeps the accent's
+   colours rather than the warning ones. */
+.fg-notice {
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+  border-color: var(--accent-rule);
+}
+
+/*
  * Anything wearing a colour from the database: a status pill, a person's chip,
  * a swatch. The paint is inline, so it survives; the ink has to come with it,
  * because the page's ink went pale and these papers did not. An element that

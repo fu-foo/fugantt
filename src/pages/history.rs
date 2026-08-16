@@ -41,7 +41,7 @@ async fn index(cx: &Cx) -> Result {
 
     view! {
         <div class="mx-auto w-full max-w-4xl">
-            <h1 class="text-2xl font-bold tracking-tight">"変更履歴"</h1>
+            <h1 class="text-2xl font-bold tracking-tight">"タスク変更履歴"</h1>
             <p class="mt-1 text-sm text-slate-500">
                 (&project.name)
                 if total > 0 {

@@ -738,7 +738,7 @@ pub fn load(data: &GridData, from: Date, to: Date, today: Date) -> Vec<Load> {
 
     // Everything below is about what is left. Yesterday cannot be booked and it
     // cannot be free either; it is gone, and says so in a column of its own.
-    // 稼働できる = 過ぎた + 埋まっている + 空き, which is the only way a row of
+    // 稼働可能日数 = 経過済 + 割当済 + 空き日数, which is the only way a row of
     // numbers about a half-finished month adds up.
     let ahead = from.max(today);
 

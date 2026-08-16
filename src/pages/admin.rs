@@ -64,7 +64,7 @@ async fn index(cx: &Cx) -> Result {
     view! {
         <div class="mx-auto w-full max-w-3xl">
             <h1 class="text-2xl font-bold tracking-tight">"全体の設定"</h1>
-            <p class="mt-1 text-sm text-slate-500">"この fugantt を使う全員に効きます。"</p>
+            <p class="mt-1 text-sm text-slate-500">"全員に有効です"</p>
 
             <form
                 method="POST"
@@ -105,7 +105,7 @@ async fn index(cx: &Cx) -> Result {
                         }
                     </select>
                     <p class="text-xs text-slate-500">
-                        (l.t("既定です。自分の設定で選んだ人は、そちらが優先されます。「自動」は、その人のブラウザ（OS）の言語に合わせます。"))
+                        (l.t("既定の言語です。自分の設定が優先されます。「自動」はブラウザの言語に合わせます。"))
                     </p>
                 </div>
 
@@ -118,7 +118,7 @@ async fn index(cx: &Cx) -> Result {
                         class="w-full rounded-lg border border-slate-300 px-3 py-2 font-mono text-sm"
                     >(&eras)</textarea>
                     <p class="text-xs text-slate-500">
-                        (l.t("1行に「開始日 名称」。新しい元号が決まったら、ここに1行足すだけで済みます。読めない行は無視します。"))
+                        (l.t("1行に「開始日 名称」。新しい元号が決まったら、ここに設定します。"))
                     </p>
                 </div>
 
@@ -134,7 +134,7 @@ async fn index(cx: &Cx) -> Result {
             <section id="password" class="mt-6 rounded-xl border border-slate-200 bg-white p-6">
                 <h2 class="text-lg font-semibold">"パスワードの決まり"</h2>
                 <p class="mt-1 text-sm text-slate-500">
-                    (l.t("新しく決めるときだけ効きます。いま使っているパスワードは、次に変えるまでそのまま使えます。"))
+                    (l.t("新しく設定するときにだけ適用されます。"))
                 </p>
 
                 <form method="POST" action="/admin/password" class="mt-4 flex flex-col gap-6">
@@ -187,7 +187,7 @@ async fn index(cx: &Cx) -> Result {
                             class="w-full rounded-lg border border-slate-300 px-3 py-2 font-mono text-sm"
                         >(&banned)</textarea>
                         <p class="text-xs text-slate-500">
-                            (l.t("1行に1語。これを含むパスワードは断ります（大文字小文字は問いません）。会社名や製品名を足しておくと効きます。空にすれば、この検査はしません。"))
+                            (l.t("1行に1語。これを含むパスワードは使えません（大文字小文字は区別しません）。空欄なら検査しません。"))
                         </p>
                     </div>
 
@@ -208,7 +208,7 @@ async fn index(cx: &Cx) -> Result {
             <section id="tokens" class="mt-6 rounded-xl border border-slate-200 bg-white p-6">
                 <h2 class="text-lg font-semibold">(l.t("全プロジェクトの API トークン"))</h2>
                 <p class="mt-1 text-sm text-slate-500">
-                    (l.t("すべてのプロジェクトを読める鍵です。案件をまたいだ集計に使います。1つのプロジェクトだけでよいなら、そのプロジェクトの設定で発行してください。"))
+                    (l.t("すべてのプロジェクトを読める API トークンです。案件をまたいだ集計に使います。1つのプロジェクトだけでよいなら、そのプロジェクトの設定で発行してください。"))
                 </p>
 
                 if !issued.is_empty() {
@@ -300,7 +300,7 @@ async fn index(cx: &Cx) -> Result {
                     </span>
                 </h2>
                 <p class="mt-1 text-sm text-slate-500">
-                    (l.t("新しいプロジェクトはこの一覧を写して始まります。写したあとはそのプロジェクトのものなので、ここを直しても、既にあるプロジェクトの色や進捗は動きません。"))
+                    (l.t("新しいプロジェクトの初期値です。既存のプロジェクトには反映されません。"))
                 </p>
 
                 <form method="POST" action="/admin/statuses" class="mt-4 flex flex-wrap items-end gap-3">
@@ -402,7 +402,7 @@ async fn index(cx: &Cx) -> Result {
                     </span>
                 </h2>
                 <p class="mt-1 text-sm text-slate-500">
-                    (l.t("会社の暦です。すべてのプロジェクトが、まずここを見ます。現場ごとの違いは、それぞれのプロジェクトの設定で足したり外したりできます。"))
+                    (l.t("全プロジェクト共通の暦です。プロジェクトごとの違いは各プロジェクトの設定で調整します。"))
                 </p>
 
                 <form
@@ -488,7 +488,7 @@ async fn index(cx: &Cx) -> Result {
                     </span>
                 </h2>
                 <p class="mt-1 text-sm text-slate-500">
-                    (l.t("同じ人はどのプロジェクトでも同じ色にします。アカウントの無い名前（協力会社・他部署）も登録できます。"))
+                    (l.t("担当者の色は全プロジェクト共通です。アカウントの無い名前も登録できます。"))
                 </p>
 
                 <form method="POST" action="/admin/assignees" class="mt-4 flex flex-wrap items-end gap-3">
@@ -592,7 +592,7 @@ async fn index(cx: &Cx) -> Result {
             <section id="backup" class="mt-6 rounded-xl border border-slate-200 bg-white p-6">
                 <h2 class="text-lg font-semibold">(l.t("バックアップ"))</h2>
                 <p class="mt-1 text-sm text-slate-500">
-                    (l.t("いまの中身をまるごと1つのファイルに落とします。開いている人がいても、途中の状態にはなりません。"))
+                    (l.t("現在のデータを1つのファイルに出力します。"))
                 </p>
                 <p class="mt-1 text-xs text-slate-400">
                     (l.t("いま使っているファイル")) ": " (&database)
@@ -620,10 +620,10 @@ async fn index(cx: &Cx) -> Result {
                 >
                     <span class="text-sm font-medium text-red-900">(l.t("バックアップから戻す"))</span>
                     <p class="text-sm text-red-900">
-                        (l.t("いまのプロジェクト・タスク・設定はすべて、選んだファイルの中身に置き換わります。戻す直前の中身は、データベースの隣に1つ自動で控えます。"))
+                        (l.t("現在のデータはすべて、選んだファイルの内容に置き換わります。復元前のデータは自動で控えます。"))
                     </p>
                     <p class="text-sm font-medium text-red-900">
-                        (l.t("アカウントとパスワードもその時点に戻ります。いまログインしている人は入り直しになることがあります。"))
+                        (l.t("アカウントとパスワードも復元されます。再ログインが必要になる場合があります。"))
                     </p>
                     <input
                         type="file"

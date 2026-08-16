@@ -30,7 +30,7 @@ async fn index(cx: &Cx) -> Result {
         <div class="mx-auto w-full max-w-3xl">
             <h1 class="text-2xl font-bold tracking-tight">"ユーザー"</h1>
             <p class="mt-1 text-sm text-slate-500">
-                (l.t("ここで作った人がログインできます。ベース権限は、そのプロジェクトに名前が無いときに使われる既定です。「無効」にすると、招かれたプロジェクトだけが見えます。"))
+                (l.t("ベース権限は、プロジェクトに個別の指定が無いときの既定です。「無効」の場合は招待されたプロジェクトのみ表示します。"))
             </p>
 
             <section class="mt-6 rounded-xl border border-slate-200 bg-white p-6">
@@ -342,9 +342,9 @@ async fn me(cx: &Cx) -> Result {
             </section>
 
             <section class="mt-6 rounded-xl border border-slate-200 bg-white p-6">
-                <h2 class="text-lg font-semibold">(l.t("見た目"))</h2>
+                <h2 class="text-lg font-semibold">(l.t("外観"))</h2>
                 <p class="mt-1 text-xs text-slate-500">
-                    (l.t("自分の画面にだけ効きます。ほかの人には見えません。計画の色（バーやステータス）はプロジェクトのものなので、ここでは変わりません。"))
+                    (l.t("自分の画面にだけ効きます。ほかの人には見えません。"))
                 </p>
 
                 <form method="POST" action="/me/look" class="mt-4 flex flex-col gap-4">
@@ -385,7 +385,7 @@ async fn me(cx: &Cx) -> Result {
                             class="w-full rounded-lg border border-slate-300 px-3 py-2 font-mono text-xs"
                         >(&user.custom_css)</textarea>
                         <p class="text-xs text-slate-400">
-                            (l.t("最後に読み込まれるので、ここに書いたものが勝ちます。2万文字まで。@import は使えません。"))
+                            (l.t("最後に読み込まれるため、ここでの指定が優先されます。2万文字まで。@import は使えません。"))
                         </p>
                     </div>
 

@@ -173,10 +173,6 @@ async fn settings(cx: &Cx) -> Result {
                 >
                     <fieldset class="flex flex-col gap-2">
                         <legend class="text-xs font-medium text-slate-500">"日数から除く日"</legend>
-                        <p class="text-xs text-slate-400">
-                            (l.t("週の何曜を休みにするかは現場ごと。既定はどれも外しません。"))
-                        </p>
-
                         count_switch(name: "skip_monday", label: "月曜", on: data.counting.monday)
                         count_switch(name: "skip_tuesday", label: "火曜", on: data.counting.tuesday)
                         count_switch(
@@ -229,7 +225,7 @@ async fn settings(cx: &Cx) -> Result {
                             </option>
                         </select>
                         <p class="text-xs text-slate-500">
-                            (l.t("連動しても、進捗を決めていないステータスは手入力のままです。進捗を 100% にすると、実施終了が空なら今日の日付が入ります。"))
+                            (l.t("進捗を設定していないステータスは手入力のままです。進捗を 100% にすると、実施終了が空欄なら今日の日付が入ります。"))
                         </p>
                     </div>
 
@@ -335,7 +331,7 @@ async fn settings(cx: &Cx) -> Result {
             <section id="columns" class="mt-6 rounded-xl border border-slate-200 bg-white p-6">
                 <h2 class="text-lg font-semibold">"列"</h2>
                 <p class="mt-1 text-sm text-slate-500">
-                    (l.t("表示・幅（px、空欄で自動）・並び順。タスク名は先頭で固定です。↑↓ を押すと、入力中の幅も一緒に保存されます。"))
+                    (l.t("表示・幅（px、空欄で自動）・並び順。タスク名は先頭で固定です。"))
                 </p>
 
                 if project.can_edit() {
@@ -409,9 +405,9 @@ async fn settings(cx: &Cx) -> Result {
             // --- what a bar says when you point at it -----------------------
 
             <section id="tooltip" class="mt-6 rounded-xl border border-slate-200 bg-white p-6">
-                <h2 class="text-lg font-semibold">(l.t("チャートの吹き出し"))</h2>
+                <h2 class="text-lg font-semibold">(l.t("チャートマウスオーバー時の表示"))</h2>
                 <p class="mt-1 text-sm text-slate-500">
-                    (l.t("バーにポインタを合わせたときに、日付のほかに出す項目です。表から外した列も選べます——チャートの上で確かめられるなら、その列はいつも出しておかなくていい。"))
+                    (l.t("バーにポインタを合わせたときに、日付のほかに出す項目です。表から外した列も選べます。表示することでチャート上で確認することができます。"))
                 </p>
 
                 if project.can_edit() {
@@ -469,7 +465,7 @@ async fn settings(cx: &Cx) -> Result {
                     </span>
                 </summary>
                 <p class="mt-1 text-sm text-slate-500">
-                    (l.t("名前・色・その状態が意味する進捗。進捗を空にすると、その状態では手入力のままになります。"))
+                    (l.t("進捗を空欄にすると、そのステータスでは手入力のままです。"))
                 </p>
 
                 if project.can_edit() {
@@ -587,7 +583,6 @@ async fn settings(cx: &Cx) -> Result {
 
             <section id="fields" class="mt-6 rounded-xl border border-slate-200 bg-white p-6">
                 <h2 class="text-lg font-semibold">"独自の項目"</h2>
-                <p class="mt-1 text-sm text-slate-500">"基本の列のあとに並びます。"</p>
 
                 if project.can_edit() {
                     <form
@@ -797,7 +792,7 @@ async fn settings(cx: &Cx) -> Result {
                     </span>
                 </summary>
                 <p class="mt-1 text-sm text-slate-500">
-                    (l.t("メンバーとタスクに入っている名前が並びます。ここに名前を足せば、アカウントの無い人も選べます。色は全員で共通なので「全体の設定」で決めます——同じ人が案件ごとに違う色だと、いくつも開いたときに読めなくなるためです。"))
+                    (l.t("メンバーとタスクに入っている名前が並びます。ここに名前を足せば、アカウントの無い人も選べます。色は全員で共通なので「全体の設定」で決めます。"))
                 </p>
 
                 if project.can_edit() {
@@ -875,7 +870,7 @@ async fn settings(cx: &Cx) -> Result {
                     </span>
                 </summary>
                 <p class="mt-1 text-sm text-slate-500">
-                    (l.t("土日と同じように網かけします。日数の計算は変わりません。日本の祝日は「全体の設定」に入れておくと、どのプロジェクトにも出ます。ここで扱うのは、この現場だけの違いです。"))
+                    (l.t("日数の計算は変わりません。"))
                 </p>
 
                 if project.can_edit() {
@@ -1086,7 +1081,7 @@ async fn settings(cx: &Cx) -> Result {
             <section id="tokens" class="mt-6 rounded-xl border border-slate-200 bg-white p-6">
                 <h2 class="text-lg font-semibold">(l.t("API トークン"))</h2>
                 <p class="mt-1 text-sm text-slate-500">
-                    (l.t("ブラウザ以外からこのプロジェクトだけを読み書きするための鍵です。書き出した JSON を読ませて、考えさせて、書き戻す——その往復に使います。"))
+                    (l.t("ブラウザ以外からこのプロジェクトだけを読み書きするための API トークンです。"))
                 </p>
 
                 if !issued.is_empty() {

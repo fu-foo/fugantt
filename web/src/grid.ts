@@ -329,7 +329,7 @@ const EN: Record<string, string> = {
   "遅れ": "behind",
   "順調": "on track",
   "解除": "Clear",
-  "条件": "Views",
+  "検索条件": "Saved filters",
   "絞り込みの条件を名前をつけて置いておく": "Keep a set of filters under a name",
   "いまの条件に名前をつけて保存": "Name these filters to keep them",
   "みんなで使う": "Share with everybody",
@@ -1005,7 +1005,7 @@ class Grid {
     //
     // The same few questions get asked every week — "遅れているものだけ",
     // "自分の担当だけ" — and were being typed again every time.
-    const saved = element("button", "fg-filter-sets", t("条件"));
+    const saved = element("button", "fg-filter-sets", t("検索条件"));
     saved.type = "button";
     saved.title = t("絞り込みの条件を名前をつけて置いておく");
     if (this.data.filter_sets.length > 0) saved.classList.add("is-on");

@@ -248,8 +248,8 @@ async fn project_menu(project: &project::Project, l: crate::i18n::Lang) -> Resul
             // In the order they are looked at: every day, now and then, rarely.
             drawer_link(href: &base, label: l.t("スケジュール"))
             drawer_link(href: &stats, label: l.t("統計"))
-            drawer_link(href: &capacity, label: l.t("余力"))
-            drawer_link(href: &history, label: l.t("変更履歴"))
+            drawer_link(href: &capacity, label: l.t("空き検索"))
+            drawer_link(href: &history, label: l.t("タスク変更履歴"))
             drawer_link(href: &settings, label: l.t("設定"))
 
             <span class="mt-3 px-3 pb-1 text-xs tracking-wide text-slate-400">(l.t("データの入出力"))</span>

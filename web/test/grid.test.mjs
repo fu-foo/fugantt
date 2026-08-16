@@ -4120,7 +4120,7 @@ check(
   JSON.stringify(cleared),
 );
 
-// --- チャートの吹き出し -----------------------------------------------------------
+// --- チャートマウスオーバー時の表示 -------------------------------------------------
 
 // 表から外した列も、バーの上では確かめられる。そこが要るから列を出しっぱなしにする、
 // という取引をしなくて済む。
@@ -4168,7 +4168,7 @@ await page.evaluate(async () => {
   await fetch("/projects/test-project/tooltip", { method: "POST", body: new URLSearchParams() });
 });
 
-// --- 余力 -------------------------------------------------------------------
+// --- 空き検索 ---------------------------------------------------------------
 
 // 「山田は今月どれくらい空いてる？」は、チャートを指で追って数える質問だった。
 const capacity = await page.evaluate(async () => {
@@ -4190,7 +4190,7 @@ const capacity = await page.evaluate(async () => {
 });
 
 check(
-  "余力は担当者ごとに、稼働・埋まり・空き・重なりを出す",
+  "空き検索は担当者ごとに、稼働可能日数・割当済・空き日数・重複を出す",
   capacity.august.length >= 3 &&
     capacity.august.every((row) => row.cells.length === 5) &&
     capacity.august.some((row) => row.cells[0] === "（未割当）"),
@@ -4198,8 +4198,8 @@ check(
 );
 
 check(
-  "空きと重なりは、いつなのかまで出す",
-  capacity.august.some((row) => row.spans.some((text) => /空き: \d+\/\d+/.test(text))),
+  "空き日数と重複は、いつなのかまで出す",
+  capacity.august.some((row) => row.spans.some((text) => /空き日数: \d+\/\d+/.test(text))),
   JSON.stringify(capacity.august.map((row) => row.spans)),
 );
 
@@ -4242,7 +4242,7 @@ check(
   }),
 );
 
-// 変更履歴は溜まる一方なので、1ページに全部は出さない。
+// タスク変更履歴は溜まる一方なので、1ページに全部は出さない。
 const pagination = await page.evaluate(async () => {
   const read = async (query) => {
     const html = await (await fetch(`/projects/test-project/history${query}`)).text();

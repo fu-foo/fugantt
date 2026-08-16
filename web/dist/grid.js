@@ -2161,7 +2161,12 @@ ${lines.join("\n")}` : "";
         }
         if (this.capPaneWidth) {
           const cap = Math.max(320, grid.clientWidth - 480);
-          if (left.scrollWidth > cap) grid.style.setProperty("--fg-pane-width", `${cap}px`);
+          const dates = left.querySelector(".fg-heading .fg-cell-end");
+          const wanted = dates ? dates.offsetLeft + dates.offsetWidth : left.scrollWidth;
+          grid.style.setProperty(
+            "--fg-pane-width",
+            `${Math.max(320, Math.min(wanted, cap, left.scrollWidth))}px`
+          );
         }
         requestAnimationFrame(() => this.pinColumns());
       });

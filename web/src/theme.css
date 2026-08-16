@@ -32,6 +32,11 @@
      panel greys are half a step apart, and the row a person is standing on
      stops being visible. */
   --row-current: #f1f5f9;
+  /* How much of the project's own tint to show. The calendar's pastels — the
+     blue Saturday, the red Sunday — are chosen against white paper; laid on a
+     dark ground at full strength they glow, and a weekend ends up shouting
+     louder than a late task. */
+  --tint: 100%;
   --accent: #2563eb;
   --accent-hover: #3b82f6;
   --accent-soft: #eff6ff;
@@ -64,6 +69,7 @@
   --rule-strong: #33415c;
   --rule-soft: #1b2436;
   --row-current: #2b3a5c;
+  --tint: 22%;
   --accent: #3b82f6;
   --accent-hover: #60a5fa;
   --accent-soft: #17233c;
@@ -97,6 +103,7 @@
     --rule-strong: #33415c;
     --rule-soft: #1b2436;
     --row-current: #2b3a5c;
+    --tint: 22%;
     --accent: #3b82f6;
     --accent-hover: #60a5fa;
     --accent-soft: #17233c;
@@ -297,7 +304,11 @@ textarea {
 
 .fg-row.fg-heading,
 .fg-filters,
-.fg-chart-header {
+.fg-chart-header,
+.fg-days,
+/* The strip above the chart that carries the 表示 button, standing in for the
+   filter row on the other side. */
+.fg-filter-spacer {
   --fg-row-bg: var(--panel-soft);
   background: var(--panel-soft);
 }
@@ -308,6 +319,7 @@ textarea {
 }
 
 .fg-button,
+.fg-shows,
 .fg-filter,
 .fg-editor,
 .fg-dialog-date,
@@ -327,6 +339,48 @@ textarea {
 .fg-menu-item:hover {
   background: var(--panel-strong);
 }
+
+/* The one already chosen. Its pale blue is a highlight on white paper and a
+   glare on dark, and the blue text on it stops being text at all. */
+.fg-bound-menu .fg-menu-item.is-current,
+.fg-shows-menu .fg-menu-item.is-current {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+/* --- the calendar's own colours ------------------------------------------- */
+
+/*
+ * The weekend and holiday tints belong to the project, and stay its colours —
+ * mixed with the paper rather than replaced, so the same Saturday blue is a
+ * wash on white and a wash on navy. At 100% the mix is the colour itself, which
+ * is what light mode gets.
+ */
+.fg-quarter {
+  background: var(--panel-strong);
+}
+
+.fg-day.is-saturday,
+.fg-column.is-saturday {
+  background: color-mix(in srgb, var(--fg-saturday) var(--tint), var(--panel));
+}
+
+.fg-day.is-sunday,
+.fg-column.is-sunday {
+  background: color-mix(in srgb, var(--fg-sunday) var(--tint), var(--panel));
+}
+
+.fg-day.is-holiday,
+.fg-column.is-holiday {
+  background: color-mix(in srgb, var(--fg-holiday) var(--tint), var(--panel));
+}
+
+.fg-leave {
+  background: color-mix(in srgb, var(--fg-leave) var(--tint), var(--panel));
+}
+
+/* The day numbers keep their weekday colours, which are ink rather than paper
+   and read on both grounds. */
 
 /* The bars keep the project's colours, which are light whatever the page is
    doing, so the halo on the number beside a mark stays white with them. */

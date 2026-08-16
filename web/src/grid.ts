@@ -3189,7 +3189,18 @@ class Grid {
         // The chart is the point of the app, so it keeps a usable strip no
         // matter how many columns are on. Anything past that scrolls.
         const cap = Math.max(320, grid.clientWidth - 480);
-        if (left.scrollWidth > cap) grid.style.setProperty("--fg-pane-width", `${cap}px`);
+
+        // Opened at its full width, the table pushes the chart into a strip and
+        // the screen reads as a spreadsheet with a margin. The dates are what
+        // the chart is drawn from, so the split starts after 予定終了 and the
+        // rest of the columns are a scroll away for whoever wants them.
+        const dates = left.querySelector<HTMLElement>(".fg-heading .fg-cell-end");
+        const wanted = dates ? dates.offsetLeft + dates.offsetWidth : left.scrollWidth;
+
+        grid.style.setProperty(
+          "--fg-pane-width",
+          `${Math.max(320, Math.min(wanted, cap, left.scrollWidth))}px`,
+        );
       }
 
       // A frame later: the pane width above changes every track, and pinning

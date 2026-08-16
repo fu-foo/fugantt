@@ -31,7 +31,7 @@ DELETE FROM project_members WHERE project_id IN
   (SELECT id FROM projects WHERE name LIKE 'テスト計画 %' OR name LIKE '全体テスト %' OR name LIKE '既定テスト %' OR name LIKE '空行テスト %' OR name LIKE '横断テスト %');
 DELETE FROM project_statuses WHERE project_id IN
   (SELECT id FROM projects WHERE name LIKE 'テスト計画 %' OR name LIKE '全体テスト %' OR name LIKE '既定テスト %' OR name LIKE '空行テスト %' OR name LIKE '横断テスト %');
-DELETE FROM projects WHERE name LIKE 'テスト計画 %' OR name LIKE '全体テスト %' OR name LIKE '既定テスト %' OR name LIKE '空行テスト %' OR name LIKE '横断テスト %';
+DELETE FROM projects WHERE name LIKE 'テスト計画 %' OR name LIKE '全体テスト %' OR name LIKE '既定テスト %' OR name LIKE '空行テスト %' OR name LIKE '横断テスト %' OR name LIKE '負荷テスト %';
 
 DELETE FROM leaves;
 DELETE FROM app_holidays;

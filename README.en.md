@@ -173,9 +173,7 @@ would be built under emulation in CI, and a Rust release build in QEMU takes
 long enough to make cutting a release something nobody does. On Apple Silicon,
 `--platform linux/amd64` runs it, or use the native binary.
 
-The port is **1861** — the year Henry Gantt was born. 3000 and 8080 are where
-every second development tool lives, and two programs on one port fail in a way
-that looks like the application being broken rather than the port being taken.
+The port is **1861** — the year Henry Gantt was born.
 
 Settings are environment variables, or the same names written in a
 `fugantt.ini` beside the executable — in the working directory, or in the
@@ -266,8 +264,8 @@ A token for another project is refused, and a read-only token cannot write. A
 change made with a token is recorded as **`API <what the token is for>`** — no
 person's name, because nobody did that work, but never anonymous either.
 
-For numbers across projects, an administrator issues a key that reads all of
-them:
+For numbers across projects, an administrator issues an API token that reads
+all of them:
 
 ```sh
 curl -H "Authorization: Bearer fug_…" https://example.com/api/projects   # the plans

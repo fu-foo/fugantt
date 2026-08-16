@@ -89,6 +89,9 @@ await page.evaluate(
 // on, what a bar says on hover. A run that starts from whatever the last one
 // left behind fails in places that have nothing to do with what changed.
 execFileSync("sqlite3", [DB, "DELETE FROM project_settings WHERE project_id = 'test-project'"]);
+// The same for the account's own look: a run that left it dark would have the
+// next one testing a theme nobody asked for.
+execFileSync("sqlite3", [DB, `UPDATE users SET theme = '', custom_css = '' WHERE email = '${EMAIL}'`]);
 execFileSync("sh", [join(here, "seed.sh"), DB, EMAIL], { stdio: "inherit" });
 
 // Not `networkidle0`: the live-update stream stays open, so the network never

@@ -45,23 +45,27 @@ INSERT INTO project_members (project_id, user_id, role)
 
 -- 要件定義 finished four days past its plan, and 設計 is sitting in a wait, so
 -- the plan/actual bars and the delay breakdown have something to show.
+-- 待ちは1本の文字列（1行が「開始/終了: 理由」）。昔はここに wait_reason・wait_target・
+-- wait_start・wait_until の4列があり、種もそこに書いていた——が、その4列はとうに
+-- 読まれておらず、この計画に待ちは実は1つも無かった。掃除で数字を動かさないよう、
+-- 無いまま揃える。待ちが要るテストは自分で入れている（ステータスの「待ち」は別の話）。
 INSERT INTO tasks (id, project_id, parent_id, sort_key, name, start_date, end_date,
-                   actual_start, actual_end, status, wait_reason, wait_target,
-                   wait_start, wait_until, progress, assignee, updated_at) VALUES
+                   actual_start, actual_end, status, waits,
+                   progress, assignee, updated_at) VALUES
   ('t-req',  'test-project', NULL,    'n', '要件定義',        '2026-08-03', '2026-08-14',
-   '2026-08-03', '2026-08-18', '完了',   '',       '',       NULL,         NULL,         100, '山田', strftime('%s','now')),
+   '2026-08-03', '2026-08-18', '完了',   '',                                    100, '山田', strftime('%s','now')),
   ('t-dev',  'test-project', NULL,    'o', '開発',            NULL,         NULL,
-   NULL,         NULL,         '未着手', '',       '',       NULL,         NULL,           0, '',     strftime('%s','now')),
+   NULL,         NULL,         '未着手', '',                                      0, '',     strftime('%s','now')),
   ('t-des',  'test-project', 't-dev', 'n', '設計',            '2026-08-10', '2026-08-28',
-   '2026-08-12', NULL,         '待ち',   '他部署', '情シス', '2026-08-18', '2026-08-24',  60, '佐藤', strftime('%s','now')),
+   '2026-08-12', NULL,         '待ち',   '',                                     60, '佐藤', strftime('%s','now')),
   ('t-imp',  'test-project', 't-dev', 'o', '実装',            '2026-08-24', '2026-09-25',
-   NULL,         NULL,         '未着手', '',       '',       NULL,         NULL,          10, '佐藤', strftime('%s','now')),
+   NULL,         NULL,         '未着手', '',                                     10, '佐藤', strftime('%s','now')),
   ('t-test', 'test-project', NULL,    'p', 'テスト',          '2026-09-21', '2026-10-09',
-   NULL,         NULL,         '未着手', '',       '',       NULL,         NULL,           0, '山田', strftime('%s','now')),
+   NULL,         NULL,         '未着手', '',                                      0, '山田', strftime('%s','now')),
   ('t-doc',  'test-project', NULL,    'q', 'ドキュメント整備', '2026-08-01', '2026-08-20',
-   NULL,         NULL,         '実施中', '',       '',       NULL,         NULL,           5, '',     strftime('%s','now')),
+   NULL,         NULL,         '実施中', '',                                      5, '',     strftime('%s','now')),
   ('t-rev',  'test-project', NULL,    'r', 'レビュー',        '2026-07-27', '2026-08-06',
-   '2026-07-27', NULL,         '待ち',   '顧客',   'A社',   '2026-08-03', '2026-08-12',  40, '山田', strftime('%s','now'));
+   '2026-07-27', NULL,         '待ち',   '',                                     40, '山田', strftime('%s','now'));
 
 -- 予定進捗. Nothing is behind unless the plan itself said what it wanted by
 -- when, so the fixture has to say it: one promise kept, one missed, one still

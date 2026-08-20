@@ -281,9 +281,7 @@ pub fn write(
             let format = match *key {
                 "name" => name_format,
                 "progress" | "days" => &percent_cell,
-                "start" | "end" | "actual_start" | "actual_end" | "wait_start" | "wait_until" => {
-                    &date_cell
-                }
+                "start" | "end" | "actual_start" | "actual_end" => &date_cell,
                 "start_variance" | "end_variance" => &percent_cell,
                 _ => &plain,
             };

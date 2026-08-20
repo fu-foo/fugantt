@@ -209,6 +209,10 @@ html {
 .fg-row.is-painted {
   color: var(--fg-row-color, inherit);
 }
+.fg-row.is-painted .fg-cell.is-selected {
+  color: var(--fg-row-color, inherit);
+  background: var(--fg-row-bg);
+}
 .fg-handle,
 .fg-twisty {
   position: relative;
@@ -573,6 +577,17 @@ html {
 }
 .fg-dialog-kind,
 .fg-dialog-who,
+.fg-dialog-field {
+  width: 100%;
+  box-sizing: border-box;
+  margin-top: 4px;
+  border: 1px solid var(--fg-rule);
+  border-radius: 6px;
+  padding: 6px 8px;
+  font: inherit;
+  color: var(--fg-text);
+  background: #fff;
+}
 .fg-dialog-date,
 .fg-dialog-reason {
   border: 1px solid #e2e8f0;

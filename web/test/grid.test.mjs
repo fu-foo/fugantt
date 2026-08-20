@@ -5816,6 +5816,172 @@ check(
   JSON.stringify(refusals),
 );
 
+// --- チャート側から入れる -----------------------------------------------------
+
+// 仕切りを閉じると表は消える。そのときチャートしか無いので、行が持っているものは
+// 全部そこから触れないといけない。右クリックで、日付の置き場所と、値の入口を出す。
+const fromChart = await (async () => {
+  await page.goto(`${BASE}/projects/test-project`, { waitUntil: "domcontentloaded" });
+  await page.waitForSelector(".fg-grid");
+  await settle();
+
+  // 予定も実施もまだ無い行を1つ作る。
+  const id = await page.evaluate(async () => {
+    const grid = await (await fetch("/api/projects/test-project/grid")).json();
+    const made = await (await fetch("/api/projects/test-project/tasks", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ after: grid.tasks.at(-1).id }),
+    })).json();
+
+    await fetch(`/api/projects/test-project/tasks/${made.task_id}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ field: "name", value: "チャートから" }),
+    });
+
+    return made.task_id;
+  });
+
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await page.waitForSelector(".fg-grid");
+  await settle();
+
+  // チャートの「見えている」ところで、その行と重なる点。バー行は横に長く、
+  // 左端は画面の外にいることがある。
+  const spot = await page.evaluate(() => {
+    const names = [...document.querySelectorAll(".fg-pane-left .fg-row.fg-data .fg-cell-name")];
+    const index = names.findIndex((cell) => cell.textContent.includes("チャートから"));
+    const row = [...document.querySelectorAll(".fg-bar-row")][index];
+    const chart = document.querySelector(".fg-pane-chart").getBoundingClientRect();
+    const box = row.getBoundingClientRect();
+    return { x: Math.round(chart.x + 300), y: Math.round(box.y + box.height / 2) };
+  });
+
+  const 開く = async () => {
+    await page.mouse.click(spot.x, spot.y, { button: "right" });
+    await settle();
+    return page.evaluate(() =>
+      [...document.querySelectorAll(".fg-menu .fg-menu-item span:first-child")].map((s) => s.textContent.trim()),
+    );
+  };
+
+  const 選ぶ = async (言葉) => {
+    await page.evaluate((言葉) => {
+      [...document.querySelectorAll(".fg-menu .fg-menu-item")]
+        .find((button) => button.textContent.includes(言葉))
+        ?.click();
+    }, 言葉);
+    await settle();
+    await settle();
+  };
+
+  const 項目 = await 開く();
+  await 選ぶ("予定を置く");
+  const 置いた = await page.evaluate(async (id) => {
+    const grid = await (await fetch("/api/projects/test-project/grid")).json();
+    const task = grid.tasks.find((t) => t.id === id);
+    return { start: task.start, end: task.end, name: task.name };
+  }, id);
+
+  await 開く();
+  await 選ぶ("コメント…");
+  const 書けた = await page.evaluate(async (id) => {
+    const dialog = document.querySelector("dialog.fg-dialog");
+    if (!dialog) return { 出た: false };
+
+    dialog.querySelector(".fg-dialog-field").value = "チャートから書いた";
+    dialog.querySelector(".fg-dialog-save").click();
+    await new Promise((done) => setTimeout(done, 900));
+
+    const grid = await (await fetch("/api/projects/test-project/grid")).json();
+    return { 出た: true, note: grid.tasks.find((t) => t.id === id).note };
+  }, id);
+
+  await page.evaluate(async (id) => {
+    await fetch(`/api/projects/test-project/tasks/${id}`, { method: "DELETE" });
+  }, id);
+
+  return { 項目, 置いた, 書けた };
+})();
+
+check(
+  "チャートの右クリックに、値の入口が出る",
+  ["待ち…", "予定進捗…", "ステータス…", "担当者…", "コメント…"].every((word) =>
+    fromChart.項目.includes(word),
+  ),
+  JSON.stringify(fromChart.項目),
+);
+// 期間は列ではないので、列として引くとタスク名に化ける。最初に書いたときは
+// それで行の名前が "2026-08-26/2026-08-26" になった。
+check(
+  "「予定を置く」は押した日に1日のバーを置く（名前は変えない）",
+  fromChart.置いた.start === fromChart.置いた.end &&
+    fromChart.置いた.start !== null &&
+    fromChart.置いた.name === "チャートから",
+  JSON.stringify(fromChart.置いた),
+);
+check(
+  "チャートからコメントを書ける",
+  fromChart.書けた.出た && fromChart.書けた.note === "チャートから書いた",
+  JSON.stringify(fromChart.書けた),
+);
+
+// 塗った行に来たとき、その色が消えていた。暗い画面を直したときの規則
+// （選択セルは ink で書く）が、行に付けた文字色より強かった。
+await page.goto(`${BASE}/projects/test-project`, { waitUntil: "domcontentloaded" });
+await page.waitForSelector(".fg-grid");
+await settle();
+
+const paintedRow = await page.evaluate(async () => {
+  const grid = await (await fetch("/api/projects/test-project/grid")).json();
+  // いちばん上の行。必ず描かれているので、窓の外に居て測れない、が起きない。
+  const id = grid.tasks[0].id;
+
+  for (const [field, value] of [["color", "#b91c1c"], ["background", "#fce7f3"]]) {
+    await fetch(`/api/projects/test-project/tasks/${id}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ field, value }),
+    });
+  }
+  await new Promise((done) => setTimeout(done, 1000));
+
+  const 行 = () =>
+    [...document.querySelectorAll(".fg-pane-left .fg-row.fg-data")].find((row) =>
+      row.classList.contains("is-painted"),
+    );
+
+  const 読む = () => {
+    const row = 行();
+    const text = row?.querySelector(".fg-name-text");
+    return text ? getComputedStyle(text).color : "塗った行が見えない";
+  };
+
+  const 選ぶ前 = 読む();
+  行()?.querySelector(".fg-cell")?.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+  await new Promise((done) => setTimeout(done, 400));
+  const 選んだ後 = 読む();
+
+  for (const field of ["color", "background"]) {
+    await fetch(`/api/projects/test-project/tasks/${id}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ field, value: "" }),
+    });
+  }
+
+  return { 選ぶ前, 選んだ後 };
+});
+
+// 塗った行に来たとき、その色が消えていた。暗い画面を直したときの規則
+// （選択セルは ink で書く）が、行に付けた文字色より強かった。
+check(
+  "塗った行は、カーソルが来ても自分の色のまま",
+  paintedRow.選ぶ前 === "rgb(185, 28, 28)" && paintedRow.選んだ後 === paintedRow.選ぶ前,
+  JSON.stringify(paintedRow),
+);
+
 check("JavaScript エラーが出ていない", pageErrors.length === 0, pageErrors.join(" / "));
 
 await browser.close();

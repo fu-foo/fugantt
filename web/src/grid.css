@@ -286,6 +286,16 @@ html {
   color: var(--fg-row-color, inherit);
 }
 
+/* The cursor lands on a painted row without repainting it. The selection says
+   where it is with its outline, and the colour somebody chose is the whole
+   reason the row is painted — taking it away for the row being worked on takes
+   it away exactly when it is being read. Specific enough to beat the theme's
+   rule for a selected cell, which sets the ordinary ink. */
+.fg-row.is-painted .fg-cell.is-selected {
+  color: var(--fg-row-color, inherit);
+  background: var(--fg-row-bg);
+}
+
 /* Leaf and summary rows share one left edge per level, so the twisty reserves
    its width even where there is nothing to fold. */
 /* The invisible typist covers the whole cell, so the controls have to sit
@@ -781,6 +791,20 @@ html {
 
 .fg-dialog-kind,
 .fg-dialog-who,
+/* The single field the chart's menu asks for. Wide enough for a comment, which
+   is the longest thing that comes through here. */
+.fg-dialog-field {
+  width: 100%;
+  box-sizing: border-box;
+  margin-top: 4px;
+  border: 1px solid var(--fg-rule);
+  border-radius: 6px;
+  padding: 6px 8px;
+  font: inherit;
+  color: var(--fg-text);
+  background: #fff;
+}
+
 .fg-dialog-date,
 .fg-dialog-reason {
   border: 1px solid #e2e8f0;

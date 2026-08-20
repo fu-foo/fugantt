@@ -207,6 +207,11 @@ interface ColumnDef {
  * The bars ask "may this row's dates be edited" by handing over a column, and
  * they used to reach into this list by position. Reordering the columns then
  * quietly made summary bars draggable, because position 1 stopped being a date.
+ *
+ * Only for keys that really are columns. `schedule` and `actual_schedule` are
+ * ways of writing two dates in one go and have no column of their own, so
+ * asking for them here hands back the task's name — and writing to that
+ * renames the row.
  */
 function column(key: string): ColumnDef {
   return BASE_COLUMNS.find((entry) => entry.key === key) ?? BASE_COLUMNS[0]!;
@@ -436,6 +441,11 @@ const EN: Record<string, string> = {
 
   // the grid
   "（無題）": "(untitled)",
+  "予定を置く": "Put the plan here",
+  "実施を始める": "Start here",
+  "待ち…": "Waiting…",
+  "予定進捗…": "Promised progress…",
+  "（なし）": "(none)",
   "無題のタスク": "Untitled task",
   "が更新しました": "made a change",
   "今日": "Today",
@@ -2592,6 +2602,132 @@ class Grid {
         : { field: column.key, value },
       rollback,
     });
+  }
+
+  /**
+   * Writes one value to one row, without a cell being involved.
+   *
+   * `commitEdit` is about the cell the cursor is in. The chart has no cells,
+   * so the menu over it needs the same write with the row and the column named
+   * outright.
+   */
+  private async writeCell(task: Task, column: ColumnDef, value: string): Promise<void> {
+    if (value === this.cellText(task, column)) return;
+
+    const rollback = structuredClone(this.data);
+
+    this.applyLocally(task, column, value);
+    this.render();
+
+    await this.send(`/api/projects/${encodeURIComponent(this.projectId)}/tasks/${task.id}`, {
+      method: "POST",
+      body: column.fieldId
+        ? { field: "custom", field_id: column.fieldId, value }
+        : { field: column.key, value },
+      rollback,
+      follow: task.id,
+    });
+  }
+
+  /** Writes both dates at once, the way dragging a bar does. */
+  private async writeSpan(task: Task, field: string, value: string): Promise<void> {
+    await this.send(`/api/projects/${encodeURIComponent(this.projectId)}/tasks/${task.id}`, {
+      method: "POST",
+      body: { field, value },
+      follow: task.id,
+    });
+  }
+
+  /**
+   * One field of one row, in a box of its own.
+   *
+   * The table is where a value is normally typed, and the table can be dragged
+   * shut. This is the same write, asked for in the one place that is always on
+   * screen while the chart is.
+   */
+  private openField(task: Task, target: ColumnDef): void {
+    const dialog = element("dialog", "fg-dialog") as HTMLDialogElement;
+    const current = this.cellText(task, target);
+
+    const choices = this.choicesFor(target);
+    const input = choices
+      ? (element("select", "fg-dialog-field") as HTMLSelectElement)
+      : (element("input", "fg-dialog-field") as HTMLInputElement);
+
+    if (choices && input instanceof HTMLSelectElement) {
+      // A blank first, so a value can be taken off again.
+      for (const value of ["", ...choices]) {
+        const option = element("option", undefined, value || t("（なし）")) as HTMLOptionElement;
+        option.value = value;
+        option.selected = value === current;
+        input.append(option);
+      }
+    } else if (input instanceof HTMLInputElement) {
+      input.type =
+        target.kind === "date"
+          ? "date"
+          : target.kind === "number" || target.kind === "progress"
+            ? "number"
+            : "text";
+      input.value = current;
+
+      // Free text with a master list behind it: the same candidates the cell
+      // offers, so the two places cannot disagree about what is on offer.
+      if (target.kind === "suggest" && target.options?.length) {
+        const list = element("datalist");
+        list.id = `fg-field-${target.key}`;
+        for (const option of target.options) {
+          const entry = element("option") as HTMLOptionElement;
+          entry.value = option.value;
+          list.append(entry);
+        }
+        input.setAttribute("list", list.id);
+        dialog.append(list);
+      }
+    }
+
+    const save = element("button", "fg-dialog-save", t("保存")) as HTMLButtonElement;
+    const cancel = element("button", "fg-dialog-cancel", t("キャンセル")) as HTMLButtonElement;
+    cancel.type = "button";
+    cancel.addEventListener("click", () => dialog.close());
+
+    save.addEventListener("click", () => {
+      const value = target.kind === "date" ? (flexibleDate(input.value) ?? input.value) : input.value;
+      dialog.close();
+      void this.writeCell(task, target, value.trim());
+    });
+
+    dialog.append(
+      element("h2", "fg-dialog-title", `${t(target.label)} — ${task.name || t("（無題）")}`),
+      input,
+    );
+
+    const buttons = element("div", "fg-dialog-buttons");
+    buttons.append(cancel, save);
+    dialog.append(buttons);
+
+    dialog.addEventListener("keydown", (event) => {
+      event.stopPropagation();
+      if (event.key === "Enter" && !choices) save.click();
+    });
+    dialog.addEventListener("close", () => {
+      dialog.remove();
+      this.root.querySelector<HTMLElement>(".fg-grid")?.focus({ preventScroll: true });
+    });
+
+    document.body.append(dialog);
+    dialog.showModal();
+    input.focus();
+  }
+
+  /** The date the pointer is over, in the chart. */
+  private dayUnder(clientX: number, origin: number): string {
+    const chart = this.root.querySelector<HTMLElement>(".fg-pane-chart");
+    if (!chart) return this.data.today;
+
+    const at = clientX - chart.getBoundingClientRect().left + chart.scrollLeft;
+
+    return shiftDate(origin, Math.max(0, Math.floor(at / this.dayWidth)));
   }
 
   private applyLocally(task: Task, column: ColumnDef, value: string): void {
@@ -5023,6 +5159,18 @@ class Grid {
       // This marks both sides and hands the keyboard back to the grid.
       this.repaintSelection();
     });
+
+    // The same menu the table offers, plus the ways in that only make sense
+    // over a date: the table can be dragged shut, and then the chart is the
+    // whole screen. Everything a row holds has to be reachable from here.
+    row.addEventListener("contextmenu", (event) => {
+      event.preventDefault();
+      if (this.editing) return;
+
+      this.select(index, this.column);
+      this.repaintSelection();
+      this.openMenu(event.clientX, event.clientY, this.dayUnder(event.clientX, origin));
+    });
     if (index === this.row) row.classList.add("is-current");
 
     const span = (from: string | null, to: string | null) => {
@@ -5551,7 +5699,15 @@ class Grid {
    * The outline moves are all on Alt+arrow, which nobody discovers on their
    * own; this is where they are named.
    */
-  private openMenu(x: number, y: number): void {
+  /**
+   * The row menu.
+   *
+   * `day` is set when it was opened over the chart, where the pointer is on a
+   * date and there may be no table on screen at all — the splitter can be
+   * dragged shut. Then the menu also carries the ways in that a cell would
+   * otherwise be the only route to.
+   */
+  private openMenu(x: number, y: number, day?: string): void {
     const task = this.selected;
     if (!task) return;
 
@@ -5604,6 +5760,60 @@ class Grid {
     menu.append(element("div", "fg-menu-rule"));
     item(t("下に行を追加"), `${MOD}Enter`, () => void this.insertRow());
     item(t("行を削除"), `${MOD}Delete`, () => void this.deleteRow());
+
+    if (day !== undefined && this.data.can_edit) {
+      const entries: [string, () => void][] = [];
+
+      // Only where there is nothing yet: a bar that exists is moved by
+      // dragging it, which is a better answer than a menu.
+      if (!task.start && !task.has_children) {
+        entries.push([
+          `${t("予定を置く")}（${fullDate(day)}）`,
+          // Not through `column()`: 期間 is a way of writing two dates at once,
+          // not a column, and an unknown key there quietly becomes the task's
+          // name — which is exactly what it did the first time this was
+          // written, renaming a row to "2026-08-26/2026-08-26".
+          () => void this.writeSpan(task, "schedule", `${day}/${day}`),
+        ]);
+      }
+
+      if (!task.actual_start && !task.has_children) {
+        entries.push([
+          `${t("実施を始める")}（${fullDate(day)}）`,
+          // Left open on purpose: an actual with no end is work still running,
+          // and the chart draws it up to today.
+          () => void this.writeCell(task, column("actual_start"), day),
+        ]);
+      }
+
+      for (const [label, run] of entries) item(label, "", run);
+      if (entries.length > 0) menu.append(element("div", "fg-menu-rule"));
+
+      // The dates themselves, for typing rather than dragging: a bar can be
+      // pulled to where it belongs, but "the 21st" is quicker to say than to
+      // aim at. A summary row takes its dates from its children and is left
+      // out here, the same as in the table.
+      for (const key of ["start", "end", "actual_start", "actual_end"]) {
+        const target = column(key);
+        if (this.editable(task, target)) {
+          item(`${t(target.label)}…`, "", () => this.openField(task, target));
+        }
+      }
+
+      menu.append(element("div", "fg-menu-rule"));
+      item(t("待ち…"), "", () => this.openWaits(task));
+      item(t("予定進捗…"), "", () => this.openTargets(task));
+
+      for (const key of ["status", "assignee", "note", "progress"]) {
+        const target = this.everyColumn.find((entry) => entry.key === key);
+        if (target) item(`${t(target.label)}…`, "", () => this.openField(task, target));
+      }
+
+      for (const field of this.data.fields) {
+        const target = this.everyColumn.find((entry) => entry.fieldId === field.id);
+        if (target) item(`${t(target.label)}…`, "", () => this.openField(task, target));
+      }
+    }
 
     if (this.editable(task, column("name"))) {
       menu.append(element("div", "fg-menu-rule"));

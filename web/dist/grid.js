@@ -172,6 +172,11 @@
     "8/17\u301C8/21 \u4ED6\u90E8\u7F72\uFF08\u7D42\u308F\u308A\u7701\u7565\u3067\u7D99\u7D9A\u4E2D\uFF09": "8/17-8/21 another team (omit the end while it is still waiting)",
     // the grid
     "\uFF08\u7121\u984C\uFF09": "(untitled)",
+    "\u4E88\u5B9A\u3092\u7F6E\u304F": "Put the plan here",
+    "\u5B9F\u65BD\u3092\u59CB\u3081\u308B": "Start here",
+    "\u5F85\u3061\u2026": "Waiting\u2026",
+    "\u4E88\u5B9A\u9032\u6357\u2026": "Promised progress\u2026",
+    "\uFF08\u306A\u3057\uFF09": "(none)",
     "\u7121\u984C\u306E\u30BF\u30B9\u30AF": "Untitled task",
     "\u304C\u66F4\u65B0\u3057\u307E\u3057\u305F": "made a change",
     "\u4ECA\u65E5": "Today",
@@ -1690,6 +1695,102 @@ ${lines.join("\n")}` : "";
         body: column2.fieldId ? { field: "custom", field_id: column2.fieldId, value } : { field: column2.key, value },
         rollback
       });
+    }
+    /**
+     * Writes one value to one row, without a cell being involved.
+     *
+     * `commitEdit` is about the cell the cursor is in. The chart has no cells,
+     * so the menu over it needs the same write with the row and the column named
+     * outright.
+     */
+    async writeCell(task, column2, value) {
+      if (value === this.cellText(task, column2)) return;
+      const rollback = structuredClone(this.data);
+      this.applyLocally(task, column2, value);
+      this.render();
+      await this.send(`/api/projects/${encodeURIComponent(this.projectId)}/tasks/${task.id}`, {
+        method: "POST",
+        body: column2.fieldId ? { field: "custom", field_id: column2.fieldId, value } : { field: column2.key, value },
+        rollback,
+        follow: task.id
+      });
+    }
+    /** Writes both dates at once, the way dragging a bar does. */
+    async writeSpan(task, field, value) {
+      await this.send(`/api/projects/${encodeURIComponent(this.projectId)}/tasks/${task.id}`, {
+        method: "POST",
+        body: { field, value },
+        follow: task.id
+      });
+    }
+    /**
+     * One field of one row, in a box of its own.
+     *
+     * The table is where a value is normally typed, and the table can be dragged
+     * shut. This is the same write, asked for in the one place that is always on
+     * screen while the chart is.
+     */
+    openField(task, target) {
+      const dialog = element("dialog", "fg-dialog");
+      const current = this.cellText(task, target);
+      const choices = this.choicesFor(target);
+      const input = choices ? element("select", "fg-dialog-field") : element("input", "fg-dialog-field");
+      if (choices && input instanceof HTMLSelectElement) {
+        for (const value of ["", ...choices]) {
+          const option = element("option", void 0, value || t("\uFF08\u306A\u3057\uFF09"));
+          option.value = value;
+          option.selected = value === current;
+          input.append(option);
+        }
+      } else if (input instanceof HTMLInputElement) {
+        input.type = target.kind === "date" ? "date" : target.kind === "number" || target.kind === "progress" ? "number" : "text";
+        input.value = current;
+        if (target.kind === "suggest" && target.options?.length) {
+          const list = element("datalist");
+          list.id = `fg-field-${target.key}`;
+          for (const option of target.options) {
+            const entry = element("option");
+            entry.value = option.value;
+            list.append(entry);
+          }
+          input.setAttribute("list", list.id);
+          dialog.append(list);
+        }
+      }
+      const save = element("button", "fg-dialog-save", t("\u4FDD\u5B58"));
+      const cancel = element("button", "fg-dialog-cancel", t("\u30AD\u30E3\u30F3\u30BB\u30EB"));
+      cancel.type = "button";
+      cancel.addEventListener("click", () => dialog.close());
+      save.addEventListener("click", () => {
+        const value = target.kind === "date" ? flexibleDate(input.value) ?? input.value : input.value;
+        dialog.close();
+        void this.writeCell(task, target, value.trim());
+      });
+      dialog.append(
+        element("h2", "fg-dialog-title", `${t(target.label)} \u2014 ${task.name || t("\uFF08\u7121\u984C\uFF09")}`),
+        input
+      );
+      const buttons = element("div", "fg-dialog-buttons");
+      buttons.append(cancel, save);
+      dialog.append(buttons);
+      dialog.addEventListener("keydown", (event) => {
+        event.stopPropagation();
+        if (event.key === "Enter" && !choices) save.click();
+      });
+      dialog.addEventListener("close", () => {
+        dialog.remove();
+        this.root.querySelector(".fg-grid")?.focus({ preventScroll: true });
+      });
+      document.body.append(dialog);
+      dialog.showModal();
+      input.focus();
+    }
+    /** The date the pointer is over, in the chart. */
+    dayUnder(clientX, origin) {
+      const chart = this.root.querySelector(".fg-pane-chart");
+      if (!chart) return this.data.today;
+      const at = clientX - chart.getBoundingClientRect().left + chart.scrollLeft;
+      return shiftDate(origin, Math.max(0, Math.floor(at / this.dayWidth)));
     }
     applyLocally(task, column2, value) {
       if (column2.fieldId) {
@@ -3391,6 +3492,13 @@ ${lines.join("\n")}` : "";
         this.select(index, this.column);
         this.repaintSelection();
       });
+      row.addEventListener("contextmenu", (event) => {
+        event.preventDefault();
+        if (this.editing) return;
+        this.select(index, this.column);
+        this.repaintSelection();
+        this.openMenu(event.clientX, event.clientY, this.dayUnder(event.clientX, origin));
+      });
       if (index === this.row) row.classList.add("is-current");
       const span = (from, to) => {
         if (!from || !to) return null;
@@ -3733,7 +3841,15 @@ ${lines.join("\n")}` : "";
      * The outline moves are all on Alt+arrow, which nobody discovers on their
      * own; this is where they are named.
      */
-    openMenu(x, y) {
+    /**
+     * The row menu.
+     *
+     * `day` is set when it was opened over the chart, where the pointer is on a
+     * date and there may be no table on screen at all — the splitter can be
+     * dragged shut. Then the menu also carries the ways in that a cell would
+     * otherwise be the only route to.
+     */
+    openMenu(x, y, day) {
       const task = this.selected;
       if (!task) return;
       const menu = element("div", "fg-menu");
@@ -3775,6 +3891,46 @@ ${lines.join("\n")}` : "";
       menu.append(element("div", "fg-menu-rule"));
       item(t("\u4E0B\u306B\u884C\u3092\u8FFD\u52A0"), `${MOD}Enter`, () => void this.insertRow());
       item(t("\u884C\u3092\u524A\u9664"), `${MOD}Delete`, () => void this.deleteRow());
+      if (day !== void 0 && this.data.can_edit) {
+        const entries = [];
+        if (!task.start && !task.has_children) {
+          entries.push([
+            `${t("\u4E88\u5B9A\u3092\u7F6E\u304F")}\uFF08${fullDate(day)}\uFF09`,
+            // Not through `column()`: 期間 is a way of writing two dates at once,
+            // not a column, and an unknown key there quietly becomes the task's
+            // name — which is exactly what it did the first time this was
+            // written, renaming a row to "2026-08-26/2026-08-26".
+            () => void this.writeSpan(task, "schedule", `${day}/${day}`)
+          ]);
+        }
+        if (!task.actual_start && !task.has_children) {
+          entries.push([
+            `${t("\u5B9F\u65BD\u3092\u59CB\u3081\u308B")}\uFF08${fullDate(day)}\uFF09`,
+            // Left open on purpose: an actual with no end is work still running,
+            // and the chart draws it up to today.
+            () => void this.writeCell(task, column("actual_start"), day)
+          ]);
+        }
+        for (const [label, run] of entries) item(label, "", run);
+        if (entries.length > 0) menu.append(element("div", "fg-menu-rule"));
+        for (const key of ["start", "end", "actual_start", "actual_end"]) {
+          const target = column(key);
+          if (this.editable(task, target)) {
+            item(`${t(target.label)}\u2026`, "", () => this.openField(task, target));
+          }
+        }
+        menu.append(element("div", "fg-menu-rule"));
+        item(t("\u5F85\u3061\u2026"), "", () => this.openWaits(task));
+        item(t("\u4E88\u5B9A\u9032\u6357\u2026"), "", () => this.openTargets(task));
+        for (const key of ["status", "assignee", "note", "progress"]) {
+          const target = this.everyColumn.find((entry) => entry.key === key);
+          if (target) item(`${t(target.label)}\u2026`, "", () => this.openField(task, target));
+        }
+        for (const field of this.data.fields) {
+          const target = this.everyColumn.find((entry) => entry.fieldId === field.id);
+          if (target) item(`${t(target.label)}\u2026`, "", () => this.openField(task, target));
+        }
+      }
       if (this.editable(task, column("name"))) {
         menu.append(element("div", "fg-menu-rule"));
         menu.append(this.renderPalette(task, close));

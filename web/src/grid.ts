@@ -458,6 +458,10 @@ const EN: Record<string, string> = {
     "Who is away and who is in. It changes how days are counted.",
   "土日・祝日を除いた営業日で数えています": "Counted in working days, weekends and holidays excluded",
   "条件に合う行がありません。": "Nothing matches.",
+  "このプロジェクトは読むだけです。": "You can read this project, not change it.",
+  "日数は日付から数えます。": "The day count comes from the dates.",
+  "遅延は予定進捗と実進捗から決まります。": "Late is read from the promised progress against the real one.",
+  "差異は予定と実施の差です。": "A variance is the gap between the plan and what happened.",
   "集計行の日付と進捗は子タスクから決まります。":
     "A summary row's dates and progress come from its children.",
   "子タスクのずれを足したものです（この行の日付の差ではありません）":
@@ -2051,15 +2055,34 @@ class Grid {
   }
 
   private editable(task: Task, column: ColumnDef): boolean {
-    if (!this.data.can_edit) return false;
+    return this.refusal(task, column) === null;
+  }
+
+  /**
+   * Why this cell cannot be typed into, in the words of this cell.
+   *
+   * There are four reasons and there used to be one sentence, so opening 遅延
+   * on a row with no children answered with a fact about summary rows — true
+   * of something else, and no help at all with what was just clicked.
+   */
+  private refusal(task: Task, column: ColumnDef): string | null {
+    if (!this.data.can_edit) return t("このプロジェクトは読むだけです。");
+
     // The day count comes from the dates; nothing writes to it.
-    if (column.kind === "days") return false;
-    // Nor does anything write to 遅延: it is the reading of two other columns.
-    if (column.key === "late" || column.kind === "variance") return false;
+    if (column.kind === "days") return t("日数は日付から数えます。");
+
+    // 遅延 is the reading of the checkpoints against the progress, and a
+    // variance is the gap between two dates. Both are answers, not entries.
+    if (column.key === "late") return t("遅延は予定進捗と実進捗から決まります。");
+    if (column.kind === "variance") return t("差異は予定と実施の差です。");
 
     // A summary row takes its schedule from its children; writing to it would
     // be discarded on the next read.
-    return !(task.has_children && ROLLED_UP.includes(column.key));
+    if (task.has_children && ROLLED_UP.includes(column.key)) {
+      return t("集計行の日付と進捗は子タスクから決まります。");
+    }
+
+    return null;
   }
 
   // --- selection -----------------------------------------------------------
@@ -2157,8 +2180,9 @@ class Grid {
     const task = this.selected;
     if (!task) return;
 
-    if (!this.editable(task, this.selectedColumn)) {
-      this.fail(t("集計行の日付と進捗は子タスクから決まります。"));
+    const refused = this.refusal(task, this.selectedColumn);
+    if (refused !== null) {
+      this.fail(refused);
       return;
     }
 

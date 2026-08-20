@@ -193,6 +193,10 @@
     "\u8AB0\u304C\u3044\u3064\u4F11\u307F\u3001\u3044\u3064\u51FA\u308B\u304B\u3002\u65E5\u6570\u306E\u6570\u3048\u65B9\u306B\u52B9\u304D\u307E\u3059": "Who is away and who is in. It changes how days are counted.",
     "\u571F\u65E5\u30FB\u795D\u65E5\u3092\u9664\u3044\u305F\u55B6\u696D\u65E5\u3067\u6570\u3048\u3066\u3044\u307E\u3059": "Counted in working days, weekends and holidays excluded",
     "\u6761\u4EF6\u306B\u5408\u3046\u884C\u304C\u3042\u308A\u307E\u305B\u3093\u3002": "Nothing matches.",
+    "\u3053\u306E\u30D7\u30ED\u30B8\u30A7\u30AF\u30C8\u306F\u8AAD\u3080\u3060\u3051\u3067\u3059\u3002": "You can read this project, not change it.",
+    "\u65E5\u6570\u306F\u65E5\u4ED8\u304B\u3089\u6570\u3048\u307E\u3059\u3002": "The day count comes from the dates.",
+    "\u9045\u5EF6\u306F\u4E88\u5B9A\u9032\u6357\u3068\u5B9F\u9032\u6357\u304B\u3089\u6C7A\u307E\u308A\u307E\u3059\u3002": "Late is read from the promised progress against the real one.",
+    "\u5DEE\u7570\u306F\u4E88\u5B9A\u3068\u5B9F\u65BD\u306E\u5DEE\u3067\u3059\u3002": "A variance is the gap between the plan and what happened.",
     "\u96C6\u8A08\u884C\u306E\u65E5\u4ED8\u3068\u9032\u6357\u306F\u5B50\u30BF\u30B9\u30AF\u304B\u3089\u6C7A\u307E\u308A\u307E\u3059\u3002": "A summary row's dates and progress come from its children.",
     "\u5B50\u30BF\u30B9\u30AF\u306E\u305A\u308C\u3092\u8DB3\u3057\u305F\u3082\u306E\u3067\u3059\uFF08\u3053\u306E\u884C\u306E\u65E5\u4ED8\u306E\u5DEE\u3067\u306F\u3042\u308A\u307E\u305B\u3093\uFF09": "The sum of the children's slippage, not the difference between this row's own dates",
     "\u30C9\u30E9\u30C3\u30B0\u3067\u79FB\u52D5": "Drag to move",
@@ -1291,10 +1295,24 @@ ${lines.join("\n")}` : "";
       return text;
     }
     editable(task, column2) {
-      if (!this.data.can_edit) return false;
-      if (column2.kind === "days") return false;
-      if (column2.key === "late" || column2.kind === "variance") return false;
-      return !(task.has_children && ROLLED_UP.includes(column2.key));
+      return this.refusal(task, column2) === null;
+    }
+    /**
+     * Why this cell cannot be typed into, in the words of this cell.
+     *
+     * There are four reasons and there used to be one sentence, so opening 遅延
+     * on a row with no children answered with a fact about summary rows — true
+     * of something else, and no help at all with what was just clicked.
+     */
+    refusal(task, column2) {
+      if (!this.data.can_edit) return t("\u3053\u306E\u30D7\u30ED\u30B8\u30A7\u30AF\u30C8\u306F\u8AAD\u3080\u3060\u3051\u3067\u3059\u3002");
+      if (column2.kind === "days") return t("\u65E5\u6570\u306F\u65E5\u4ED8\u304B\u3089\u6570\u3048\u307E\u3059\u3002");
+      if (column2.key === "late") return t("\u9045\u5EF6\u306F\u4E88\u5B9A\u9032\u6357\u3068\u5B9F\u9032\u6357\u304B\u3089\u6C7A\u307E\u308A\u307E\u3059\u3002");
+      if (column2.kind === "variance") return t("\u5DEE\u7570\u306F\u4E88\u5B9A\u3068\u5B9F\u65BD\u306E\u5DEE\u3067\u3059\u3002");
+      if (task.has_children && ROLLED_UP.includes(column2.key)) {
+        return t("\u96C6\u8A08\u884C\u306E\u65E5\u4ED8\u3068\u9032\u6357\u306F\u5B50\u30BF\u30B9\u30AF\u304B\u3089\u6C7A\u307E\u308A\u307E\u3059\u3002");
+      }
+      return null;
     }
     // --- selection -----------------------------------------------------------
     select(row, column2) {
@@ -1368,8 +1386,9 @@ ${lines.join("\n")}` : "";
     startEdit(seed) {
       const task = this.selected;
       if (!task) return;
-      if (!this.editable(task, this.selectedColumn)) {
-        this.fail(t("\u96C6\u8A08\u884C\u306E\u65E5\u4ED8\u3068\u9032\u6357\u306F\u5B50\u30BF\u30B9\u30AF\u304B\u3089\u6C7A\u307E\u308A\u307E\u3059\u3002"));
+      const refused = this.refusal(task, this.selectedColumn);
+      if (refused !== null) {
+        this.fail(refused);
         return;
       }
       if (this.selectedColumn.key === "waits") {

@@ -5751,6 +5751,71 @@ check(
   JSON.stringify(accountLog),
 );
 
+// --- 編集できない理由 ---------------------------------------------------------
+
+// 打てないセルは4種類あるのに、文言は1つしかなかった。子タスクを持たない行で
+// 遅延を開くと「集計行の日付と進捗は…」と出る——別の何かについての正しい話で、
+// いま押したものについては何も言っていなかった。
+const refusals = await (async () => {
+  await page.goto(`${BASE}/projects/test-project`, { waitUntil: "domcontentloaded" });
+  await page.waitForSelector(".fg-grid");
+  await settle();
+
+  return page.evaluate(async () => {
+    const wait = (ms = 250) => new Promise((done) => setTimeout(done, ms));
+    const 開いてみる = async (rowIndex, columnClass) => {
+      const row = [...document.querySelectorAll(".fg-pane-left .fg-row.fg-data")][rowIndex];
+      const cell = row?.querySelector(columnClass);
+      if (!cell) return "その列は無い";
+
+      cell.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+      await wait();
+
+      const grid = document.querySelector(".fg-grid");
+      (document.querySelector(".fg-editor.is-typist") ?? grid).focus({ preventScroll: true });
+      grid.dispatchEvent(new KeyboardEvent("keydown", { key: "F2", bubbles: true }));
+      await wait();
+
+      const 文 = document.querySelector(".fg-error")?.textContent?.replace("閉じる", "").trim() ?? "";
+      const 開いた = !!document.querySelector(".fg-editor:not(.is-typist)");
+      document.querySelector(".fg-error-close")?.click();
+      grid.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+      await wait(150);
+
+      return 文 || (開いた ? "編集が開いた" : "何も起きない");
+    };
+
+    // 子を持つ行はサーバーに聞く。畳みの印は開閉で変わるので、目印にしない。
+    const 計画 = await (await fetch("/api/projects/test-project/grid")).json();
+    const 親 = 計画.tasks.find((task) => task.has_children);
+    const 名前 = [...document.querySelectorAll(".fg-pane-left .fg-row.fg-data .fg-cell-name")]
+      .map((cell) => cell.textContent.trim().replace(/^[^\p{L}\p{N}]+/u, ""));
+    const 集計行 = 親 ? 名前.indexOf(親.name) : -1;
+
+    return {
+      遅延: await 開いてみる(0, ".fg-cell-late"),
+      日数: await 開いてみる(0, ".fg-cell-days"),
+      差異: await 開いてみる(0, ".fg-cell-start_variance"),
+      集計行: 集計行 >= 0 ? await 開いてみる(集計行, ".fg-cell-start") : "集計行なし",
+      ふつうのセル: await 開いてみる(0, ".fg-cell-name"),
+    };
+  });
+})();
+
+check(
+  "打てないセルは、そのセルの理由を言う",
+  refusals.遅延.includes("遅延は") &&
+    refusals.日数.includes("日数は") &&
+    refusals.差異.includes("差異は") &&
+    refusals.ふつうのセル === "編集が開いた",
+  JSON.stringify(refusals),
+);
+check(
+  "集計行の日付だけが、集計行の話をする",
+  refusals.集計行.includes("集計行"),
+  JSON.stringify(refusals),
+);
+
 check("JavaScript エラーが出ていない", pageErrors.length === 0, pageErrors.join(" / "));
 
 await browser.close();

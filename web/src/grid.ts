@@ -113,13 +113,39 @@ interface GridData {
  * not undoable, and stepping silently past one would undo something older
  * while the row it was about is still missing.
  */
-interface Step {
-  taskId: string;
-  field: string;
-  fieldId?: string;
-  before: { send: string; stored: string };
-  after: { send: string; stored: string };
+/**
+ * Where a row sits among its siblings: the summary row it hangs from, and the
+ * one it comes after inside it.
+ *
+ * Both together are what `place` takes, so a spot noted before a move is the
+ * instruction that puts the row back.
+ */
+interface Spot {
+  parent: string | null;
+  after: string | null;
 }
+
+/**
+ * One change, and how to take it back.
+ *
+ * A cell remembers the value on each side. A row that moved remembers where it
+ * stood; a row that was added remembers where it landed, and taking that back
+ * means removing it. A delete is still a barrier: putting a row back means
+ * putting its subtree back with the ids it had, which is a different piece of
+ * work from any of these.
+ */
+type Step =
+  | {
+      kind: "cell";
+      taskId: string;
+      field: string;
+      fieldId?: string;
+      before: { send: string; stored: string };
+      after: { send: string; stored: string };
+    }
+  | { kind: "move"; taskId: string; from: Spot; to: Spot }
+  | { kind: "add"; taskId: string; at: Spot }
+  | { kind: "barrier" };
 
 interface Mutation {
   /** The whole plan, from the writes that can move anything anywhere. */
@@ -416,8 +442,10 @@ const EN: Record<string, string> = {
   "取り消せる操作がありません。": "Nothing to undo.",
   "やり直せる操作がありません。": "Nothing to redo.",
   "その行はもうありません。": "That row is gone.",
-  "行の追加・削除・並べ替えは取り消せません。もう一度押すと、その前の変更を取り消します。":
-    "Adding, deleting and reordering rows cannot be undone. Press again to undo the change before it.",
+  "その行は誰かが動かしました。": "Somebody else moved that row.",
+  "その行には子タスクがあるので、取り消しでは消しません。": "That row has child tasks, so undo will not remove it.",
+  "書き込みのある行は、取り消しでは消しません。": "That row has something in it, so undo will not remove it.",
+  "行の削除は取り消せません。もう一度押すと、その前の変更を取り消します。": "Deleting a row cannot be undone. Press again to undo the change before it.",
   "閉じる": "Close",
   "タスクがありません。": "No tasks yet.",
   "最初のタスクを追加": "Add the first task",
@@ -2613,9 +2641,12 @@ class Grid {
     // answer to the move being made now.
     this.notice = null;
 
+    // Noted before it moves: this is the instruction that puts it back.
+    const was = this.spotOf(task.id);
+
     const result = await this.send(
       `/api/projects/${encodeURIComponent(this.projectId)}/tasks/${task.id}/move`,
-      { method: "POST", body: { action }, follow: task.id },
+      { method: "POST", body: { action }, follow: task.id, was: was ?? undefined },
     );
 
     // The server refused for a reason. Saying it is the difference between
@@ -2655,6 +2686,8 @@ class Grid {
       rollback?: GridData;
       /** Keep this task selected even if the response moved it to another row. */
       follow?: string;
+      /** Where the row stood before this call moved it, so it can be put back. */
+      was?: Spot;
     },
   ): Promise<Mutation | null> {
     // Callers that edited optimistically pass the state from before the edit;
@@ -2689,11 +2722,6 @@ class Grid {
 
       const result = (await response.json()) as Mutation;
 
-      // Recorded here rather than at each of the eight places that change a
-      // cell: this is the one point that knows both what was there (the state
-      // this call started from) and what the server made of what was sent.
-      this.remember(url, options, before, result);
-
       if (result.patch) {
         const drew = this.applyPatch(result.patch);
 
@@ -2711,6 +2739,13 @@ class Grid {
       }
 
       this.error = null;
+
+      // Recorded here rather than at each of the eight places that change a
+      // cell: this is the one point that knows both what was there (the state
+      // this call started from) and what the server made of what was sent.
+      // After the answer has landed, so a row that moved can be asked where
+      // it ended up.
+      this.remember(url, options, before, result);
 
       // A move changes which row the task sits on, so follow the task rather
       // than staying on a row number that now means something else. Indenting
@@ -2872,7 +2907,7 @@ class Grid {
   /** Files one change away, so Ctrl+Z has something to put back. */
   private remember(
     url: string,
-    options: { method: string; body?: unknown; follow?: string },
+    options: { method: string; body?: unknown; follow?: string; was?: Spot },
     before: GridData,
     result: Mutation,
   ): void {
@@ -2883,16 +2918,32 @@ class Grid {
     // the selection and is not passed by the calls that never move a row.
     const taskId = decodeURIComponent(/\/tasks\/([^/?#]+)$/.exec(url)?.[1] ?? "");
 
-    // Adding, deleting and reordering a row: not undoable, and not skippable
-    // either. A barrier keeps Ctrl+Z from stepping over the gap and undoing
-    // something older while the row it belonged to is still missing.
+    // A row that moved: it is where the answer put it, and `was` is where the
+    // caller saw it standing before it asked.
+    if (options.was && result.patch?.moved) {
+      const to = this.spotOf(result.patch.moved.id);
+      if (to) {
+        this.done.push({ kind: "move", taskId: result.patch.moved.id, from: options.was, to });
+        this.undone = [];
+      }
+      return;
+    }
+
+    // A row that was added, remembered by where it landed.
+    if (url.endsWith("/tasks") && result.task_id) {
+      const at = this.spotOf(result.task_id);
+      if (at) {
+        this.done.push({ kind: "add", taskId: result.task_id, at });
+        this.undone = [];
+      }
+      return;
+    }
+
+    // Deleting is not undoable, and not skippable either. A barrier keeps
+    // Ctrl+Z from stepping over the gap and undoing something older while the
+    // row it belonged to is still missing.
     if (!body?.field || !taskId) {
-      this.done.push({
-        taskId: taskId ?? "",
-        field: "",
-        before: { send: "", stored: "" },
-        after: { send: "", stored: "" },
-      });
+      this.done.push({ kind: "barrier" });
       this.undone = [];
       return;
     }
@@ -2907,6 +2958,7 @@ class Grid {
     const fieldId = body.field_id;
 
     const step: Step = {
+      kind: "cell",
       taskId,
       field,
       fieldId,
@@ -2923,6 +2975,7 @@ class Grid {
     // The server may have made nothing of it — a value that normalises to what
     // was already there. Nothing happened, so there is nothing to take back.
     if (step.before.stored === step.after.stored) return;
+
 
     this.done.push(step);
     // A new change is a new branch: what was undone is no longer ahead of us.
@@ -3009,16 +3062,36 @@ class Grid {
       return;
     }
 
-    if (!step.field) {
-      this.fail(
-        t("行の追加・削除・並べ替えは取り消せません。もう一度押すと、その前の変更を取り消します。"),
-      );
-      return;
-    }
+    const done =
+      step.kind === "cell"
+        ? await this.replayCell(step, direction)
+        : step.kind === "move"
+          ? await this.replayMove(step, direction)
+          : step.kind === "add"
+            ? await this.replayAdd(step, direction)
+            : this.refuse(t("行の削除は取り消せません。もう一度押すと、その前の変更を取り消します。"));
 
+    // Refused — by the server, or by somebody else's edit. The step stays off
+    // the stack: pressing again should try the one before it, not this one.
+    if (!done) return;
+
+    (direction === "undo" ? this.undone : this.done).push(step);
+  }
+
+  /** Says why nothing happened, and answers "not done" for the caller. */
+  private refuse(why: string): boolean {
+    this.fail(why);
+    return false;
+  }
+
+  /** Puts one cell back to the value on the other side of the change. */
+  private async replayCell(
+    step: Extract<Step, { kind: "cell" }>,
+    direction: "undo" | "redo",
+  ): Promise<boolean> {
     if (!this.data.tasks.some((task) => task.id === step.taskId)) {
       this.fail(t("その行はもうありません。"));
-      return;
+      return false;
     }
 
     const target = direction === "undo" ? step.before : step.after;
@@ -3035,13 +3108,164 @@ class Grid {
     );
     this.replaying = false;
 
-    if (!result) {
-      // Refused — by the server or by somebody else's edit. The step stays off
-      // the stack: pressing again should try the one before it, not this one.
-      return;
+    return result !== null;
+  }
+
+  /**
+   * Puts a row back where it stood.
+   *
+   * `place` takes a parent and the sibling to land after, which is exactly
+   * what was written down before the row was moved — the same instruction,
+   * pointed the other way.
+   */
+  private async replayMove(
+    step: Extract<Step, { kind: "move" }>,
+    direction: "undo" | "redo",
+  ): Promise<boolean> {
+    if (!this.data.tasks.some((task) => task.id === step.taskId)) {
+      this.fail(t("その行はもうありません。"));
+      return false;
     }
 
-    (direction === "undo" ? this.undone : this.done).push(step);
+    // Somebody else has moved it since. Putting it back where this browser
+    // remembers it would undo their move as well as this one.
+    const now = this.spotOf(step.taskId);
+    const held = direction === "undo" ? step.to : step.from;
+    if (!now || now.parent !== held.parent || now.after !== held.after) {
+      this.fail(t("その行は誰かが動かしました。"));
+      return false;
+    }
+
+    const target = direction === "undo" ? step.from : step.to;
+
+    this.replaying = true;
+    const result = await this.send(
+      `/api/projects/${encodeURIComponent(this.projectId)}/tasks/${step.taskId}/place`,
+      { method: "POST", body: target, follow: step.taskId, was: now },
+    );
+    this.replaying = false;
+
+    return result !== null;
+  }
+
+  /**
+   * Takes back a row that was added, or puts it back.
+   *
+   * Undoing removes it — but only while it is still empty. Whatever was typed
+   * into it is a change of its own and comes off the stack first; a row with
+   * something in it is somebody's work, and Ctrl+Z is not a way to lose it.
+   *
+   * Redoing adds a row again, which the server gives a new id. Every step that
+   * still names the old one is pointed at the new one, so the stack keeps
+   * working from here.
+   */
+  private async replayAdd(
+    step: Extract<Step, { kind: "add" }>,
+    direction: "undo" | "redo",
+  ): Promise<boolean> {
+    if (direction === "redo") {
+      this.replaying = true;
+      const result = await this.send(
+        `/api/projects/${encodeURIComponent(this.projectId)}/tasks`,
+        { method: "POST", body: { after: step.at.after ?? step.at.parent } },
+      );
+      this.replaying = false;
+
+      if (!result?.task_id) return false;
+
+      // Put back where it was, in case it went in beside its parent rather
+      // than inside it: `after` names a sibling, and the first child has none.
+      if (step.at.after === null && step.at.parent !== null) {
+        this.replaying = true;
+        await this.send(
+          `/api/projects/${encodeURIComponent(this.projectId)}/tasks/${result.task_id}/place`,
+          { method: "POST", body: step.at, follow: result.task_id },
+        );
+        this.replaying = false;
+      }
+
+      this.rename(step.taskId, result.task_id);
+      return true;
+    }
+
+    const row = this.data.tasks.find((task) => task.id === step.taskId);
+    if (!row) {
+      this.fail(t("その行はもうありません。"));
+      return false;
+    }
+
+    if (row.has_children) {
+      this.fail(t("その行には子タスクがあるので、取り消しでは消しません。"));
+      return false;
+    }
+
+    if (this.written(row)) {
+      this.fail(t("書き込みのある行は、取り消しでは消しません。"));
+      return false;
+    }
+
+    this.replaying = true;
+    const result = await this.send(
+      `/api/projects/${encodeURIComponent(this.projectId)}/tasks/${step.taskId}`,
+      { method: "DELETE" },
+    );
+    this.replaying = false;
+
+    return result !== null;
+  }
+
+  /** Whether anything was ever put in this row. */
+  private written(task: Task): boolean {
+    return (
+      task.name.trim() !== "" ||
+      task.start !== null ||
+      task.end !== null ||
+      task.actual_start !== null ||
+      task.actual_end !== null ||
+      task.progress !== 0 ||
+      task.assignee.trim() !== "" ||
+      task.note.trim() !== "" ||
+      Object.values(task.values).some((value) => value.trim() !== "")
+    );
+  }
+
+  /** Points every step at the id a row came back with. */
+  private rename(was: string, now: string): void {
+    for (const step of [...this.done, ...this.undone]) {
+      if (step.kind !== "barrier" && step.taskId === was) step.taskId = now;
+    }
+  }
+
+  /**
+   * Where a row sits among its siblings.
+   *
+   * The plan is one flat list ordered depth first, so the parent is the first
+   * row above it that is shallower, and the previous sibling is the first row
+   * above it at the same depth — anything deeper in between belongs to that
+   * sibling.
+   */
+  private spotOf(id: string): Spot | null {
+    const at = this.data.tasks.findIndex((task) => task.id === id);
+    const row = this.data.tasks[at];
+    if (!row) return null;
+
+    let parent: string | null = null;
+    let after: string | null = null;
+
+    for (let index = at - 1; index >= 0; index--) {
+      const above = this.data.tasks[index];
+      if (!above || above.depth > row.depth) continue;
+
+      if (above.depth === row.depth) {
+        if (after === null) after = above.id;
+        continue;
+      }
+
+      parent = above.id;
+      break;
+    }
+
+    return { parent, after };
   }
 
   private async reason(response: Response): Promise<string> {
@@ -4187,9 +4411,11 @@ class Grid {
       const drop = this.dropTarget(target.at, target.depth, excluded);
       if (drop.parent === (task.id as string | null)) return;
 
+      const was = this.spotOf(task.id);
+
       await this.send(
         `/api/projects/${encodeURIComponent(this.projectId)}/tasks/${task.id}/place`,
-        { method: "POST", body: drop, follow: task.id },
+        { method: "POST", body: drop, follow: task.id, was: was ?? undefined },
       );
     };
 

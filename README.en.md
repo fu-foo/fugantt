@@ -55,11 +55,14 @@ label on the screen changes.
 Bars drag: the body moves the dates, the ends stretch them, and the handle
 inside the plan bar sets the progress.
 
-`⌘Z` / `Ctrl+Z` takes back the last value this tab changed, `⌘Y` / `⌘⇧Z` puts
-it back. Only your own edits, and only while the tab is open: if somebody else
-has touched the same cell in the meantime it stops and says so, because undoing
-their work is the one thing an undo must never do. Adding, deleting and
-reordering rows are not undoable.
+`⌘Z` / `Ctrl+Z` takes back the last change this tab made, `⌘Y` / `⌘⇧Z` puts it
+back — values, a row that was added, and a row that was moved, which goes back
+to the parent and the sibling it sat after. Only your own changes, and only
+while the tab is open: if somebody else has touched the same cell, or moved the
+same row, it stops and says so, because undoing their work is the one thing an
+undo must never do. A row with anything in it is not removed by an undo, and
+deleting cannot be undone at all — putting a row back means putting its subtree
+back with the ids it had, which is a different piece of work.
 
 Dates take whatever you type — `20260805`, `8/5`, `2026-08-05` — including
 full-width digits, so a Japanese keyboard never has to switch modes.

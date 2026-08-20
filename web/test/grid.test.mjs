@@ -2715,10 +2715,11 @@ check(
   `${await noteNow()} / ${await page.evaluate(() => document.querySelector(".fg-error")?.textContent ?? "")}`,
 );
 
-// 行の追加・削除・並べ替えは戻せない。黙って1つ前の値を戻すと、その行が無いまま
-// 別のセルだけが巻き戻ることになる。
+// 足した行は ⌘Z で消える。押し間違えて増えた行が、押し間違えのまま残らない。
 await typeNote("さん");
 await selectCell((await state()).names.indexOf("実装"), 0);
+
+const 増える前 = (await state()).names.length;
 await page.keyboard.down("Meta");
 await page.keyboard.press("Enter");
 await page.keyboard.up("Meta");
@@ -2730,14 +2731,26 @@ await settle();
 await page.keyboard.press("Escape");
 await settle();
 
+const 増えたあと = (await state()).names.length;
 await chord("KeyZ");
-const barrier = await page.evaluate(() => document.querySelector(".fg-error")?.textContent ?? "");
-await chord("KeyZ");
+await settle();
+const 取り消したあと = (await state()).names.length;
 
 check(
-  "行の増減は取り消せないと言い、もう一度でその前に戻る",
-  barrier.includes("取り消せません") && (await noteNow()) === "よそから",
-  `${barrier} / ${await noteNow()}`,
+  "足した行は ⌘Z で消える",
+  増えたあと === 増える前 + 1 && 取り消したあと === 増える前,
+  `${増える前} → ${増えたあと} → ${取り消したあと}`,
+);
+
+// もう一度押せば、その前の変更（コメント）に戻る。行が消えたことでスタックが
+// 止まってしまわないこと。
+await chord("KeyZ");
+await settle();
+
+check(
+  "行を取り消したあとも、その前の変更に戻れる",
+  (await noteNow()) === "よそから",
+  await noteNow(),
 );
 
 // 片付け: 足した行を消し、コメントも戻す。
@@ -5492,6 +5505,59 @@ check(
   "端まで来たら、断りだけを返す",
   !orderPatch.端で返ったもの.grid && !orderPatch.端で返ったもの.patch && orderPatch.端で返ったもの.note !== "",
   JSON.stringify(orderPatch.端で返ったもの),
+);
+
+// --- 並べ替えの取り消し -------------------------------------------------------
+
+// 並べ替えは「どの親の、どの行の次か」で言い表せる。動かす前にそれを控えておけば、
+// 逆向きの place がそのまま取り消しになる。
+const undoMove = await (async () => {
+  await page.goto(`${BASE}/projects/test-project`, { waitUntil: "domcontentloaded" });
+  await page.waitForSelector(".fg-grid");
+  await settle();
+
+  const 並び = () =>
+    page.evaluate(() =>
+      [...document.querySelectorAll(".fg-pane-left .fg-row.fg-data .fg-cell-name")].map((cell) =>
+        cell.textContent.trim().replace(/^[^\p{L}\p{N}]+/u, ""),
+      ),
+    );
+
+  const 前 = await 並び();
+
+  // 最後の行を1つ上へ。
+  await selectCell(前.length - 1, 0);
+  await page.keyboard.down("Alt");
+  await page.keyboard.press("ArrowUp");
+  await page.keyboard.up("Alt");
+  await settle();
+  await settle();
+  const 動かしたあと = await 並び();
+
+  await chord("KeyZ");
+  await settle();
+  await settle();
+  const 取り消したあと = await 並び();
+
+  // やり直しも同じ道を逆に。
+  await chord("KeyY");
+  await settle();
+  await settle();
+  const やり直したあと = await 並び();
+
+  return { 前, 動かしたあと, 取り消したあと, やり直したあと };
+})();
+
+check(
+  "並べ替えは ⌘Z で元の場所に戻る",
+  JSON.stringify(undoMove.動かしたあと) !== JSON.stringify(undoMove.前) &&
+    JSON.stringify(undoMove.取り消したあと) === JSON.stringify(undoMove.前),
+  JSON.stringify(undoMove),
+);
+check(
+  "⌘Y で並べ替えをやり直せる",
+  JSON.stringify(undoMove.やり直したあと) === JSON.stringify(undoMove.動かしたあと),
+  JSON.stringify(undoMove),
 );
 
 check("JavaScript エラーが出ていない", pageErrors.length === 0, pageErrors.join(" / "));

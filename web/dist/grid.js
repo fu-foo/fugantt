@@ -178,7 +178,10 @@
     "\u53D6\u308A\u6D88\u305B\u308B\u64CD\u4F5C\u304C\u3042\u308A\u307E\u305B\u3093\u3002": "Nothing to undo.",
     "\u3084\u308A\u76F4\u305B\u308B\u64CD\u4F5C\u304C\u3042\u308A\u307E\u305B\u3093\u3002": "Nothing to redo.",
     "\u305D\u306E\u884C\u306F\u3082\u3046\u3042\u308A\u307E\u305B\u3093\u3002": "That row is gone.",
-    "\u884C\u306E\u8FFD\u52A0\u30FB\u524A\u9664\u30FB\u4E26\u3079\u66FF\u3048\u306F\u53D6\u308A\u6D88\u305B\u307E\u305B\u3093\u3002\u3082\u3046\u4E00\u5EA6\u62BC\u3059\u3068\u3001\u305D\u306E\u524D\u306E\u5909\u66F4\u3092\u53D6\u308A\u6D88\u3057\u307E\u3059\u3002": "Adding, deleting and reordering rows cannot be undone. Press again to undo the change before it.",
+    "\u305D\u306E\u884C\u306F\u8AB0\u304B\u304C\u52D5\u304B\u3057\u307E\u3057\u305F\u3002": "Somebody else moved that row.",
+    "\u305D\u306E\u884C\u306B\u306F\u5B50\u30BF\u30B9\u30AF\u304C\u3042\u308B\u306E\u3067\u3001\u53D6\u308A\u6D88\u3057\u3067\u306F\u6D88\u3057\u307E\u305B\u3093\u3002": "That row has child tasks, so undo will not remove it.",
+    "\u66F8\u304D\u8FBC\u307F\u306E\u3042\u308B\u884C\u306F\u3001\u53D6\u308A\u6D88\u3057\u3067\u306F\u6D88\u3057\u307E\u305B\u3093\u3002": "That row has something in it, so undo will not remove it.",
+    "\u884C\u306E\u524A\u9664\u306F\u53D6\u308A\u6D88\u305B\u307E\u305B\u3093\u3002\u3082\u3046\u4E00\u5EA6\u62BC\u3059\u3068\u3001\u305D\u306E\u524D\u306E\u5909\u66F4\u3092\u53D6\u308A\u6D88\u3057\u307E\u3059\u3002": "Deleting a row cannot be undone. Press again to undo the change before it.",
     "\u9589\u3058\u308B": "Close",
     "\u30BF\u30B9\u30AF\u304C\u3042\u308A\u307E\u305B\u3093\u3002": "No tasks yet.",
     "\u6700\u521D\u306E\u30BF\u30B9\u30AF\u3092\u8FFD\u52A0": "Add the first task",
@@ -1727,9 +1730,10 @@ ${lines.join("\n")}` : "";
       const task = this.selected;
       if (!task || !this.data.can_edit) return;
       this.notice = null;
+      const was = this.spotOf(task.id);
       const result = await this.send(
         `/api/projects/${encodeURIComponent(this.projectId)}/tasks/${task.id}/move`,
-        { method: "POST", body: { action }, follow: task.id }
+        { method: "POST", body: { action }, follow: task.id, was: was ?? void 0 }
       );
       if (result?.note) this.showNotice(result.note);
       else this.render();
@@ -1768,7 +1772,6 @@ ${lines.join("\n")}` : "";
           return null;
         }
         const result = await response.json();
-        this.remember(url, options, before, result);
         if (result.patch) {
           const drew = this.applyPatch(result.patch);
           if (drew === null) await this.refetch();
@@ -1779,6 +1782,7 @@ ${lines.join("\n")}` : "";
           this.setData(result.grid);
         }
         this.error = null;
+        this.remember(url, options, before, result);
         if (options.follow) this.reveal(options.follow);
         const moved = options.follow ? this.tasks.findIndex((task) => task.id === options.follow) : -1;
         this.select(moved >= 0 ? moved : this.row, this.column);
@@ -1891,13 +1895,24 @@ ${lines.join("\n")}` : "";
       if (this.replaying || options.method === "GET") return;
       const body = options.body;
       const taskId = decodeURIComponent(/\/tasks\/([^/?#]+)$/.exec(url)?.[1] ?? "");
+      if (options.was && result.patch?.moved) {
+        const to = this.spotOf(result.patch.moved.id);
+        if (to) {
+          this.done.push({ kind: "move", taskId: result.patch.moved.id, from: options.was, to });
+          this.undone = [];
+        }
+        return;
+      }
+      if (url.endsWith("/tasks") && result.task_id) {
+        const at = this.spotOf(result.task_id);
+        if (at) {
+          this.done.push({ kind: "add", taskId: result.task_id, at });
+          this.undone = [];
+        }
+        return;
+      }
       if (!body?.field || !taskId) {
-        this.done.push({
-          taskId: taskId ?? "",
-          field: "",
-          before: { send: "", stored: "" },
-          after: { send: "", stored: "" }
-        });
+        this.done.push({ kind: "barrier" });
         this.undone = [];
         return;
       }
@@ -1909,6 +1924,7 @@ ${lines.join("\n")}` : "";
       const field = body.field;
       const fieldId = body.field_id;
       const step = {
+        kind: "cell",
         taskId,
         field,
         fieldId,
@@ -1996,15 +2012,20 @@ ${lines.join("\n")}` : "";
         this.fail(direction === "undo" ? t("\u53D6\u308A\u6D88\u305B\u308B\u64CD\u4F5C\u304C\u3042\u308A\u307E\u305B\u3093\u3002") : t("\u3084\u308A\u76F4\u305B\u308B\u64CD\u4F5C\u304C\u3042\u308A\u307E\u305B\u3093\u3002"));
         return;
       }
-      if (!step.field) {
-        this.fail(
-          t("\u884C\u306E\u8FFD\u52A0\u30FB\u524A\u9664\u30FB\u4E26\u3079\u66FF\u3048\u306F\u53D6\u308A\u6D88\u305B\u307E\u305B\u3093\u3002\u3082\u3046\u4E00\u5EA6\u62BC\u3059\u3068\u3001\u305D\u306E\u524D\u306E\u5909\u66F4\u3092\u53D6\u308A\u6D88\u3057\u307E\u3059\u3002")
-        );
-        return;
-      }
+      const done = step.kind === "cell" ? await this.replayCell(step, direction) : step.kind === "move" ? await this.replayMove(step, direction) : step.kind === "add" ? await this.replayAdd(step, direction) : this.refuse(t("\u884C\u306E\u524A\u9664\u306F\u53D6\u308A\u6D88\u305B\u307E\u305B\u3093\u3002\u3082\u3046\u4E00\u5EA6\u62BC\u3059\u3068\u3001\u305D\u306E\u524D\u306E\u5909\u66F4\u3092\u53D6\u308A\u6D88\u3057\u307E\u3059\u3002"));
+      if (!done) return;
+      (direction === "undo" ? this.undone : this.done).push(step);
+    }
+    /** Says why nothing happened, and answers "not done" for the caller. */
+    refuse(why) {
+      this.fail(why);
+      return false;
+    }
+    /** Puts one cell back to the value on the other side of the change. */
+    async replayCell(step, direction) {
       if (!this.data.tasks.some((task) => task.id === step.taskId)) {
         this.fail(t("\u305D\u306E\u884C\u306F\u3082\u3046\u3042\u308A\u307E\u305B\u3093\u3002"));
-        return;
+        return false;
       }
       const target = direction === "undo" ? step.before : step.after;
       const expect = direction === "undo" ? step.after.stored : step.before.stored;
@@ -2018,10 +2039,122 @@ ${lines.join("\n")}` : "";
         }
       );
       this.replaying = false;
-      if (!result) {
-        return;
+      return result !== null;
+    }
+    /**
+     * Puts a row back where it stood.
+     *
+     * `place` takes a parent and the sibling to land after, which is exactly
+     * what was written down before the row was moved — the same instruction,
+     * pointed the other way.
+     */
+    async replayMove(step, direction) {
+      if (!this.data.tasks.some((task) => task.id === step.taskId)) {
+        this.fail(t("\u305D\u306E\u884C\u306F\u3082\u3046\u3042\u308A\u307E\u305B\u3093\u3002"));
+        return false;
       }
-      (direction === "undo" ? this.undone : this.done).push(step);
+      const now = this.spotOf(step.taskId);
+      const held = direction === "undo" ? step.to : step.from;
+      if (!now || now.parent !== held.parent || now.after !== held.after) {
+        this.fail(t("\u305D\u306E\u884C\u306F\u8AB0\u304B\u304C\u52D5\u304B\u3057\u307E\u3057\u305F\u3002"));
+        return false;
+      }
+      const target = direction === "undo" ? step.from : step.to;
+      this.replaying = true;
+      const result = await this.send(
+        `/api/projects/${encodeURIComponent(this.projectId)}/tasks/${step.taskId}/place`,
+        { method: "POST", body: target, follow: step.taskId, was: now }
+      );
+      this.replaying = false;
+      return result !== null;
+    }
+    /**
+     * Takes back a row that was added, or puts it back.
+     *
+     * Undoing removes it — but only while it is still empty. Whatever was typed
+     * into it is a change of its own and comes off the stack first; a row with
+     * something in it is somebody's work, and Ctrl+Z is not a way to lose it.
+     *
+     * Redoing adds a row again, which the server gives a new id. Every step that
+     * still names the old one is pointed at the new one, so the stack keeps
+     * working from here.
+     */
+    async replayAdd(step, direction) {
+      if (direction === "redo") {
+        this.replaying = true;
+        const result2 = await this.send(
+          `/api/projects/${encodeURIComponent(this.projectId)}/tasks`,
+          { method: "POST", body: { after: step.at.after ?? step.at.parent } }
+        );
+        this.replaying = false;
+        if (!result2?.task_id) return false;
+        if (step.at.after === null && step.at.parent !== null) {
+          this.replaying = true;
+          await this.send(
+            `/api/projects/${encodeURIComponent(this.projectId)}/tasks/${result2.task_id}/place`,
+            { method: "POST", body: step.at, follow: result2.task_id }
+          );
+          this.replaying = false;
+        }
+        this.rename(step.taskId, result2.task_id);
+        return true;
+      }
+      const row = this.data.tasks.find((task) => task.id === step.taskId);
+      if (!row) {
+        this.fail(t("\u305D\u306E\u884C\u306F\u3082\u3046\u3042\u308A\u307E\u305B\u3093\u3002"));
+        return false;
+      }
+      if (row.has_children) {
+        this.fail(t("\u305D\u306E\u884C\u306B\u306F\u5B50\u30BF\u30B9\u30AF\u304C\u3042\u308B\u306E\u3067\u3001\u53D6\u308A\u6D88\u3057\u3067\u306F\u6D88\u3057\u307E\u305B\u3093\u3002"));
+        return false;
+      }
+      if (this.written(row)) {
+        this.fail(t("\u66F8\u304D\u8FBC\u307F\u306E\u3042\u308B\u884C\u306F\u3001\u53D6\u308A\u6D88\u3057\u3067\u306F\u6D88\u3057\u307E\u305B\u3093\u3002"));
+        return false;
+      }
+      this.replaying = true;
+      const result = await this.send(
+        `/api/projects/${encodeURIComponent(this.projectId)}/tasks/${step.taskId}`,
+        { method: "DELETE" }
+      );
+      this.replaying = false;
+      return result !== null;
+    }
+    /** Whether anything was ever put in this row. */
+    written(task) {
+      return task.name.trim() !== "" || task.start !== null || task.end !== null || task.actual_start !== null || task.actual_end !== null || task.progress !== 0 || task.assignee.trim() !== "" || task.note.trim() !== "" || Object.values(task.values).some((value) => value.trim() !== "");
+    }
+    /** Points every step at the id a row came back with. */
+    rename(was, now) {
+      for (const step of [...this.done, ...this.undone]) {
+        if (step.kind !== "barrier" && step.taskId === was) step.taskId = now;
+      }
+    }
+    /**
+     * Where a row sits among its siblings.
+     *
+     * The plan is one flat list ordered depth first, so the parent is the first
+     * row above it that is shallower, and the previous sibling is the first row
+     * above it at the same depth — anything deeper in between belongs to that
+     * sibling.
+     */
+    spotOf(id) {
+      const at = this.data.tasks.findIndex((task) => task.id === id);
+      const row = this.data.tasks[at];
+      if (!row) return null;
+      let parent = null;
+      let after = null;
+      for (let index = at - 1; index >= 0; index--) {
+        const above = this.data.tasks[index];
+        if (!above || above.depth > row.depth) continue;
+        if (above.depth === row.depth) {
+          if (after === null) after = above.id;
+          continue;
+        }
+        parent = above.id;
+        break;
+      }
+      return { parent, after };
     }
     async reason(response) {
       if (response.status === 403) return t("\u96C6\u8A08\u884C\u306E\u65E5\u4ED8\u3068\u9032\u6357\u306F\u5B50\u30BF\u30B9\u30AF\u304B\u3089\u6C7A\u307E\u308A\u307E\u3059\u3002");
@@ -2814,9 +2947,10 @@ ${lines.join("\n")}` : "";
         if (!target) return;
         const drop = this.dropTarget(target.at, target.depth, excluded);
         if (drop.parent === task.id) return;
+        const was = this.spotOf(task.id);
         await this.send(
           `/api/projects/${encodeURIComponent(this.projectId)}/tasks/${task.id}/place`,
-          { method: "POST", body: drop, follow: task.id }
+          { method: "POST", body: drop, follow: task.id, was: was ?? void 0 }
         );
       };
       const cancel = () => {

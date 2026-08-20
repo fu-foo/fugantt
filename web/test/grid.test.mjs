@@ -5902,9 +5902,34 @@ const fromChart = await (async () => {
     await fetch(`/api/projects/test-project/tasks/${id}`, { method: "DELETE" });
   }, id);
 
-  return { 項目, 置いた, 書けた };
+  // 表の右クリックには色が出る、チャートには出ない。
+  const 色があるか = { チャート: false, 表: false };
+  await page.mouse.click(spot.x, spot.y, { button: "right" });
+  await settle();
+  色があるか.チャート = await page.evaluate(() => !!document.querySelector(".fg-menu .fg-palette"));
+  await page.keyboard.press("Escape");
+  await settle();
+
+  const 表の場所 = await page.evaluate(() => {
+    const cell = document.querySelector(".fg-pane-left .fg-row.fg-data .fg-cell");
+    const box = cell.getBoundingClientRect();
+    return { x: Math.round(box.x + box.width / 2), y: Math.round(box.y + box.height / 2) };
+  });
+  await page.mouse.click(表の場所.x, 表の場所.y, { button: "right" });
+  await settle();
+  色があるか.表 = await page.evaluate(() => !!document.querySelector(".fg-menu .fg-palette"));
+  await page.keyboard.press("Escape");
+  await settle();
+
+  return { 項目, 置いた, 書けた, 色があるか };
 })();
 
+// 色はチャートに出さない。バーに色を付けられるように見えるが、塗るのは行のほう。
+check(
+  "チャートの右クリックに色は出さない（表の右クリックには出す）",
+  !fromChart.色があるか.チャート && fromChart.色があるか.表,
+  JSON.stringify(fromChart.色があるか),
+);
 check(
   "チャートの右クリックに、値の入口が出る",
   ["待ち…", "予定進捗…", "ステータス…", "担当者…", "コメント…"].every((word) =>

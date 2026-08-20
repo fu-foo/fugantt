@@ -5815,7 +5815,9 @@ class Grid {
       }
     }
 
-    if (this.editable(task, column("name"))) {
+    // The palette stays on the table's menu. Offered over the chart it reads as
+    // "colour this bar", which is not what it does — it paints the row.
+    if (day === undefined && this.editable(task, column("name"))) {
       menu.append(element("div", "fg-menu-rule"));
       menu.append(this.renderPalette(task, close));
     }

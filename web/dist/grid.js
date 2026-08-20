@@ -3931,7 +3931,7 @@ ${lines.join("\n")}` : "";
           if (target) item(`${t(target.label)}\u2026`, "", () => this.openField(task, target));
         }
       }
-      if (this.editable(task, column("name"))) {
+      if (day === void 0 && this.editable(task, column("name"))) {
         menu.append(element("div", "fg-menu-rule"));
         menu.append(this.renderPalette(task, close));
       }

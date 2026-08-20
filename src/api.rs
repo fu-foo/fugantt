@@ -324,6 +324,9 @@ struct Patch {
     /// Only a write that adds a row sets this.
     #[serde(skip_serializing_if = "Option::is_none")]
     after: Option<String>,
+    /// A row that changed places, with its subtree following it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    moved: Option<Moved>,
     /// Rows that are gone, subtree and all.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     removed: Vec<String>,
@@ -841,9 +844,15 @@ async fn move_task(cx: &Cx, Json(request): Json<MoveRequest>) -> Result<Json<Mut
     // does owe the user an explanation, though.
     let name = history::task_name(cx, &task_id).await;
 
+    // Where it was, so the answer can say what moved rather than hand back the
+    // whole plan for the browser to compare against.
+    let (was_under, _) = project::task_in_project(cx, &project_id, &task_id).await?;
+
     if let Some(note) = project::move_task(cx, &project_id, &task_id, request.action).await? {
+        // Nothing moved, so nothing is sent. Holding Alt+↑ at the top of the
+        // plan used to answer with every row in it, over and over.
         return Ok(Json(Mutation {
-            grid: Some(project::grid_data(cx, &project).await?),
+            grid: None,
             patch: None,
             task_id: Some(task_id),
             note: Some(note),
@@ -865,7 +874,17 @@ async fn move_task(cx: &Cx, Json(request): Json<MoveRequest>) -> Result<Json<Mut
     )
     .await?;
 
-    respond(cx, &project, user.display(), Some(task_id)).await
+    respond_patch(
+        cx,
+        &project,
+        user.display(),
+        Some(task_id.clone()),
+        Change::Moved {
+            id: task_id,
+            was_under,
+        },
+    )
+    .await
 }
 
 #[derive(Deserialize)]
@@ -889,6 +908,8 @@ async fn place_task(cx: &Cx, Json(request): Json<PlaceRequest>) -> Result<Json<M
         project::task_in_project(cx, &project_id, parent).await?;
     }
 
+    let (was_under, _) = project::task_in_project(cx, &project_id, &task_id).await?;
+
     let refused = project::place_task(
         cx,
         &project_id,
@@ -900,14 +921,24 @@ async fn place_task(cx: &Cx, Json(request): Json<PlaceRequest>) -> Result<Json<M
 
     if let Some(note) = refused {
         return Ok(Json(Mutation {
-            grid: Some(project::grid_data(cx, &project).await?),
+            grid: None,
             patch: None,
             task_id: Some(task_id),
             note: Some(note),
         }));
     }
 
-    respond(cx, &project, user.display(), Some(task_id)).await
+    respond_patch(
+        cx,
+        &project,
+        user.display(),
+        Some(task_id.clone()),
+        Change::Moved {
+            id: task_id,
+            was_under,
+        },
+    )
+    .await
 }
 
 #[route(DELETE "/api/projects/{project_id}/tasks/{task_id}")]
@@ -1011,6 +1042,7 @@ async fn respond(
             task_id: task_id.clone(),
             actor: actor.to_owned(),
             client: client_id(cx),
+            kind: live::PLAN,
         },
     );
 
@@ -1019,6 +1051,41 @@ async fn respond(
         patch: None,
         task_id,
         note: None,
+    }))
+}
+
+/// One row and its summary rows, for a browser that heard it changed.
+///
+/// The live channel says only that something moved, so a watcher used to
+/// answer by reading the whole plan back — the same four megabytes the writer
+/// no longer sends. Two people on a long plan meant every keystroke of theirs
+/// cost the other one a full read. Now they ask about the row they were told
+/// about, and get what its writer got.
+///
+/// Reading, not writing: a viewer watches the same plan as everybody else.
+#[route(GET "/api/projects/{project_id}/tasks/{task_id}/patch")]
+async fn task_patch(cx: &Cx) -> Result<Json<Patch>> {
+    let user = require_user(cx).await?;
+    let project_id = project::id_from_path(cx)?.to_owned();
+    let task_id = project::path_str(cx, "task_id")?.to_owned();
+
+    let project = project::authorize(cx, &user.id, &project_id).await?;
+    project::task_in_project(cx, &project_id, &task_id).await?;
+
+    let (data, total) = project::patch_data(cx, &project, Some(&task_id)).await?;
+
+    Ok(Json(Patch {
+        revision: project.revision,
+        rows: with_ancestors(&data.tasks, &task_id),
+        // Sent whether or not the asker already has the row: a watcher that
+        // heard about a row it has never seen is exactly the case where it
+        // needs telling where the row goes.
+        after: project::preceding_row(cx, &project_id, &task_id).await?,
+        moved: None,
+        removed: Vec::new(),
+        range_start: data.range_start.clone(),
+        range_end: data.range_end.clone(),
+        total,
     }))
 }
 
@@ -1045,6 +1112,13 @@ async fn respond_patch(
             task_id: task_id.clone(),
             actor: actor.to_owned(),
             client: client_id(cx),
+            // A watcher can ask about a row that changed. It cannot ask about
+            // an order it did not see, and a row that is gone leaves nothing
+            // to ask about at all — so both send it back for the whole plan.
+            kind: match change {
+                Change::Removed { .. } | Change::Moved { .. } => live::PLAN,
+                _ => live::CELL,
+            },
         },
     );
 
@@ -1053,11 +1127,25 @@ async fn respond_patch(
         cx,
         &project,
         match &change {
-            Change::Wrote(id) | Change::Added(id) => Some(id.as_str()),
+            Change::Wrote(id) | Change::Added(id) | Change::Moved { id, .. } => Some(id.as_str()),
             Change::Removed { parent, .. } => parent.as_deref(),
         },
     )
     .await?;
+
+    // A row that moved out of one summary row and into another changed the
+    // numbers on both. The one it left may be under a different root, and so
+    // outside everything read above — the only case that reads twice.
+    let left_behind = match &change {
+        Change::Moved {
+            was_under: Some(parent),
+            ..
+        } if !data.tasks.iter().any(|task| &task.id == parent) => {
+            let (theirs, _) = project::patch_data(cx, &project, Some(parent)).await?;
+            with_ancestors(&theirs.tasks, parent)
+        }
+        _ => Vec::new(),
+    };
 
     let (rows, after) = match &change {
         // A row that is gone leaves nothing to look up, so the trail is taken
@@ -1070,6 +1158,19 @@ async fn respond_patch(
             with_ancestors(&data.tasks, id),
             project::preceding_row(cx, &project.id, id).await?,
         ),
+        // The row itself carries no news — its own numbers travel with it — but
+        // the summary rows on both sides of the move do.
+        Change::Moved { id, was_under } => {
+            let mut rows = with_ancestors(&data.tasks, id);
+            if let Some(parent) = was_under {
+                rows.extend(with_ancestors(&data.tasks, parent));
+            }
+            rows.extend(left_behind);
+            rows.sort_by(|a, b| a.id.cmp(&b.id));
+            rows.dedup_by(|a, b| a.id == b.id);
+
+            (rows, None)
+        }
         Change::Removed { parent, .. } => (
             parent
                 .as_deref()
@@ -1079,12 +1180,26 @@ async fn respond_patch(
         ),
     };
 
+    let moved = match &change {
+        Change::Moved { id, .. } => Some(Moved {
+            after: project::preceding_row(cx, &project.id, id).await?,
+            depth: data
+                .tasks
+                .iter()
+                .find(|task| &task.id == id)
+                .map_or(0, |task| task.depth),
+            id: id.clone(),
+        }),
+        _ => None,
+    };
+
     Ok(Json(Mutation {
         grid: None,
         patch: Some(Patch {
             revision: project.revision,
             rows,
             after,
+            moved,
             removed: match change {
                 Change::Removed { gone, .. } => gone,
                 _ => Vec::new(),
@@ -1098,10 +1213,31 @@ async fn respond_patch(
     }))
 }
 
+/// Where a row ended up after being moved.
+///
+/// The browser holds the plan as one flat list, so a subtree is the row plus
+/// the run of deeper rows behind it. Told which row it now follows and how
+/// deep it now sits, the browser can cut that run out and put it back — no
+/// need to be sent the plan to find out what order it is in.
+#[derive(Debug, Serialize)]
+struct Moved {
+    id: String,
+    /// The row it comes after, or `None` for the top of the plan.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    after: Option<String>,
+    depth: usize,
+}
+
 /// Which shape of change a write made, so the answer can say what moved.
 enum Change {
     Wrote(String),
     Added(String),
+    /// A row changed places. `was_under` is the summary row it hung from
+    /// before, whose numbers change now that it has left.
+    Moved {
+        id: String,
+        was_under: Option<String>,
+    },
     Removed {
         gone: Vec<String>,
         parent: Option<String>,
@@ -2645,6 +2781,7 @@ async fn bump_and_announce(cx: &Cx, project_id: &str, actor: &str) -> Result<()>
             task_id: None,
             actor: actor.to_owned(),
             client: None,
+            kind: live::PLAN,
         },
     );
 

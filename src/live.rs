@@ -27,7 +27,19 @@ pub struct Change {
     /// for it, so comparing revisions cannot tell an echo from someone else's
     /// edit. The originator recognises itself here and ignores the event.
     pub client: Option<String>,
+    /// What shape of change it was: [`CELL`] or [`PLAN`].
+    ///
+    /// A watcher can take one row's numbers on trust and ask for just that
+    /// row. It cannot take an order it did not see, so anything that moves
+    /// rows about sends it back for the whole plan.
+    pub kind: &'static str,
 }
+
+/// One row's values changed. Its ancestors' numbers followed, and nothing else.
+pub const CELL: &str = "cell";
+
+/// Rows arrived, left, or changed places.
+pub const PLAN: &str = "plan";
 
 /// One broadcast channel per project, created on first use.
 #[derive(Default)]
@@ -79,6 +91,7 @@ pub async fn announce_everything(cx: &Cx) {
                 task_id: None,
                 actor: "バックアップの復元".to_owned(),
                 client: None,
+                kind: PLAN,
             },
         );
     }

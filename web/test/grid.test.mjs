@@ -985,7 +985,7 @@ check(
 check("列の幅を保存できる", saved.widths.start === 140, JSON.stringify(saved.widths));
 
 // 列を入れ替えられる。タスク名は先頭のまま。
-const reordered = await page.evaluate(async () => {
+const movedRow = await page.evaluate(async () => {
   const body = new URLSearchParams();
   for (const key of ["name", "start", "end", "days", "progress", "status", "assignee", "note"]) {
     body.set(`column_${key}`, "1");
@@ -998,8 +998,8 @@ const reordered = await page.evaluate(async () => {
 });
 check(
   "列を入れ替えられる",
-  reordered.indexOf("end") < reordered.indexOf("start") && reordered[0] === "name",
-  reordered.slice(0, 4).join(","),
+  movedRow.indexOf("end") < movedRow.indexOf("start") && movedRow[0] === "name",
+  movedRow.slice(0, 4).join(","),
 );
 
 // 元に戻す
@@ -5373,6 +5373,125 @@ check(
     everywhere.甲だけ?.重複 === "—" &&
     Number(everywhere.全体.空き.replace("日", "")) === Number(everywhere.甲だけ.空き.replace("日", "")) - 5,
   JSON.stringify(everywhere),
+);
+
+// --- 他人の変更と並べ替え -----------------------------------------------------
+
+// 他人が1文字直すたびに、こちらは計画をまるごと読み直していた。1万行なら4MB。
+// いまは「その行だけ」を取りに行く。
+const fromElsewhere = await (async () => {
+  await page.goto(`${BASE}/projects/test-project`, { waitUntil: "domcontentloaded" });
+  await page.waitForSelector(".fg-grid");
+  await settle();
+
+  return page.evaluate(async () => {
+    const wait = (ms) => new Promise((done) => setTimeout(done, ms));
+    const original = window.fetch;
+    const 島が読んだもの = [];
+    window.fetch = (...args) => {
+      島が読んだもの.push(String(args[0]));
+      return original(...args);
+    };
+
+    // 別のブラウザのふりをして書く。島は自分の書き込みだと思わない。
+    const 名前 = `別の人から ${Date.now()}`;
+    await original("/api/projects/test-project/tasks/t-req", {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-fugantt-client": "another-browser" },
+      body: JSON.stringify({ field: "name", value: 名前 }),
+    });
+
+    await wait(1500);
+    window.fetch = original;
+
+    const 画面 = [...document.querySelectorAll(".fg-pane-left .fg-row.fg-data .fg-cell-name")]
+      .map((cell) => cell.textContent.trim());
+
+    return {
+      届いた: 画面.includes(名前),
+      計画をまるごと: 島が読んだもの.filter((url) => url.endsWith("/grid")).length,
+      行だけ: 島が読んだもの.filter((url) => url.endsWith("/patch")).length,
+      知らせ: document.querySelector(".fg-notice")?.textContent ?? "",
+    };
+  });
+})();
+
+check(
+  "他人の変更はその行だけ取りに行く",
+  fromElsewhere.届いた && fromElsewhere.行だけ === 1 && fromElsewhere.計画をまるごと === 0,
+  JSON.stringify(fromElsewhere),
+);
+
+// 並べ替えも計画をまるごと返していた（1万行で4.3MB）。動くのは「その部分木がどこへ
+// 移ったか」と、移動元と移動先の集計行だけ。
+const orderPatch = await page.evaluate(async () => {
+  const 並び = async () =>
+    (await (await fetch("/api/projects/test-project/grid")).json()).tasks.map((task) => task.id);
+
+  const 送る = async (id, action) => {
+    const response = await fetch(`/api/projects/test-project/tasks/${id}/move`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ action }),
+    });
+    return { 答え: await response.json(), 大きさ: response.headers.get("content-length") };
+  };
+
+  const 前 = await 並び();
+  const 動かした = await 送る("t-rev", "up");
+  await new Promise((done) => setTimeout(done, 500));
+  const 後 = await 並び();
+
+  // 画面の並びと、サーバーの並びを突き合わせる。畳んだ行や絞り込みで画面のほうが
+  // 少ないことはあるので、見えている行が同じ順で並んでいるか（部分列か）を見る。
+  // 畳みの三角は名前の一部ではない。
+  const 画面 = [...document.querySelectorAll(".fg-pane-left .fg-row.fg-data")].map((row) =>
+    (row.querySelector(".fg-cell-name")?.textContent ?? "").trim().replace(/^[^\p{L}\p{N}]+/u, ""),
+  );
+  const server = (await (await fetch("/api/projects/test-project/grid")).json()).tasks.map(
+    (task) => task.name,
+  );
+
+  let 追う = 0;
+  for (const name of 画面) {
+    追う = server.indexOf(name, 追う) + 1;
+    if (追う === 0) break;
+  }
+
+  // いちばん上でさらに上へ。何も動かないので、何も返らないのが正しい。
+  const 端 = await 送る(前[0], "up");
+
+  return {
+    全体が返ったか: 動かした.答え.grid !== undefined,
+    動いた行: 動かした.答え.patch?.moved?.id ?? null,
+    並びが変わった: JSON.stringify(前) !== JSON.stringify(後),
+    画面とサーバーが同じ: 追う > 0,
+    画面の並び: 画面,
+    サーバーの並び: server,
+    端で返ったもの: {
+      grid: 端.答え.grid !== undefined,
+      patch: 端.答え.patch !== undefined,
+      note: (端.答え.note ?? "").slice(0, 12),
+    },
+  };
+});
+
+check(
+  "並べ替えは動いた行だけを返す",
+  !orderPatch.全体が返ったか && orderPatch.動いた行 === "t-rev" && orderPatch.並びが変わった,
+  JSON.stringify(orderPatch),
+);
+check(
+  "並べ替えたあとの並びは画面とサーバーで同じ",
+  orderPatch.画面とサーバーが同じ,
+  JSON.stringify(orderPatch),
+);
+// 端で押しても計画は返ってこない。Alt+↑ は押しっぱなしにする打鍵で、
+// そのたびに全行を送っていた。
+check(
+  "端まで来たら、断りだけを返す",
+  !orderPatch.端で返ったもの.grid && !orderPatch.端で返ったもの.patch && orderPatch.端で返ったもの.note !== "",
+  JSON.stringify(orderPatch.端で返ったもの),
 );
 
 check("JavaScript エラーが出ていない", pageErrors.length === 0, pageErrors.join(" / "));

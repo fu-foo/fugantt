@@ -173,6 +173,7 @@
     // the grid
     "\uFF08\u7121\u984C\uFF09": "(untitled)",
     "\u7121\u984C\u306E\u30BF\u30B9\u30AF": "Untitled task",
+    "\u304C\u66F4\u65B0\u3057\u307E\u3057\u305F": "made a change",
     "\u4FDD\u5B58\u3067\u304D\u307E\u305B\u3093\u3067\u3057\u305F\u3002\u63A5\u7D9A\u3092\u78BA\u8A8D\u3057\u3066\u304F\u3060\u3055\u3044\u3002": "Could not save. Check the connection.",
     "\u53D6\u308A\u6D88\u305B\u308B\u64CD\u4F5C\u304C\u3042\u308A\u307E\u305B\u3093\u3002": "Nothing to undo.",
     "\u3084\u308A\u76F4\u305B\u308B\u64CD\u4F5C\u304C\u3042\u308A\u307E\u305B\u3093\u3002": "Nothing to redo.",
@@ -512,10 +513,35 @@
         const change = JSON.parse(event.data);
         if (change.client === CLIENT_ID) return;
         if (change.revision <= this.data.revision) return;
+        if (change.kind === "cell" && change.task_id) {
+          void this.follow(change.task_id, change.actor);
+          return;
+        }
         void this.refresh(change.actor);
       });
     }
     /** Reloads the grid after someone else changed it, keeping the cursor put. */
+    /** Takes in one row somebody else changed, without reading the plan back. */
+    async follow(taskId, actor) {
+      if (this.editing || this.composing) return;
+      try {
+        const response = await fetch(
+          `/api/projects/${encodeURIComponent(this.projectId)}/tasks/${encodeURIComponent(taskId)}/patch`
+        );
+        if (!response.ok) {
+          void this.refresh(actor);
+          return;
+        }
+        const drew = this.applyPatch(await response.json());
+        if (drew === null) {
+          void this.refresh(actor);
+          return;
+        }
+        this.showNotice(`${actor} ${t("\u304C\u66F4\u65B0\u3057\u307E\u3057\u305F")}`);
+        this.repaintRows(drew);
+      } catch {
+      }
+    }
     async refresh(actor) {
       if (this.editing || this.composing) return;
       const here = this.selected?.id;
@@ -1783,6 +1809,7 @@ ${lines.join("\n")}` : "";
         const gone = new Set(patch.removed);
         this.data.tasks = this.data.tasks.filter((task) => !gone.has(task.id));
       }
+      if (patch.moved && !this.carry(patch.moved)) return null;
       const at = new Map(this.data.tasks.map((task, index) => [task.id, index]));
       const fresh = [];
       for (const row of patch.rows) {
@@ -1800,8 +1827,36 @@ ${lines.join("\n")}` : "";
       this.data.range_end = patch.range_end;
       if (this.data.tasks.length !== patch.total) return null;
       this.computeVisible();
-      if (structural || fresh.length > 0 || this.tasks.length !== wasVisible) return [];
+      if (structural || patch.moved || fresh.length > 0 || this.tasks.length !== wasVisible) {
+        return [];
+      }
       return patch.rows.map((row) => row.id);
+    }
+    /**
+     * Moves a row, and everything under it, to where the server put it.
+     *
+     * The plan is one flat list ordered depth first, so a subtree is the row
+     * plus the run of deeper rows behind it — the same fact folding already
+     * relies on. Cut that run out, shift its depths by however far the row
+     * moved, and put it back after the row it now follows.
+     *
+     * False when this browser cannot see where it is meant to go, which sends
+     * the caller back for the whole plan.
+     */
+    carry(moved) {
+      const at = this.data.tasks.findIndex((task) => task.id === moved.id);
+      if (at < 0) return false;
+      const row = this.data.tasks[at];
+      if (!row) return false;
+      let end = at + 1;
+      while (end < this.data.tasks.length && (this.data.tasks[end]?.depth ?? 0) > row.depth) end++;
+      const subtree = this.data.tasks.splice(at, end - at);
+      const shift = moved.depth - row.depth;
+      for (const task of subtree) task.depth += shift;
+      const behind = moved.after ? this.data.tasks.findIndex((task) => task.id === moved.after) : -1;
+      if (moved.after !== void 0 && behind < 0) return false;
+      this.data.tasks.splice(behind + 1, 0, ...subtree);
+      return true;
     }
     /** The plan as the server has it, when a patch could not be trusted. */
     async refetch() {

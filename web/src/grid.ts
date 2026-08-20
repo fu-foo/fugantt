@@ -145,6 +145,8 @@ interface Patch {
   rows: Task[];
   /** Where a new row goes: the id it follows, or absent for the top. */
   after?: string;
+  /** A row that changed places, with its subtree following it. */
+  moved?: { id: string; after?: string; depth: number };
   /** Rows that are gone, subtree and all. */
   removed?: string[];
   range_start: string;
@@ -409,6 +411,7 @@ const EN: Record<string, string> = {
   // the grid
   "（無題）": "(untitled)",
   "無題のタスク": "Untitled task",
+  "が更新しました": "made a change",
   "保存できませんでした。接続を確認してください。": "Could not save. Check the connection.",
   "取り消せる操作がありません。": "Nothing to undo.",
   "やり直せる操作がありません。": "Nothing to redo.",
@@ -936,17 +939,60 @@ class Grid {
         revision: number;
         actor: string;
         client: string | null;
+        task_id: string | null;
+        kind: string;
       };
 
       // Our own write, arriving before its own response.
       if (change.client === CLIENT_ID) return;
       if (change.revision <= this.data.revision) return;
 
+      // Somebody else's ordinary edit: ask about the row they touched. Reading
+      // the whole plan back was the same four megabytes its writer no longer
+      // sends — two people on a long plan meant every keystroke of theirs cost
+      // this browser a full read. Anything that moves rows about still does.
+      if (change.kind === "cell" && change.task_id) {
+        void this.follow(change.task_id, change.actor);
+        return;
+      }
+
       void this.refresh(change.actor);
     });
   }
 
   /** Reloads the grid after someone else changed it, keeping the cursor put. */
+  /** Takes in one row somebody else changed, without reading the plan back. */
+  private async follow(taskId: string, actor: string): Promise<void> {
+    // Not mid-edit: the same rule the whole-plan refresh follows. What is being
+    // typed here has not been sent yet, and redrawing over it throws it away.
+    if (this.editing || this.composing) return;
+
+    try {
+      const response = await fetch(
+        `/api/projects/${encodeURIComponent(this.projectId)}/tasks/${encodeURIComponent(taskId)}/patch`,
+      );
+
+      // A row that is not there any more, or a plan this browser has fallen
+      // behind on: read it properly rather than guess.
+      if (!response.ok) {
+        void this.refresh(actor);
+        return;
+      }
+
+      const drew = this.applyPatch((await response.json()) as Patch);
+      if (drew === null) {
+        void this.refresh(actor);
+        return;
+      }
+
+      this.showNotice(`${actor} ${t("が更新しました")}`);
+      this.repaintRows(drew);
+    } catch {
+      // A failed follow leaves the stale row in place, which is better than an
+      // error banner for something the user did not do.
+    }
+  }
+
   private async refresh(actor: string): Promise<void> {
     // Refetching mid-edit would throw away what is being typed — including a
     // conversion that has not been committed yet.
@@ -2711,6 +2757,8 @@ class Grid {
       this.data.tasks = this.data.tasks.filter((task) => !gone.has(task.id));
     }
 
+    if (patch.moved && !this.carry(patch.moved)) return null;
+
     const at = new Map(this.data.tasks.map((task, index) => [task.id, index]));
     const fresh: Task[] = [];
 
@@ -2739,9 +2787,49 @@ class Grid {
 
     // A row arriving, leaving, or slipping through a filter moves every row
     // number after it, and a row number is what the drawn table is indexed by.
-    if (structural || fresh.length > 0 || this.tasks.length !== wasVisible) return [];
+    if (structural || patch.moved || fresh.length > 0 || this.tasks.length !== wasVisible) {
+      return [];
+    }
 
     return patch.rows.map((row) => row.id);
+  }
+
+  /**
+   * Moves a row, and everything under it, to where the server put it.
+   *
+   * The plan is one flat list ordered depth first, so a subtree is the row
+   * plus the run of deeper rows behind it — the same fact folding already
+   * relies on. Cut that run out, shift its depths by however far the row
+   * moved, and put it back after the row it now follows.
+   *
+   * False when this browser cannot see where it is meant to go, which sends
+   * the caller back for the whole plan.
+   */
+  private carry(moved: { id: string; after?: string; depth: number }): boolean {
+    const at = this.data.tasks.findIndex((task) => task.id === moved.id);
+    if (at < 0) return false;
+
+    const row = this.data.tasks[at];
+    if (!row) return false;
+
+    let end = at + 1;
+    while (end < this.data.tasks.length && (this.data.tasks[end]?.depth ?? 0) > row.depth) end++;
+
+    const subtree = this.data.tasks.splice(at, end - at);
+    const shift = moved.depth - row.depth;
+    for (const task of subtree) task.depth += shift;
+
+    // Looked up after the cut: the row it follows may have been sitting behind
+    // the rows that just left.
+    const behind = moved.after
+      ? this.data.tasks.findIndex((task) => task.id === moved.after)
+      : -1;
+
+    if (moved.after !== undefined && behind < 0) return false;
+
+    this.data.tasks.splice(behind + 1, 0, ...subtree);
+
+    return true;
   }
 
   /** The plan as the server has it, when a patch could not be trusted. */

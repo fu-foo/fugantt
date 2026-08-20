@@ -334,6 +334,39 @@ they are already solved.
 at all. **Everyone who can reach that URL can read and edit every project.** A
 banner stays on screen while it is on.
 
+## What 1.0 promises
+
+From 1.0, these are the things that will not be broken:
+
+- **The database.** An older file opens in a newer build, migrated on start.
+- **The API.** `/api/projects/{id}/document` (read and write), `/api/projects`,
+  `/api/summary`.
+- **The settings.** The `fugantt.ini` format and the environment variable names.
+- **Port 1861**, as the default.
+
+**The endpoints the grid itself uses are not covered.** They change with it.
+
+**Decided against** — which is also a promise, of a kind:
+
+- **No Windows code signing.** The first run says "Windows protected your PC";
+  More info → Run anyway.
+- **The Docker image stays amd64.** On a Mac, use the binary — it is native.
+- **No cross-project statistics screen.** `/api/summary` has the numbers for
+  every project.
+- **No LDAP, SAML or OIDC.** Put a reverse proxy in front.
+- **Deleting a row cannot be undone.** It asks first. Undo covers values, added
+  rows and reordering.
+- **Opening a plan sends all of it.** 170ms at ten thousand rows, once.
+
+**Measured, not guaranteed** — here to save you the time:
+
+- Committing one cell is a **14ms** round trip at a hundred rows and at ten
+  thousand (release build).
+- A plan of **1,000–3,000 rows** is the working range. Ten thousand still types
+  at the same speed.
+- The browser tests drive a real Chrome (328 of them).
+- One process, one SQLite file. No limit is set on how many people use it.
+
 ## Supporting
 
 If you find this project useful, consider supporting its development:

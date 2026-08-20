@@ -5560,6 +5560,83 @@ check(
   JSON.stringify(undoMove),
 );
 
+// --- 誰が動かしたか -----------------------------------------------------------
+
+// キーボードで動かせば「移動」が残るのに、マウスで掴んで動かすと何も残らなかった。
+// 取り消しも同じ道（place）を通るので、戻したことも誰も知らないままだった。
+// 履歴は「誰がやったか」を答える唯一の場所なので、どちらでも残す。
+const whoMoved = await page.evaluate(async () => {
+  const 履歴 = async () => {
+    const html = await (await fetch("/projects/test-project/history")).text();
+    // 履歴は表ではなく箇条書き（時刻・誰が・何を・どの行）。
+    return [...new DOMParser().parseFromString(html, "text/html").querySelectorAll("ul li")]
+      .map((row) => [...row.querySelectorAll("span")].map((span) => span.textContent.trim()).join(" / "));
+  };
+
+  const grid = await (await fetch("/api/projects/test-project/grid")).json();
+  const 動かす行 = grid.tasks.at(-1);
+  const 行き先 = grid.tasks.find((task) => task.depth === 0 && task.id !== 動かす行.id);
+
+  // 履歴はページ区切りなので、1件足しても表示件数は増えない。いちばん上を見る。
+  const 前のいちばん上 = (await 履歴())[0] ?? "";
+
+  await fetch(`/api/projects/test-project/tasks/${動かす行.id}/place`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ parent: null, after: 行き先.id }),
+  });
+
+  const 後 = await 履歴();
+
+  return {
+    変わった: (後[0] ?? "") !== 前のいちばん上,
+    いちばん上: 後[0] ?? "",
+    名前が入っている: (後[0] ?? "").includes(動かす行.name),
+  };
+});
+
+check(
+  "掴んで動かしても、誰がやったかが履歴に残る",
+  whoMoved.変わった && whoMoved.いちばん上.includes("移動") &&
+    whoMoved.いちばん上.includes("@") && whoMoved.名前が入っている,
+  JSON.stringify(whoMoved),
+);
+
+// --- 今日へ戻る ---------------------------------------------------------------
+
+// 去年の話を見にいくとチャートは今日から遠く離れる。戻る道が「指でずっと引く」
+// しかないのは、いちばんよく戻る場所に対して不親切だった。
+const backToToday = await page.evaluate(async () => {
+  const chart = document.querySelector(".fg-pane-chart");
+  const 開いたところ = Math.round(chart.scrollLeft);
+
+  chart.scrollLeft = 0;
+  await new Promise((done) => setTimeout(done, 300));
+  const 左端へ = Math.round(chart.scrollLeft);
+
+  document.querySelector(".fg-today-button").click();
+  await new Promise((done) => setTimeout(done, 300));
+
+  const 今日 = document.querySelector(".fg-today");
+  const 枠 = chart.getBoundingClientRect();
+  const 線 = 今日?.getBoundingClientRect();
+
+  return {
+    開いたところ,
+    左端へ,
+    押したあと: Math.round(chart.scrollLeft),
+    今日が見えている: !!線 && 線.left >= 枠.left && 線.left <= 枠.right,
+  };
+});
+
+check(
+  "「今日」を押すとチャートが今日に戻る",
+  backToToday.左端へ === 0 &&
+    backToToday.押したあと === backToToday.開いたところ &&
+    backToToday.今日が見えている,
+  JSON.stringify(backToToday),
+);
+
 check("JavaScript エラーが出ていない", pageErrors.length === 0, pageErrors.join(" / "));
 
 await browser.close();

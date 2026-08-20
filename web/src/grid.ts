@@ -438,6 +438,8 @@ const EN: Record<string, string> = {
   "（無題）": "(untitled)",
   "無題のタスク": "Untitled task",
   "が更新しました": "made a change",
+  "今日": "Today",
+  "今日のところへ戻る": "Back to today",
   "保存できませんでした。接続を確認してください。": "Could not save. Check the connection.",
   "取り消せる操作がありません。": "Nothing to undo.",
   "やり直せる操作がありません。": "Nothing to redo.",
@@ -4781,6 +4783,36 @@ class Grid {
    * seeing changes with the person and the day, so it is switched on the screen
    * rather than in the settings.
    */
+  /**
+   * Puts today back on screen.
+   *
+   * Reading last quarter means scrolling away from today, and scrolling back
+   * is a long drag on a plan that runs for a year — the one place a person
+   * always wants to get back to, and the only way there was by hand.
+   */
+  private renderTodayButton(): HTMLElement {
+    const button = element("button", "fg-shows fg-today-button", t("今日"));
+    button.type = "button";
+    button.tabIndex = -1;
+    button.title = t("今日のところへ戻る");
+
+    button.addEventListener("click", () => this.showToday());
+
+    return button;
+  }
+
+  /** Scrolls the chart so today sits a few days in from the left. */
+  private showToday(): void {
+    const chart = this.root.querySelector<HTMLElement>(".fg-pane-chart");
+    const at = dayIndex(this.data.today, parseDate(this.data.range_start));
+    if (!chart || at < 0) return;
+
+    // The same few days of run-up the chart opens with: today against the left
+    // edge hides what led to it.
+    chart.scrollLeft = Math.max(0, (at - 5) * this.dayWidth);
+    this.scrollLeft = chart.scrollLeft;
+  }
+
   private renderShowToggle(): HTMLElement {
     const button = element("button", "fg-shows", t("表示"));
     button.type = "button";
@@ -4856,7 +4888,7 @@ class Grid {
     // The chart side has the filter row's height going spare, which is where the
     // switch goes: it decides how much is drawn over the bars, so it belongs
     // near them.
-    spacer.append(this.renderShowToggle());
+    spacer.append(this.renderShowToggle(), this.renderTodayButton());
 
     const quarters = element("div", "fg-quarters");
     const months = element("div", "fg-months");

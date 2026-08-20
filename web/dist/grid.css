@@ -754,6 +754,10 @@ html {
   border-color: var(--fg-bar);
   color: var(--fg-bar);
 }
+.fg-today-button {
+  left: 58px;
+  margin-left: 4px;
+}
 .fg-shows.is-on {
   border-color: var(--fg-bar);
   background: #eff6ff;

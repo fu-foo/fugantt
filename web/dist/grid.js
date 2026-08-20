@@ -174,6 +174,8 @@
     "\uFF08\u7121\u984C\uFF09": "(untitled)",
     "\u7121\u984C\u306E\u30BF\u30B9\u30AF": "Untitled task",
     "\u304C\u66F4\u65B0\u3057\u307E\u3057\u305F": "made a change",
+    "\u4ECA\u65E5": "Today",
+    "\u4ECA\u65E5\u306E\u3068\u3053\u308D\u3078\u623B\u308B": "Back to today",
     "\u4FDD\u5B58\u3067\u304D\u307E\u305B\u3093\u3067\u3057\u305F\u3002\u63A5\u7D9A\u3092\u78BA\u8A8D\u3057\u3066\u304F\u3060\u3055\u3044\u3002": "Could not save. Check the connection.",
     "\u53D6\u308A\u6D88\u305B\u308B\u64CD\u4F5C\u304C\u3042\u308A\u307E\u305B\u3093\u3002": "Nothing to undo.",
     "\u3084\u308A\u76F4\u305B\u308B\u64CD\u4F5C\u304C\u3042\u308A\u307E\u305B\u3093\u3002": "Nothing to redo.",
@@ -3216,6 +3218,29 @@ ${lines.join("\n")}` : "";
      * seeing changes with the person and the day, so it is switched on the screen
      * rather than in the settings.
      */
+    /**
+     * Puts today back on screen.
+     *
+     * Reading last quarter means scrolling away from today, and scrolling back
+     * is a long drag on a plan that runs for a year — the one place a person
+     * always wants to get back to, and the only way there was by hand.
+     */
+    renderTodayButton() {
+      const button = element("button", "fg-shows fg-today-button", t("\u4ECA\u65E5"));
+      button.type = "button";
+      button.tabIndex = -1;
+      button.title = t("\u4ECA\u65E5\u306E\u3068\u3053\u308D\u3078\u623B\u308B");
+      button.addEventListener("click", () => this.showToday());
+      return button;
+    }
+    /** Scrolls the chart so today sits a few days in from the left. */
+    showToday() {
+      const chart = this.root.querySelector(".fg-pane-chart");
+      const at = dayIndex(this.data.today, parseDate(this.data.range_start));
+      if (!chart || at < 0) return;
+      chart.scrollLeft = Math.max(0, (at - 5) * this.dayWidth);
+      this.scrollLeft = chart.scrollLeft;
+    }
     renderShowToggle() {
       const button = element("button", "fg-shows", t("\u8868\u793A"));
       button.type = "button";
@@ -3270,7 +3295,7 @@ ${lines.join("\n")}` : "";
     renderHeader(origin, days) {
       const header = element("div", "fg-chart-header");
       const spacer = element("div", "fg-filter-spacer");
-      spacer.append(this.renderShowToggle());
+      spacer.append(this.renderShowToggle(), this.renderTodayButton());
       const quarters = element("div", "fg-quarters");
       const months = element("div", "fg-months");
       const daysRow = element("div", "fg-days");

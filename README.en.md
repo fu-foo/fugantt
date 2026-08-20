@@ -52,6 +52,9 @@ Arrows move, Enter opens a cell, Tab goes right, Escape puts it back.
 `⌘Enter` / `Ctrl+Enter` adds a row, `⌥→` / `Alt+→` makes it a child, `⌥↑` / `Alt+↑`
 moves it within its siblings. Either modifier works on either platform; only the
 label on the screen changes.
+**Today** sits at the top left of the chart. Reading last year means scrolling
+away from now, and dragging back is nobody's idea of navigation.
+
 Bars drag: the body moves the dates, the ends stretch them, and the handle
 inside the plan bar sets the progress.
 

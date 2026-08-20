@@ -909,6 +909,7 @@ async fn place_task(cx: &Cx, Json(request): Json<PlaceRequest>) -> Result<Json<M
     }
 
     let (was_under, _) = project::task_in_project(cx, &project_id, &task_id).await?;
+    let name = history::task_name(cx, &task_id).await;
 
     let refused = project::place_task(
         cx,
@@ -927,6 +928,24 @@ async fn place_task(cx: &Cx, Json(request): Json<PlaceRequest>) -> Result<Json<M
             note: Some(note),
         }));
     }
+
+    // Recorded the same as a move by keyboard. A row that changed places
+    // changed places, and the history is the one place that answers "who did
+    // this" — dragging with a mouse used to leave nobody's name on it.
+    history::record(
+        cx,
+        history::Entry {
+            project_id: &project_id,
+            task_id: Some(&task_id),
+            task_name: &name,
+            action: "移動",
+            field: "",
+            before: "",
+            after: "",
+            actor: user.display(),
+        },
+    )
+    .await?;
 
     respond_patch(
         cx,

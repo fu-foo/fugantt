@@ -1014,6 +1014,13 @@ html {
   color: var(--fg-bar);
 }
 
+/* Beside the switch, and sticky for the same reason: wanting it after following
+   a bar into next spring is exactly when it must not have scrolled away. */
+.fg-today-button {
+  left: 58px;
+  margin-left: 4px;
+}
+
 /* When something is hidden, say so: otherwise nobody can tell later whether it
    is missing by choice or by fault. */
 .fg-shows.is-on {

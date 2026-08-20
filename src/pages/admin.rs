@@ -268,7 +268,7 @@ async fn index(cx: &Cx) -> Result {
                                 </span>
                                 <span class="text-xs text-slate-400">
                                     match token.last_used {
-                                        Some(at) => (&format!("{} {}", l.t("最終利用"), super::settings::used_on(at))),
+                                        Some(at) => (&format!("{} {}", l.t("最終利用"), l.day(at))),
                                         None => (l.t("未使用")),
                                     }
                                 </span>

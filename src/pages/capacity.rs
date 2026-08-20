@@ -177,12 +177,12 @@ async fn index(cx: &Cx) -> Result {
                                         // is the answer to half a question.
                                         if !row.free_spans.is_empty() {
                                             <p class="mt-1 text-xs text-slate-500">
-                                                (l.t("空き日数")) ": " (&spans(&row.free_spans))
+                                                (l.t("空き日数")) ": " (&spans(&row.free_spans, l))
                                             </p>
                                         }
                                         if !row.overlap_spans.is_empty() {
                                             <p class="mt-0.5 text-xs text-amber-600">
-                                                (l.t("重複")) ": " (&spans(&row.overlap_spans))
+                                                (l.t("重複")) ": " (&spans(&row.overlap_spans, l))
                                             </p>
                                         }
                                     </td>
@@ -204,38 +204,21 @@ async fn index(cx: &Cx) -> Result {
 ///
 /// A month can only hold so many stretches, so they are all listed: a cut-off
 /// list would hide exactly the gap somebody is looking for.
-fn spans(spans: &[crate::domain::Span]) -> String {
+fn spans(spans: &[crate::domain::Span], l: crate::i18n::Lang) -> String {
     spans
         .iter()
         .map(|span| {
-            let from = short(&span.start);
-            let to = short(&span.end);
+            let from = l.short_date(&span.start);
+            let to = l.short_date(&span.end);
 
             if from == to {
                 from
             } else {
-                format!("{from}〜{to}")
+                format!("{from}{}{to}", l.to_())
             }
         })
         .collect::<Vec<_>>()
         .join(", ")
-}
-
-/// `2026-08-05` as `8/5`: the year is on the page already.
-fn short(iso: &str) -> String {
-    let mut parts = iso.split('-');
-    let (_, month, day) = (parts.next(), parts.next(), parts.next());
-
-    match (month, day) {
-        (Some(month), Some(day)) => {
-            format!(
-                "{}/{}",
-                month.trim_start_matches('0'),
-                day.trim_start_matches('0')
-            )
-        }
-        _ => iso.to_owned(),
-    }
 }
 
 /// `12日`, or a dash where the question does not apply.

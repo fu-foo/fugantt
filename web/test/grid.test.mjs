@@ -102,6 +102,9 @@ await insist(page);
 
 const settle = () => new Promise((resolve) => setTimeout(resolve, 250));
 
+/** 画面の日付を、比べられる形に戻す。日本語の画面は 2026/08/05 と書く。 */
+const iso = (shown) => (shown ?? "").replace(/\//g, "-");
+
 /**
  * 決まった時間ではなく、起きるはずのことを待つ。
  *
@@ -320,7 +323,11 @@ check("不正な日付を拒否する", !!s.error, `error=${s.error}`);
 // 描き直しの最中に打鍵が落ちる。
 await page.keyboard.press("Escape");
 await settle();
-check("拒否された編集を元に戻す", s.cells[0][COLUMN["予定開始"]] === "2026-08-03", s.cells[0][COLUMN["予定開始"]]);
+check(
+  "拒否された編集を元に戻す",
+  iso(s.cells[0][COLUMN["予定開始"]]) === "2026-08-03",
+  s.cells[0][COLUMN["予定開始"]],
+);
 
 // --- rollup -----------------------------------------------------------------
 
@@ -447,7 +454,10 @@ check(
   await page.evaluate(() => document.querySelector(".fg-folded")?.textContent) === "+2",
   await page.evaluate(() => document.querySelector(".fg-folded")?.textContent ?? "なし"),
 );
-check("集計行のバーは残る", (await state()).cells[(await state()).names.indexOf("開発")][COLUMN["予定開始"]] === "2026-08-10");
+check(
+  "集計行のバーは残る",
+  iso((await state()).cells[(await state()).names.indexOf("開発")][COLUMN["予定開始"]]) === "2026-08-10",
+);
 
 // 畳んだ状態はリロードしても残る
 await page.reload({ waitUntil: "domcontentloaded" });
@@ -4594,6 +4604,72 @@ check(
   "本人が選んだ言語はブラウザより優先される",
   languages.chosen.lang === "en" && languages.back.lang === "ja",
   JSON.stringify({ chosen: languages.chosen, back: languages.back }),
+);
+
+// --- 日付の書き方 -------------------------------------------------------------
+
+// 日付の形は国によって違う。合わせにいくのは「順序と区切り」ではなく「曖昧さ」で、
+// 8/5 はボストンでは8月5日、ベルリンでは5月8日になる。だから英語は保存した形
+// （ISO）のまま出し、日本語だけ 2026/08/05 と書く。設定は増やさない。
+const dateShapes = await (async () => {
+  const read = async () => {
+    await page.goto(`${BASE}/projects/test-project`, { waitUntil: "domcontentloaded" });
+    await page.waitForSelector(".fg-grid");
+    await settle();
+
+    return page.evaluate(() => {
+      const text = (selector) => document.querySelector(selector)?.textContent.trim() ?? "";
+      const cell = [...document.querySelectorAll(".fg-pane-left .fg-row.fg-data")]
+        .map((row) => [...row.querySelectorAll(".fg-cell")].map((c) => c.textContent.trim()))
+        .find((cells) => cells.some((value) => /\d{4}[-/]\d{2}[-/]\d{2}/.test(value)))
+        ?.find((value) => /\d{4}[-/]\d{2}[-/]\d{2}/.test(value));
+
+      return { セル: cell ?? "", 月: text(".fg-month"), 四半期: text(".fg-quarter") };
+    });
+  };
+
+  const 日本語 = await read();
+
+  await page.evaluate(async () => {
+    await fetch("/me/name", {
+      method: "POST",
+      body: new URLSearchParams({ name: "grid-test@example.com", language: "en" }),
+    });
+  });
+  const 英語 = await read();
+
+  await page.evaluate(async () => {
+    await fetch("/me/name", {
+      method: "POST",
+      body: new URLSearchParams({ name: "grid-test@example.com", language: "" }),
+    });
+  });
+  await read();
+
+  return { 日本語, 英語 };
+})();
+
+check(
+  "日本語の日付は 2026/08/05 と書く",
+  /^\d{4}\/\d{2}\/\d{2}$/.test(dateShapes.日本語.セル),
+  JSON.stringify(dateShapes.日本語),
+);
+check(
+  "英語の日付は保存した形のまま（どこの国でも同じ日に読める）",
+  /^\d{4}-\d{2}-\d{2}$/.test(dateShapes.英語.セル),
+  JSON.stringify(dateShapes.英語),
+);
+// 年・月・年度は直書きで、英語で開いても「2026年8月」と出ていた。
+check(
+  "英語ではチャートの見出しも英語になる",
+  /^[A-Z][a-z]{2,8} \d{4}$/.test(dateShapes.英語.月) && dateShapes.英語.四半期.startsWith("FY"),
+  JSON.stringify(dateShapes.英語),
+);
+check(
+  "日本語のチャートの見出しは年・月・年度のまま",
+  dateShapes.日本語.月.includes("年") && dateShapes.日本語.月.includes("月") &&
+    dateShapes.日本語.四半期.includes("年度"),
+  JSON.stringify(dateShapes.日本語),
 );
 
 // --- バックアップ ---------------------------------------------------------------

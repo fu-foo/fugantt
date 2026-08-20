@@ -1,4 +1,3 @@
-use jiff::{Timestamp, tz::TimeZone};
 use topcoat::{
     Result,
     context::Cx,
@@ -59,7 +58,7 @@ async fn index(cx: &Cx) -> Result {
                     for change in &changes {
                         <li class="flex flex-wrap items-baseline gap-x-3 gap-y-1 px-5 py-3 text-sm">
                             <span class="w-36 shrink-0 font-mono text-xs tabular-nums text-slate-400">
-                                (when(change.at))
+                                (&l.stamp(change.at))
                             </span>
 
                             <span class="w-28 shrink-0 truncate text-slate-500">(&change.actor)</span>
@@ -121,16 +120,4 @@ async fn index(cx: &Cx) -> Result {
             }
         </div>
     }
-}
-
-/// Unix seconds as a local timestamp, which is the only form anyone reads.
-fn when(at: i64) -> String {
-    Timestamp::from_second(at)
-        .map(|stamp| {
-            stamp
-                .to_zoned(TimeZone::system())
-                .strftime("%m/%d %H:%M")
-                .to_string()
-        })
-        .unwrap_or_default()
 }

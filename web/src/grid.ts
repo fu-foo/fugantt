@@ -580,10 +580,37 @@ function flexibleDate(text: string): string | null {
   return Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== iso ? null : iso;
 }
 
-/** `2026-08-17` as `8/17`: the year is nearly always the one on screen. */
+const MONTHS_EN = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+// Written out where there is room for it. The band over the chart is as wide as
+// the month is long, and 2026年8月 is not abbreviated either.
+const MONTH_NAMES_EN = [
+  "January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December",
+];
+
+/**
+ * `2026-08-17` as `8/17`, or `Aug 17`: the year is nearly always the one on
+ * screen.
+ *
+ * English never gets `8/17`. Written that way it is the seventeenth of August
+ * in Boston and nothing at all in Berlin, where the same shape means the eighth
+ * of a seventeenth month. A date nobody can be sure of is worse than a longer
+ * one.
+ */
 function short(iso: string): string {
-    const [, month, day] = iso.split("-");
-    return month && day ? `${Number(month)}/${Number(day)}` : iso;
+  const [, month, day] = iso.split("-");
+  if (!month || !day) return iso;
+
+  const name = MONTHS_EN[Number(month) - 1];
+  return LANG === "en" && name ? `${name} ${Number(day)}` : `${Number(month)}/${Number(day)}`;
+}
+
+/** A day as the reader writes it: `2026/08/17`, or the stored `2026-08-17`. */
+function fullDate(iso: string): string {
+  // English keeps the stored form. It is the one shape that reads the same in
+  // every country, and the alternatives — 8/17 and 17/8 — are each other's
+  // wrong answer.
+  return LANG === "en" ? iso : iso.replace(/-/g, "/");
 }
 
 function normalizeWidth(text: string): string {
@@ -1531,14 +1558,22 @@ class Grid {
     const year = date.getUTCFullYear() - (month < start ? 1 : 0);
     const quarter = Math.floor(offset / 3) + 1;
 
+    // 年度 is the business year, not the calendar one, so English says FY.
+    const label = this.yearLabel(new Date(Date.UTC(year, start - 1, 1)));
+
     return {
       key: `${year}-${quarter}`,
-      label: `${this.yearLabel(new Date(Date.UTC(year, start - 1, 1)))}年度 Q${quarter}`,
+      label: LANG === "en" ? `FY${label} Q${quarter}` : `${label}年度 Q${quarter}`,
     };
   }
 
   private monthLabel(date: Date): string {
-    return `${this.yearLabel(date)}年${date.getUTCMonth() + 1}月`;
+    const month = date.getUTCMonth() + 1;
+    const name = MONTH_NAMES_EN[month - 1];
+
+    return LANG === "en" && name
+      ? `${name} ${this.yearLabel(date)}`
+      : `${this.yearLabel(date)}年${month}月`;
   }
 
   /**
@@ -1817,7 +1852,16 @@ class Grid {
 
     const bound = parseBound(needle, at);
 
-    if (!bound) return text.toLowerCase().includes(needle.toLowerCase());
+    if (!bound) {
+      const wanted = needle.toLowerCase();
+      // A date is matched on what the cell shows as well as on what is stored:
+      // people type what they can see, and in Japanese that is 2026/08 while
+      // the stored form is 2026-08.
+      return (
+        text.toLowerCase().includes(wanted) ||
+        (column.kind === "date" && !!text && fullDate(text).toLowerCase().includes(wanted))
+      );
+    }
     // A bare direction word is somebody mid-sentence, not a condition.
     if (!bound.limit) return true;
 
@@ -1900,7 +1944,8 @@ class Grid {
       return this.varianceText(Number(text));
     }
 
-    if (column.kind === "days" || column.kind === "date") return text || "—";
+    if (column.kind === "date") return text ? fullDate(text) : "—";
+    if (column.kind === "days") return text || "—";
 
     return text;
   }
@@ -4221,7 +4266,10 @@ class Grid {
 
     const input = element("input", "fg-editor");
     input.type = "text";
-    input.value = this.seed ?? this.cellText(task, column);
+    // Opened on what the cell was showing. The editor takes any of the usual
+    // spellings back — 2026/08/05, 20260805, 8/5 — and stores the one form.
+    const showing = this.cellText(task, column);
+    input.value = this.seed ?? (column.kind === "date" && showing ? fullDate(showing) : showing);
 
     // Same idea for the project's own free-text-with-choices columns.
     if (column.kind === "suggest" && column.options?.length) {

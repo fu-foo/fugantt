@@ -29,18 +29,6 @@ struct Member {
     role: String,
 }
 
-/// A timestamp as a day. When a token was last used matters; the minute does not.
-pub(super) fn used_on(at: i64) -> String {
-    jiff::Timestamp::from_second(at)
-        .map(|stamp| {
-            stamp
-                .to_zoned(jiff::tz::TimeZone::system())
-                .strftime("%Y-%m-%d")
-                .to_string()
-        })
-        .unwrap_or_default()
-}
-
 /// Project settings: the calendar the chart shades, and who may touch it.
 #[page("/projects/{project_id}/settings")]
 async fn settings(cx: &Cx) -> Result {
@@ -1151,7 +1139,7 @@ async fn settings(cx: &Cx) -> Result {
                                 </span>
                                 <span class="text-xs text-slate-400">
                                     match token.last_used {
-                                        Some(at) => (&format!("{} {}", l.t("最終利用"), used_on(at))),
+                                        Some(at) => (&format!("{} {}", l.t("最終利用"), l.day(at))),
                                         None => (l.t("未使用")),
                                     }
                                 </span>

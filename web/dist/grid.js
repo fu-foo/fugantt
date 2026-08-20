@@ -296,9 +296,29 @@
     const parsed = /* @__PURE__ */ new Date(`${iso}T00:00:00Z`);
     return Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== iso ? null : iso;
   }
+  var MONTHS_EN = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  var MONTH_NAMES_EN = [
+    "January",
+    "February",
+    "March",
+    "April",
+    "May",
+    "June",
+    "July",
+    "August",
+    "September",
+    "October",
+    "November",
+    "December"
+  ];
   function short(iso) {
     const [, month, day] = iso.split("-");
-    return month && day ? `${Number(month)}/${Number(day)}` : iso;
+    if (!month || !day) return iso;
+    const name = MONTHS_EN[Number(month) - 1];
+    return LANG === "en" && name ? `${name} ${Number(day)}` : `${Number(month)}/${Number(day)}`;
+  }
+  function fullDate(iso) {
+    return LANG === "en" ? iso : iso.replace(/-/g, "/");
   }
   function normalizeWidth(text) {
     return text.replace(/[０-９ａ-ｚＡ-Ｚ]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 65248)).replace(/[－ー−‐]/g, "-").replace(/／/g, "/").replace(/％/g, "%").replace(/　/g, " ");
@@ -961,13 +981,16 @@
       const offset = (month - start2 + 12) % 12;
       const year = date.getUTCFullYear() - (month < start2 ? 1 : 0);
       const quarter = Math.floor(offset / 3) + 1;
+      const label = this.yearLabel(new Date(Date.UTC(year, start2 - 1, 1)));
       return {
         key: `${year}-${quarter}`,
-        label: `${this.yearLabel(new Date(Date.UTC(year, start2 - 1, 1)))}\u5E74\u5EA6 Q${quarter}`
+        label: LANG === "en" ? `FY${label} Q${quarter}` : `${label}\u5E74\u5EA6 Q${quarter}`
       };
     }
     monthLabel(date) {
-      return `${this.yearLabel(date)}\u5E74${date.getUTCMonth() + 1}\u6708`;
+      const month = date.getUTCMonth() + 1;
+      const name = MONTH_NAMES_EN[month - 1];
+      return LANG === "en" && name ? `${name} ${this.yearLabel(date)}` : `${this.yearLabel(date)}\u5E74${month}\u6708`;
     }
     /**
      * The year as this project writes it.
@@ -1170,7 +1193,10 @@ ${lines.join("\n")}` : "";
         return wanted.length === 0 || wanted.some((value2) => text === value2);
       }
       const bound = parseBound(needle, at);
-      if (!bound) return text.toLowerCase().includes(needle.toLowerCase());
+      if (!bound) {
+        const wanted = needle.toLowerCase();
+        return text.toLowerCase().includes(wanted) || column2.kind === "date" && !!text && fullDate(text).toLowerCase().includes(wanted);
+      }
       if (!bound.limit) return true;
       const value = normalizeWidth(text).trim();
       if (!value) return false;
@@ -1229,7 +1255,8 @@ ${lines.join("\n")}` : "";
         if (!text) return "\u2014";
         return this.varianceText(Number(text));
       }
-      if (column2.kind === "days" || column2.kind === "date") return text || "\u2014";
+      if (column2.kind === "date") return text ? fullDate(text) : "\u2014";
+      if (column2.kind === "days") return text || "\u2014";
       return text;
     }
     editable(task, column2) {
@@ -2880,7 +2907,8 @@ ${lines.join("\n")}` : "";
       }
       const input = element("input", "fg-editor");
       input.type = "text";
-      input.value = this.seed ?? this.cellText(task, column2);
+      const showing = this.cellText(task, column2);
+      input.value = this.seed ?? (column2.kind === "date" && showing ? fullDate(showing) : showing);
       if (column2.kind === "suggest" && column2.options?.length) {
         const list = element("datalist");
         list.id = `fg-list-${column2.key}`;

@@ -109,23 +109,38 @@ for (const project of projects) {
     return +(performance.now() - at).toFixed(1);
   });
 
-  // 値を1つ確定する往復。返ってくるのは表まるごとなので、その大きさも見る。
-  const commit = await page.evaluate(async (project) => {
-    const response0 = await fetch(`/api/projects/${project}/grid`);
-    const text = await response0.text();
-    if (!text.startsWith("{")) return { ms: -1, kb: 0 };
-
-    const id = JSON.parse(text).tasks[0].id;
-    const at = performance.now();
-    const wrote = await fetch(`/api/projects/${project}/tasks/${id}`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ field: "note", value: `計測 ${Date.now()}` }),
+  // 値を1つ確定する往復。島に打たせること。生の fetch で書くと、自分の書き込みが
+  // 「他人の変更」として跳ね返り、計画をまるごと読み直す——実際の編集では起きない
+  // 往復を測ることになる（それで1万行の1打が 206ms に見えていた。本当は76ms）。
+  const commit = await (async () => {
+    await page.evaluate(() => {
+      window.__net = [];
+      const original = window.fetch;
+      window.fetch = async (...args) => {
+        const at = performance.now();
+        const response = await original(...args);
+        const text = await response.clone().text();
+        window.__net.push({ ms: performance.now() - at, kb: text.length / 1024 });
+        return response;
+      };
     });
-    const body = await wrote.json();
 
-    return { ms: +(performance.now() - at).toFixed(1), kb: Math.round(JSON.stringify(body).length / 1024) };
-  }, project);
+    await page.click(".fg-pane-left .fg-row.fg-data .fg-cell");
+    await page.keyboard.press("F2");
+    await page.keyboard.type(`計測${Date.now() % 1000}`);
+
+    const felt = Date.now();
+    await page.keyboard.press("Enter");
+    await page.waitForFunction(() => (window.__net?.length ?? 0) > 0, { timeout: 60000 });
+    await page.evaluate(
+      () => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))),
+    );
+    const whole = Date.now() - felt;
+
+    const call = await page.evaluate(() => window.__net.at(-1));
+
+    return { ms: +call.ms.toFixed(1), kb: Math.round(call.kb * 10) / 10, whole };
+  })();
 
   results.push({
     project,
@@ -134,6 +149,7 @@ for (const project of projects) {
     "↓キー(ms)": move.median,
     "編集を開く(ms)": redraw,
     "確定の往復(ms)": commit.ms,
+    "打鍵から描き直しまで(ms)": commit.whole,
     "返るJSON(KB)": commit.kb,
     "横スクロール(ms)": scroll,
   });

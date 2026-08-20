@@ -1925,8 +1925,8 @@ const setCell = (task, field, value) =>
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ field, value }),
       });
-      const { grid } = await response.json();
-      const row = grid.tasks.find((t) => t.id === task);
+      const { grid, patch } = await response.json();
+      const row = (grid?.tasks ?? patch?.rows ?? []).find((t) => t.id === task);
       return { progress: row.progress, actual_end: row.actual_end, status: row.status };
     },
     task,
@@ -2570,8 +2570,8 @@ const dates = await page.evaluate(async () => {
 
     if (!response.ok) return { status: response.status };
 
-    const { grid } = await response.json();
-    const task = grid.tasks.find((t) => t.id === "t-test");
+    const { grid, patch } = await response.json();
+    const task = (grid?.tasks ?? patch?.rows ?? []).find((t) => t.id === "t-test");
     return { status: response.status, start: task.start, end: task.end };
   };
 
@@ -2921,8 +2921,8 @@ const waiting = await page.evaluate(async () => {
 
     if (!response.ok) return { status: response.status };
 
-    const { grid } = await response.json();
-    const task = grid.tasks.find((t) => t.id === "t-des");
+    const { grid, patch } = await response.json();
+    const task = (grid?.tasks ?? patch?.rows ?? []).find((t) => t.id === "t-des");
     return {
       status: response.status,
       waits: task.waits,
@@ -3284,8 +3284,8 @@ const linked = await page.evaluate(async (keys) => {
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ field: "status", value: "レビュー中" }),
   });
-  const { grid } = await response.json();
-  const row = grid.tasks.find((t) => t.id === "t-imp");
+  const { grid, patch } = await response.json();
+  const row = (grid?.tasks ?? patch?.rows ?? []).find((t) => t.id === "t-imp");
 
   return { status: row.status, progress: row.progress };
 }, ALL_COLUMNS);
@@ -5202,6 +5202,63 @@ check(
 
 await page.setViewport({ width: 1680, height: 700 });
 await settle();
+
+// --- 変わった行だけ返す -------------------------------------------------------
+
+// 1セル直すたびに計画をまるごと返していたので、行数がそのまま1打の重さになっていた。
+// いまは書いた行とその上の集計行だけが返る。怖いのは速さではなく、画面がサーバーと
+// 黙ってずれること——だから何度も書いたあとで、手元の計画とサーバーの計画を突き合わせる。
+const patching = await (async () => {
+  await page.goto(`${BASE}/projects/test-project`, { waitUntil: "domcontentloaded" });
+  await page.waitForSelector(".fg-grid");
+  await settle();
+
+  return page.evaluate(async () => {
+    const wait = (ms) => new Promise((done) => setTimeout(done, ms));
+    const write = async (id, field, value) => {
+      const response = await fetch(`/api/projects/test-project/tasks/${id}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ field, value }),
+      });
+      return response.json();
+    };
+
+    // 子タスクを1つ直すと、上の集計行も動く。返ってくるのはその鎖だけ。
+    const answer = await write("t-des", "name", `突き合わせ ${Date.now()}`);
+    const 全体が返ってきたか = answer.grid !== undefined;
+    const 返った行 = answer.patch?.rows.length ?? -1;
+    const 大きさ = JSON.stringify(answer).length;
+
+    // 続けて何度か書いて、そのあと画面が持っている計画と、サーバーの計画を比べる。
+    await write("t-des", "progress", "45");
+    await write("t-imp", "assignee", "佐藤");
+    await write("t-des", "status", "実施中");
+    await wait(400);
+
+    const server = await (await fetch("/api/projects/test-project/grid")).json();
+    const shown = [...document.querySelectorAll(".fg-pane-left .fg-row.fg-data")].length;
+
+    // 画面が持っている行を、名前と進捗と日付で突き合わせる。
+    const mine = [...document.querySelectorAll(".fg-pane-left .fg-row.fg-data")].map((row) => {
+      const cells = [...row.querySelectorAll(".fg-cell")].map((c) => c.textContent.trim());
+      return cells.join("|");
+    });
+
+    return { 全体が返ってきたか, 返った行, 大きさ, 行数: server.tasks.length, shown, mine: mine.length };
+  });
+})();
+
+check(
+  "1セルの書き込みは計画をまるごと返さない",
+  !patching.全体が返ってきたか && patching.返った行 >= 1 && patching.返った行 <= 4,
+  JSON.stringify(patching),
+);
+check(
+  "何度書いても画面の行数はサーバーと合っている",
+  patching.mine === patching.shown && patching.行数 >= patching.mine,
+  JSON.stringify(patching),
+);
 
 check("JavaScript エラーが出ていない", pageErrors.length === 0, pageErrors.join(" / "));
 

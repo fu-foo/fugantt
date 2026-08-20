@@ -122,10 +122,34 @@ interface Step {
 }
 
 interface Mutation {
-  grid: GridData;
+  /** The whole plan, from the writes that can move anything anywhere. */
+  grid?: GridData;
+  /** What one ordinary write changed. See [`Patch`]. */
+  patch?: Patch;
   task_id: string | null;
   /** Why a request that succeeded still changed nothing. */
   note?: string;
+}
+
+/**
+ * The rows one write changed, instead of the plan it changed them in.
+ *
+ * A value carries as far as the summary rows above it and stops, so that is
+ * what comes back: three or four rows on a plan of ten thousand. `total` is the
+ * check — if the plan is not the length the server says it is, this browser has
+ * missed something and asks for the whole thing rather than drawing numbers it
+ * cannot vouch for.
+ */
+interface Patch {
+  revision: number;
+  rows: Task[];
+  /** Where a new row goes: the id it follows, or absent for the top. */
+  after?: string;
+  /** Rows that are gone, subtree and all. */
+  removed?: string[];
+  range_start: string;
+  range_end: string;
+  total: number;
 }
 
 /** A column in the left pane: a built-in one, or one the project defined. */
@@ -2595,6 +2619,10 @@ class Grid {
     // Filled in on the way through, when a response actually arrives.
     let shape: string | null = null;
     let rows: string[] = [];
+    // The rows a patch touched, when the answer was a patch. Drawing those and
+    // nothing else is the point of the patch: comparing every row against
+    // every row would put the cost back where it was taken from.
+    let touched: string[] | null = null;
 
     try {
       const headers: Record<string, string> = { "x-fugantt-client": CLIENT_ID };
@@ -2620,12 +2648,22 @@ class Grid {
       // this call started from) and what the server made of what was sent.
       this.remember(url, options, before, result);
 
-      // Taken before the new table lands, so the two can be compared row by row
-      // and only the rows that moved are drawn again.
-      shape = this.shape();
-      rows = this.tasks.map((task) => JSON.stringify(task));
+      if (result.patch) {
+        const drew = this.applyPatch(result.patch);
 
-      this.setData(result.grid);
+        // The patch did not fit what this browser is holding, so it stops
+        // guessing and asks for the plan itself.
+        if (drew === null) await this.refetch();
+        else touched = drew;
+      } else if (result.grid) {
+        // Taken before the new table lands, so the two can be compared row by
+        // row and only the rows that moved are drawn again.
+        shape = this.shape();
+        rows = this.tasks.map((task) => JSON.stringify(task));
+
+        this.setData(result.grid);
+      }
+
       this.error = null;
 
       // A move changes which row the task sits on, so follow the task rather
@@ -2647,9 +2685,100 @@ class Grid {
     } finally {
       this.busy = false;
 
-      if (shape === null) this.render();
+      if (touched) this.repaintRows(touched);
+      else if (shape === null) this.render();
       else this.repaintChanged(shape, rows);
     }
+  }
+
+  /**
+   * Takes the rows one write changed into the plan this browser is holding.
+   *
+   * Returns the rows to draw again, or `null` when the patch cannot be trusted
+   * on top of what is here — a row it builds on is missing, or the plan is not
+   * the length the server says it is. Then the caller asks for the whole plan:
+   * slow, and right, which is the correct order for those two.
+   */
+  private applyPatch(patch: Patch): string[] | null {
+    const wasVisible = this.tasks.length;
+    const structural =
+      patch.range_start !== this.data.range_start ||
+      patch.range_end !== this.data.range_end ||
+      (patch.removed?.length ?? 0) > 0;
+
+    if (patch.removed?.length) {
+      const gone = new Set(patch.removed);
+      this.data.tasks = this.data.tasks.filter((task) => !gone.has(task.id));
+    }
+
+    const at = new Map(this.data.tasks.map((task, index) => [task.id, index]));
+    const fresh: Task[] = [];
+
+    for (const row of patch.rows) {
+      const index = at.get(row.id);
+      if (index === undefined) fresh.push(row);
+      else this.data.tasks[index] = row;
+    }
+
+    if (fresh.length > 0) {
+      // `after` names the row the new one follows in the flattened order. Not
+      // knowing that row means this browser is holding a different plan.
+      const behind = patch.after ? this.data.tasks.findIndex((task) => task.id === patch.after) : -1;
+      if (patch.after !== undefined && behind < 0) return null;
+
+      this.data.tasks.splice(behind + 1, 0, ...fresh);
+    }
+
+    this.data.revision = patch.revision;
+    this.data.range_start = patch.range_start;
+    this.data.range_end = patch.range_end;
+
+    if (this.data.tasks.length !== patch.total) return null;
+
+    this.computeVisible();
+
+    // A row arriving, leaving, or slipping through a filter moves every row
+    // number after it, and a row number is what the drawn table is indexed by.
+    if (structural || fresh.length > 0 || this.tasks.length !== wasVisible) return [];
+
+    return patch.rows.map((row) => row.id);
+  }
+
+  /** The plan as the server has it, when a patch could not be trusted. */
+  private async refetch(): Promise<void> {
+    const response = await fetch(
+      `/api/projects/${encodeURIComponent(this.projectId)}/grid`,
+      { headers: { accept: "application/json" } },
+    );
+
+    if (response.ok) this.setData((await response.json()) as GridData);
+  }
+
+  /** Draws the rows a patch touched, and leaves the rest of the table alone. */
+  private repaintRows(ids: string[]): void {
+    const showing = this.root.querySelector(".fg-error") !== null;
+
+    // No ids means the table's shape moved, not just some values in it.
+    if (ids.length === 0 || showing !== (this.error !== null)) {
+      this.render();
+      return;
+    }
+
+    for (const id of ids) {
+      const index = this.tasks.findIndex((task) => task.id === id);
+      // A row the filters are hiding needs no drawing, and that counts as done.
+      if (index < 0) continue;
+
+      if (!this.repaintRow(index)) {
+        this.render();
+        return;
+      }
+    }
+
+    this.paintNotice();
+    this.root.querySelector(".fg-toolbar")?.replaceWith(this.renderToolbar());
+    this.updateFilterCount();
+    this.restoreFocus();
   }
 
   /** Files one change away, so Ctrl+Z has something to put back. */
@@ -2681,7 +2810,9 @@ class Grid {
     }
 
     const was = before.tasks.find((task) => task.id === taskId);
-    const now = result.grid.tasks.find((task) => task.id === taskId);
+    const now = (result.grid?.tasks ?? result.patch?.rows ?? []).find(
+      (task) => task.id === taskId,
+    );
     if (!was || !now) return;
 
     const field = body.field;

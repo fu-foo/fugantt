@@ -292,6 +292,28 @@ pub async fn task_in_project(
     Ok(task)
 }
 
+/// A row and everything under it, which is what deleting one takes with it.
+///
+/// Asked before the delete, so the answer can name the rows that are about to
+/// stop existing. The browser holds the plan as a flat list and has no other
+/// way to know which of its rows went with this one.
+pub async fn subtree_ids(cx: &Cx, project_id: &str, task_id: &str) -> Result<Vec<String>> {
+    let ids = sqlx::query_scalar::<_, String>(
+        "WITH RECURSIVE gone(id) AS (
+             SELECT id FROM tasks WHERE id = ?1 AND project_id = ?2
+             UNION ALL
+             SELECT tasks.id FROM tasks JOIN gone ON tasks.parent_id = gone.id
+         )
+         SELECT id FROM gone",
+    )
+    .bind(task_id)
+    .bind(project_id)
+    .fetch_all(db::pool(cx))
+    .await?;
+
+    Ok(ids)
+}
+
 /// Whether the task has any children, and so takes its schedule from them.
 pub async fn has_children(cx: &Cx, task_id: &str) -> Result<bool> {
     let (exists,) =

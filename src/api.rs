@@ -31,7 +31,7 @@ use topcoat::{
 use crate::{
     auth::require_user,
     db,
-    domain::GridData,
+    domain::{GridData, TaskView},
     history,
     interop::{json, xlsx},
     live, project,
@@ -293,11 +293,49 @@ async fn write_document(
 /// What a mutation gives back: the new state, and the row it concerns.
 #[derive(Serialize)]
 struct Mutation {
-    grid: GridData,
+    /// The whole plan. Sent by the writes that can move anything anywhere —
+    /// reordering, importing, a change to the calendar or the columns.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    grid: Option<GridData>,
+    /// What one ordinary write changed, which is a handful of rows however
+    /// long the plan is. See [`Patch`].
+    #[serde(skip_serializing_if = "Option::is_none")]
+    patch: Option<Patch>,
     task_id: Option<String>,
     /// Why a request that succeeded still changed nothing.
     #[serde(skip_serializing_if = "Option::is_none")]
     note: Option<&'static str>,
+}
+
+/// What a write changed, rather than the plan it changed it in.
+///
+/// Writing one cell used to answer with every row there was, because the
+/// server owns the derived numbers and the caller cannot know how far a value
+/// carries. It carries exactly as far as the summary rows above it: a date
+/// moves its parent's dates, and its parent's parent's, and stops. So that is
+/// what comes back — three or four rows on a plan of ten thousand, instead of
+/// four megabytes of JSON that the browser then has to read.
+#[derive(Debug, Serialize)]
+struct Patch {
+    revision: i64,
+    /// The row that was written to, and the summary rows above it.
+    rows: Vec<TaskView>,
+    /// Where a new row belongs: the id it comes after, or `None` for the top.
+    /// Only a write that adds a row sets this.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    after: Option<String>,
+    /// Rows that are gone, subtree and all.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    removed: Vec<String>,
+    /// The chart's window, which a date can push outwards.
+    range_start: String,
+    range_end: String,
+    /// How many rows the plan has now.
+    ///
+    /// The browser compares this with what it holds. If they disagree it has
+    /// missed something, and it asks for the whole plan rather than drawing
+    /// numbers it cannot vouch for.
+    total: usize,
 }
 
 #[derive(Debug, Clone, Copy, Deserialize)]
@@ -583,7 +621,14 @@ async fn update_task(cx: &Cx, Json(edit): Json<CellEdit>) -> Result<Json<Mutatio
     )
     .await?;
 
-    respond(cx, &project, user.display(), Some(task_id)).await
+    respond_patch(
+        cx,
+        &project,
+        user.display(),
+        Some(task_id.clone()),
+        Change::Wrote(task_id),
+    )
+    .await
 }
 
 /// The writes an edit implies, which someone would otherwise make by hand.
@@ -768,7 +813,14 @@ async fn insert_task(cx: &Cx, Json(insert): Json<InsertTask>) -> Result<Json<Mut
     )
     .await?;
 
-    respond(cx, &project, user.display(), Some(id)).await
+    respond_patch(
+        cx,
+        &project,
+        user.display(),
+        Some(id.clone()),
+        Change::Added(id),
+    )
+    .await
 }
 
 #[derive(Deserialize)]
@@ -791,7 +843,8 @@ async fn move_task(cx: &Cx, Json(request): Json<MoveRequest>) -> Result<Json<Mut
 
     if let Some(note) = project::move_task(cx, &project_id, &task_id, request.action).await? {
         return Ok(Json(Mutation {
-            grid: project::grid_data(cx, &project).await?,
+            grid: Some(project::grid_data(cx, &project).await?),
+            patch: None,
             task_id: Some(task_id),
             note: Some(note),
         }));
@@ -847,7 +900,8 @@ async fn place_task(cx: &Cx, Json(request): Json<PlaceRequest>) -> Result<Json<M
 
     if let Some(note) = refused {
         return Ok(Json(Mutation {
-            grid: project::grid_data(cx, &project).await?,
+            grid: Some(project::grid_data(cx, &project).await?),
+            patch: None,
             task_id: Some(task_id),
             note: Some(note),
         }));
@@ -863,9 +917,13 @@ async fn delete_task(cx: &Cx) -> Result<Json<Mutation>> {
     let task_id = project::path_str(cx, "task_id")?.to_owned();
 
     let project = authorize_edit(cx, &user.id, &project_id).await?;
-    project::task_in_project(cx, &project_id, &task_id).await?;
+    let (parent, _) = project::task_in_project(cx, &project_id, &task_id).await?;
 
     let name = history::task_name(cx, &task_id).await;
+
+    // Asked while they still exist: after the delete there is nothing left to
+    // name, and the browser has to be told which rows went.
+    let gone = project::subtree_ids(cx, &project_id, &task_id).await?;
 
     // Children cascade: deleting a summary row takes its subtree with it.
     sqlx::query("DELETE FROM tasks WHERE id = ?1 AND project_id = ?2")
@@ -889,7 +947,14 @@ async fn delete_task(cx: &Cx) -> Result<Json<Mutation>> {
     )
     .await?;
 
-    respond(cx, &project, user.display(), None).await
+    respond_patch(
+        cx,
+        &project,
+        user.display(),
+        None,
+        Change::Removed { gone, parent },
+    )
+    .await
 }
 
 /// Applies one column write, stamping who touched the row.
@@ -950,10 +1015,119 @@ async fn respond(
     );
 
     Ok(Json(Mutation {
-        grid: project::grid_data(cx, &project).await?,
+        grid: Some(project::grid_data(cx, &project).await?),
+        patch: None,
         task_id,
         note: None,
     }))
+}
+
+/// What one row's write changed: that row, and the summary rows above it.
+///
+/// The plan is still worked out in full — the numbers on a summary row are its
+/// subtree added up, and there is no way to know one without reading the
+/// other. What changes is how much of it is written down and sent.
+async fn respond_patch(
+    cx: &Cx,
+    project: &project::Project,
+    actor: &str,
+    task_id: Option<String>,
+    change: Change,
+) -> Result<Json<Mutation>> {
+    project::bump_revision(cx, &project.id).await?;
+
+    let project = project::reload(cx, &project.id, &project.role).await?;
+
+    live::hub(cx).publish(
+        &project.id,
+        live::Change {
+            revision: project.revision,
+            task_id: task_id.clone(),
+            actor: actor.to_owned(),
+            client: client_id(cx),
+        },
+    );
+
+    let data = project::grid_data(cx, &project).await?;
+
+    let (rows, after) = match &change {
+        // A row that is gone leaves nothing to look up, so the trail is taken
+        // from where it hung: its parent, and the summary rows above that.
+        Change::Wrote(id) => (with_ancestors(&data.tasks, id), None),
+        Change::Added(id) => (
+            with_ancestors(&data.tasks, id),
+            comes_after(&data.tasks, id),
+        ),
+        Change::Removed { parent, .. } => (
+            parent
+                .as_deref()
+                .map(|parent| with_ancestors(&data.tasks, parent))
+                .unwrap_or_default(),
+            None,
+        ),
+    };
+
+    Ok(Json(Mutation {
+        grid: None,
+        patch: Some(Patch {
+            revision: project.revision,
+            rows,
+            after,
+            removed: match change {
+                Change::Removed { gone, .. } => gone,
+                _ => Vec::new(),
+            },
+            range_start: data.range_start.clone(),
+            range_end: data.range_end.clone(),
+            total: data.tasks.len(),
+        }),
+        task_id,
+        note: None,
+    }))
+}
+
+/// Which shape of change a write made, so the answer can say what moved.
+enum Change {
+    Wrote(String),
+    Added(String),
+    Removed {
+        gone: Vec<String>,
+        parent: Option<String>,
+    },
+}
+
+/// A row and every summary row it sits under.
+///
+/// The list is flattened depth first, so the ancestors of a row are the rows
+/// before it whose depth keeps stepping down — no second query, and no way for
+/// the answer to disagree with the order the client is holding.
+fn with_ancestors(tasks: &[TaskView], id: &str) -> Vec<TaskView> {
+    let Some(at) = tasks.iter().position(|task| task.id == id) else {
+        return Vec::new();
+    };
+
+    let mut wanted = vec![tasks[at].clone()];
+    let mut depth = tasks[at].depth;
+
+    for row in tasks[..at].iter().rev() {
+        if row.depth < depth {
+            depth = row.depth;
+            wanted.push(row.clone());
+
+            if depth == 0 {
+                break;
+            }
+        }
+    }
+
+    wanted
+}
+
+/// The row a new one follows on screen, or `None` when it is the first.
+fn comes_after(tasks: &[TaskView], id: &str) -> Option<String> {
+    let at = tasks.iter().position(|task| task.id == id)?;
+
+    at.checked_sub(1).map(|before| tasks[before].id.clone())
 }
 
 /// Folds full-width digits and separators onto their ASCII forms.
@@ -1870,7 +2044,8 @@ async fn save_filter_set(cx: &Cx, Json(set): Json<SaveFilterSet>) -> Result<Json
     let data = project::grid_data(cx, &project).await?;
 
     Ok(Json(Mutation {
-        grid: data,
+        grid: Some(data),
+        patch: None,
         task_id: None,
         note: None,
     }))
@@ -1898,7 +2073,8 @@ async fn remove_filter_set(cx: &Cx, Json(which): Json<Named>) -> Result<Json<Mut
     let data = project::grid_data(cx, &project).await?;
 
     Ok(Json(Mutation {
-        grid: data,
+        grid: Some(data),
+        patch: None,
         task_id: None,
         note: None,
     }))

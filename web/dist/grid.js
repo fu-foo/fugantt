@@ -1727,6 +1727,7 @@ ${lines.join("\n")}` : "";
       this.busy = true;
       let shape = null;
       let rows = [];
+      let touched = null;
       try {
         const headers = { "x-fugantt-client": CLIENT_ID };
         if (options.body) headers["content-type"] = "application/json";
@@ -1742,9 +1743,15 @@ ${lines.join("\n")}` : "";
         }
         const result = await response.json();
         this.remember(url, options, before, result);
-        shape = this.shape();
-        rows = this.tasks.map((task) => JSON.stringify(task));
-        this.setData(result.grid);
+        if (result.patch) {
+          const drew = this.applyPatch(result.patch);
+          if (drew === null) await this.refetch();
+          else touched = drew;
+        } else if (result.grid) {
+          shape = this.shape();
+          rows = this.tasks.map((task) => JSON.stringify(task));
+          this.setData(result.grid);
+        }
         this.error = null;
         if (options.follow) this.reveal(options.follow);
         const moved = options.follow ? this.tasks.findIndex((task) => task.id === options.follow) : -1;
@@ -1756,9 +1763,73 @@ ${lines.join("\n")}` : "";
         return null;
       } finally {
         this.busy = false;
-        if (shape === null) this.render();
+        if (touched) this.repaintRows(touched);
+        else if (shape === null) this.render();
         else this.repaintChanged(shape, rows);
       }
+    }
+    /**
+     * Takes the rows one write changed into the plan this browser is holding.
+     *
+     * Returns the rows to draw again, or `null` when the patch cannot be trusted
+     * on top of what is here — a row it builds on is missing, or the plan is not
+     * the length the server says it is. Then the caller asks for the whole plan:
+     * slow, and right, which is the correct order for those two.
+     */
+    applyPatch(patch) {
+      const wasVisible = this.tasks.length;
+      const structural = patch.range_start !== this.data.range_start || patch.range_end !== this.data.range_end || (patch.removed?.length ?? 0) > 0;
+      if (patch.removed?.length) {
+        const gone = new Set(patch.removed);
+        this.data.tasks = this.data.tasks.filter((task) => !gone.has(task.id));
+      }
+      const at = new Map(this.data.tasks.map((task, index) => [task.id, index]));
+      const fresh = [];
+      for (const row of patch.rows) {
+        const index = at.get(row.id);
+        if (index === void 0) fresh.push(row);
+        else this.data.tasks[index] = row;
+      }
+      if (fresh.length > 0) {
+        const behind = patch.after ? this.data.tasks.findIndex((task) => task.id === patch.after) : -1;
+        if (patch.after !== void 0 && behind < 0) return null;
+        this.data.tasks.splice(behind + 1, 0, ...fresh);
+      }
+      this.data.revision = patch.revision;
+      this.data.range_start = patch.range_start;
+      this.data.range_end = patch.range_end;
+      if (this.data.tasks.length !== patch.total) return null;
+      this.computeVisible();
+      if (structural || fresh.length > 0 || this.tasks.length !== wasVisible) return [];
+      return patch.rows.map((row) => row.id);
+    }
+    /** The plan as the server has it, when a patch could not be trusted. */
+    async refetch() {
+      const response = await fetch(
+        `/api/projects/${encodeURIComponent(this.projectId)}/grid`,
+        { headers: { accept: "application/json" } }
+      );
+      if (response.ok) this.setData(await response.json());
+    }
+    /** Draws the rows a patch touched, and leaves the rest of the table alone. */
+    repaintRows(ids) {
+      const showing = this.root.querySelector(".fg-error") !== null;
+      if (ids.length === 0 || showing !== (this.error !== null)) {
+        this.render();
+        return;
+      }
+      for (const id of ids) {
+        const index = this.tasks.findIndex((task) => task.id === id);
+        if (index < 0) continue;
+        if (!this.repaintRow(index)) {
+          this.render();
+          return;
+        }
+      }
+      this.paintNotice();
+      this.root.querySelector(".fg-toolbar")?.replaceWith(this.renderToolbar());
+      this.updateFilterCount();
+      this.restoreFocus();
     }
     /** Files one change away, so Ctrl+Z has something to put back. */
     remember(url, options, before, result) {
@@ -1776,7 +1847,9 @@ ${lines.join("\n")}` : "";
         return;
       }
       const was = before.tasks.find((task) => task.id === taskId);
-      const now = result.grid.tasks.find((task) => task.id === taskId);
+      const now = (result.grid?.tasks ?? result.patch?.rows ?? []).find(
+        (task) => task.id === taskId
+      );
       if (!was || !now) return;
       const field = body.field;
       const fieldId = body.field_id;

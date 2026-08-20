@@ -5249,6 +5249,55 @@ const patching = await (async () => {
   });
 })();
 
+// 部分木だけ読んで出した数字が、計画をまるごと読んで出した数字と1文字でも違えば、
+// 画面はサーバーと違うことを言い出す。そこを直接突き合わせる。
+const sameAsWhole = await page.evaluate(async () => {
+  const write = async (id, field, value) => {
+    const response = await fetch(`/api/projects/test-project/tasks/${id}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ field, value }),
+    });
+    return response.json();
+  };
+
+  const 違い = [];
+  const 試す = [
+    ["t-des", "start", "2026-08-06"],
+    ["t-des", "end", "2026-08-27"],
+    ["t-des", "progress", "70"],
+    ["t-imp", "actual_start", "2026-08-12"],
+    ["t-rev", "status", "完了"],
+  ];
+
+  for (const [id, field, value] of 試す) {
+    const answer = await write(id, field, value);
+    const whole = await (await fetch("/api/projects/test-project/grid")).json();
+
+    for (const row of answer.patch?.rows ?? []) {
+      const same = whole.tasks.find((task) => task.id === row.id);
+      if (JSON.stringify(row) !== JSON.stringify(same)) {
+        違い.push({ field, id: row.id, patch: row, whole: same });
+      }
+    }
+
+    if (answer.patch?.range_start !== whole.range_start || answer.patch?.range_end !== whole.range_end) {
+      違い.push({ field, 窓: [answer.patch?.range_start, whole.range_start, answer.patch?.range_end, whole.range_end] });
+    }
+    if (answer.patch?.total !== whole.tasks.length) {
+      違い.push({ field, 行数: [answer.patch?.total, whole.tasks.length] });
+    }
+  }
+
+  return { 試した数: 試す.length, 違い: 違い.slice(0, 3), 件数: 違い.length };
+});
+
+check(
+  "部分木だけ読んだ答えは、全部読んだ答えと同じ",
+  sameAsWhole.件数 === 0,
+  JSON.stringify(sameAsWhole),
+);
+
 check(
   "1セルの書き込みは計画をまるごと返さない",
   !patching.全体が返ってきたか && patching.返った行 >= 1 && patching.返った行 <= 4,

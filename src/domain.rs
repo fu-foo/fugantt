@@ -630,19 +630,22 @@ pub fn build(
     // Everything the chart draws has to fit inside it — the plan, what actually
     // happened, and the wait in between. A date outside the window used to
     // paint a bar straight across the page.
-    let (mut range_start, mut range_end) = (today, today);
+    let mut first: Option<String> = None;
+    let mut last: Option<String> = None;
     for task in &tasks {
-        for date in [&task.start, &task.actual_start] {
-            if let Some(date) = date.as_deref().and_then(parse_date) {
-                range_start = range_start.min(date);
+        for date in [&task.start, &task.actual_start].into_iter().flatten() {
+            if first.as_ref().is_none_or(|held| date < held) {
+                first = Some(date.clone());
             }
         }
-        for date in [&task.end, &task.actual_end] {
-            if let Some(date) = date.as_deref().and_then(parse_date) {
-                range_end = range_end.max(date);
+        for date in [&task.end, &task.actual_end].into_iter().flatten() {
+            if last.as_ref().is_none_or(|held| date > held) {
+                last = Some(date.clone());
             }
         }
     }
+
+    let (range_start, range_end) = window(today, first.as_deref(), last.as_deref());
 
     GridData {
         // Filled in by the caller: the sets live in the database, and this
@@ -655,12 +658,8 @@ pub fn build(
         today: today.to_string(),
         // A week either side: three days left the first month a sliver wide, and
         // its label printed on top of the next one's.
-        range_start: range_start
-            .saturating_sub(jiff::Span::new().days(7))
-            .to_string(),
-        range_end: range_end
-            .saturating_add(jiff::Span::new().days(7))
-            .to_string(),
+        range_start,
+        range_end,
         holidays,
         leaves,
         assignees,
@@ -958,6 +957,26 @@ fn calendar_of(data: &GridData) -> Calendar {
 }
 
 /// Emits `row` and its subtree, returning the row's resolved schedule.
+/// The days the chart draws, from the first and last day the plan touches.
+///
+/// Today is always inside it: a plan with no dates yet still needs a window,
+/// and one that finished last year is still opened by somebody standing in
+/// this week. A week either side, because three days left the first month a
+/// sliver wide with its label printed over the next one's.
+pub fn window(today: Date, first: Option<&str>, last: Option<&str>) -> (String, String) {
+    let start = first
+        .and_then(parse_date)
+        .map_or(today, |date| date.min(today));
+    let end = last
+        .and_then(parse_date)
+        .map_or(today, |date| date.max(today));
+
+    (
+        start.saturating_sub(jiff::Span::new().days(7)).to_string(),
+        end.saturating_add(jiff::Span::new().days(7)).to_string(),
+    )
+}
+
 fn visit<'rows>(
     row: &'rows TaskRow,
     depth: usize,

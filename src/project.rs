@@ -444,20 +444,168 @@ pub async fn reload(cx: &Cx, project_id: &str, role: &str) -> Result<Project> {
     Ok(project)
 }
 
+/// The columns a row is worked out from. One list, so the two ways of reading
+/// rows cannot drift apart.
+const TASK_COLUMNS: &str = "id, parent_id, sort_key, name, start_date, end_date,
+     actual_start, actual_end, progress, tags,
+     status, assignee, note, waits, targets, color, background";
+
 /// Everything the grid needs to draw the project once.
 pub async fn grid_data(cx: &Cx, project: &Project) -> Result<GridData> {
-    let rows = sqlx::query_as::<_, TaskRow>(
-        "SELECT id, parent_id, sort_key, name, start_date, end_date,
-                actual_start, actual_end, progress, tags,
-                status, assignee, note, waits, targets, color, background
-           FROM tasks
-          WHERE project_id = ?1
-          ORDER BY sort_key",
-    )
+    let rows = sqlx::query_as::<_, TaskRow>(&format!(
+        "SELECT {TASK_COLUMNS} FROM tasks WHERE project_id = ?1 ORDER BY sort_key"
+    ))
     .bind(&project.id)
     .fetch_all(db::pool(cx))
     .await?;
 
+    assemble(cx, project, rows, None).await
+}
+
+/// The plan as far as one write needed it.
+///
+/// A row's numbers come from its own subtree and the project's calendar —
+/// never from a row beside it. So a write only has to read the summary row it
+/// ultimately hangs from, and everything under that: on a flat plan of ten
+/// thousand rows, one row instead of ten thousand. Reading them all was the
+/// whole cost of a keystroke (63ms of 76ms at ten thousand), and none of it
+/// was arithmetic.
+///
+/// The chart's window is the one thing that really is about every row, so it
+/// is asked for as two numbers rather than read out of the rows.
+pub async fn patch_data(
+    cx: &Cx,
+    project: &Project,
+    around: Option<&str>,
+) -> Result<(GridData, usize)> {
+    let rows = match around {
+        Some(task_id) => subtree_around(cx, &project.id, task_id).await?,
+        None => Vec::new(),
+    };
+
+    let (window, total) =
+        tokio::try_join!(chart_window(cx, &project.id), count_tasks(cx, &project.id))?;
+    let data = assemble(cx, project, rows, Some(window)).await?;
+
+    Ok((data, total))
+}
+
+/// The root of the tree a task sits in, and every row under that root.
+///
+/// Ordered by sort key, the way the whole-plan read is, so the rows come out
+/// of it in the same shape and the numbers land the same.
+async fn subtree_around(cx: &Cx, project_id: &str, task_id: &str) -> Result<Vec<TaskRow>> {
+    let rows = sqlx::query_as::<_, TaskRow>(&format!(
+        "WITH RECURSIVE up(id, parent_id) AS (
+             SELECT id, parent_id FROM tasks WHERE id = ?1 AND project_id = ?2
+             UNION ALL
+             SELECT tasks.id, tasks.parent_id FROM tasks JOIN up ON tasks.id = up.parent_id
+         ),
+         down(id) AS (
+             SELECT id FROM up WHERE parent_id IS NULL
+             UNION ALL
+             SELECT tasks.id FROM tasks JOIN down ON tasks.parent_id = down.id
+         )
+         SELECT {TASK_COLUMNS} FROM tasks
+          WHERE id IN (SELECT id FROM down)
+          ORDER BY sort_key"
+    ))
+    .bind(task_id)
+    .bind(project_id)
+    .fetch_all(db::pool(cx))
+    .await?;
+
+    Ok(rows)
+}
+
+/// The first and last day anything in the plan touches.
+///
+/// Only rows with no children: a summary row's dates are its children's, and
+/// its own stored dates are whatever they were before it became a summary.
+/// Reading those too would put the chart's edge somewhere no bar reaches.
+async fn chart_window(cx: &Cx, project_id: &str) -> Result<(Option<String>, Option<String>)> {
+    type Ends = (
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+    );
+
+    let ends = sqlx::query_as::<_, Ends>(
+        "SELECT MIN(start_date), MIN(actual_start), MAX(end_date), MAX(actual_end)
+           FROM tasks
+          WHERE project_id = ?1
+            AND id NOT IN (SELECT parent_id FROM tasks WHERE parent_id IS NOT NULL)",
+    )
+    .bind(project_id)
+    .fetch_one(db::pool(cx))
+    .await?;
+
+    let first = [ends.0, ends.1].into_iter().flatten().min();
+    let last = [ends.2, ends.3].into_iter().flatten().max();
+
+    Ok((first, last))
+}
+
+/// The row a task follows on screen, or `None` when it is the very first.
+///
+/// The browser holds the plan as one flat list, so a new row has to be told
+/// which row it lands behind. That is the previous sibling's last descendant —
+/// a row goes after everything under the row above it — or, when there is no
+/// sibling above, the parent it was just put into.
+///
+/// Walked one step at a time down the last child. That is as deep as the
+/// outline goes, never as long as the plan.
+pub async fn preceding_row(cx: &Cx, project_id: &str, task_id: &str) -> Result<Option<String>> {
+    let (parent, sort_key) = task_in_project(cx, project_id, task_id).await?;
+
+    let sibling = sqlx::query_scalar::<_, String>(
+        "SELECT id FROM tasks
+          WHERE project_id = ?1 AND parent_id IS ?2 AND sort_key < ?3
+          ORDER BY sort_key DESC
+          LIMIT 1",
+    )
+    .bind(project_id)
+    .bind(&parent)
+    .bind(&sort_key)
+    .fetch_optional(db::pool(cx))
+    .await?;
+
+    let Some(mut behind) = sibling else {
+        return Ok(parent);
+    };
+
+    loop {
+        let last = sqlx::query_scalar::<_, String>(
+            "SELECT id FROM tasks WHERE parent_id = ?1 ORDER BY sort_key DESC LIMIT 1",
+        )
+        .bind(&behind)
+        .fetch_optional(db::pool(cx))
+        .await?;
+
+        match last {
+            Some(deeper) => behind = deeper,
+            None => return Ok(Some(behind)),
+        }
+    }
+}
+
+async fn count_tasks(cx: &Cx, project_id: &str) -> Result<usize> {
+    let total = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM tasks WHERE project_id = ?1")
+        .bind(project_id)
+        .fetch_one(db::pool(cx))
+        .await?;
+
+    Ok(total.max(0) as usize)
+}
+
+/// The settings around a set of rows, and the table they make together.
+async fn assemble(
+    cx: &Cx,
+    project: &Project,
+    rows: Vec<TaskRow>,
+    window: Option<(Option<String>, Option<String>)>,
+) -> Result<GridData> {
     // "Late" is a question about the user's calendar day, so it follows the
     // server's local zone rather than UTC.
     let today = Zoned::now().date();
@@ -537,6 +685,16 @@ pub async fn grid_data(cx: &Cx, project: &Project) -> Result<GridData> {
     data.column_order = column_order(&data);
 
     data.filter_sets = filter_sets(cx, &project.id).await?;
+
+    // A patch read one subtree, so the rows it holds cannot say where the chart
+    // ends. That answer came as two dates, and is padded the same way the whole
+    // read pads it — the same function, so the window cannot come out different
+    // depending on which way the plan was read.
+    if let Some((first, last)) = window {
+        let (start, end) = domain::window(today, first.as_deref(), last.as_deref());
+        data.range_start = start;
+        data.range_end = end;
+    }
 
     Ok(data)
 }

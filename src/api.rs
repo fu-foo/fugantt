@@ -1048,15 +1048,27 @@ async fn respond_patch(
         },
     );
 
-    let data = project::grid_data(cx, &project).await?;
+    // Read around the write rather than the whole plan: see `patch_data`.
+    let (data, total) = project::patch_data(
+        cx,
+        &project,
+        match &change {
+            Change::Wrote(id) | Change::Added(id) => Some(id.as_str()),
+            Change::Removed { parent, .. } => parent.as_deref(),
+        },
+    )
+    .await?;
 
     let (rows, after) = match &change {
         // A row that is gone leaves nothing to look up, so the trail is taken
         // from where it hung: its parent, and the summary rows above that.
         Change::Wrote(id) => (with_ancestors(&data.tasks, id), None),
+        // Where the new row lands is a fact about the whole plan's order, which
+        // the rows read around the write cannot answer. Asked separately, and
+        // walked down the outline rather than along the plan.
         Change::Added(id) => (
             with_ancestors(&data.tasks, id),
-            comes_after(&data.tasks, id),
+            project::preceding_row(cx, &project.id, id).await?,
         ),
         Change::Removed { parent, .. } => (
             parent
@@ -1079,7 +1091,7 @@ async fn respond_patch(
             },
             range_start: data.range_start.clone(),
             range_end: data.range_end.clone(),
-            total: data.tasks.len(),
+            total,
         }),
         task_id,
         note: None,
@@ -1121,13 +1133,6 @@ fn with_ancestors(tasks: &[TaskView], id: &str) -> Vec<TaskView> {
     }
 
     wanted
-}
-
-/// The row a new one follows on screen, or `None` when it is the first.
-fn comes_after(tasks: &[TaskView], id: &str) -> Option<String> {
-    let at = tasks.iter().position(|task| task.id == id)?;
-
-    at.checked_sub(1).map(|before| tasks[before].id.clone())
 }
 
 /// Folds full-width digits and separators onto their ASCII forms.

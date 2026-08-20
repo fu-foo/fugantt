@@ -101,6 +101,13 @@ and then unread — and how deep the stacking goes is its own column, because
 work and summary rows are left out, leave comes off the available days, and the
 stretches are printed, because "nine days free" is half an answer.
 
+**Availability everywhere**, in the menu on the left, is the same table across
+every project you can open. Somebody on three plans looks three times as free on
+each of their pages, and adding that up is not a person's job. A day booked
+twice is still one day, and the doubling shows in Overlapping. Days off are the
+shared calendar — weekends and the holidays in the global settings — plus the
+person's own leave; a single project's own calendar does not speak for the rest.
+
 No effort percentages. A finer unit needs a number on every task that nobody
 would keep up to date, and an invented number in a capacity table is worse than
 no table.

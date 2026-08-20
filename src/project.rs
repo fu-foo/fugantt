@@ -177,6 +177,94 @@ pub struct Numbers {
     pub slipped: i64,
 }
 
+/// Every task in every project this person can open.
+///
+/// The rule is the project list's: named on the project, or a base role that
+/// is not `none`. Somebody's free days are only honest about the plans the
+/// person asking is allowed to see — the alternative is counting work they
+/// have no business knowing about.
+pub async fn tasks_everywhere(cx: &Cx, user_id: &str) -> Result<(Vec<TaskRow>, usize)> {
+    let rows = sqlx::query_as::<_, TaskRow>(&format!(
+        "SELECT {TASK_COLUMNS} FROM tasks WHERE project_id IN ({MINE}) ORDER BY project_id, sort_key"
+    ))
+    .bind(user_id)
+    .fetch_all(db::pool(cx))
+    .await?;
+
+    let projects = sqlx::query_scalar::<_, i64>(&format!("SELECT COUNT(*) FROM ({MINE})"))
+        .bind(user_id)
+        .fetch_one(db::pool(cx))
+        .await?;
+
+    Ok((rows, projects.max(0) as usize))
+}
+
+/// The projects one person may open, as a subquery.
+const MINE: &str = "SELECT projects.id
+       FROM projects
+       JOIN users ON users.id = ?1
+       LEFT JOIN project_members
+         ON project_members.project_id = projects.id
+        AND project_members.user_id = ?1
+      WHERE project_members.role IS NOT NULL OR users.base_role <> 'none'";
+
+/// Everyone's leave. The table is company-wide already: a day off is a fact
+/// about the person, not about the plan it was noticed on.
+pub async fn all_leaves(cx: &Cx) -> Result<Vec<domain::Leave>> {
+    let rows = sqlx::query_as::<_, (String, String, String, String, String, String)>(
+        "SELECT id, assignee, start_date, end_date, note, kind FROM leaves ORDER BY start_date",
+    )
+    .fetch_all(db::pool(cx))
+    .await?;
+
+    Ok(rows
+        .into_iter()
+        .map(|(id, assignee, start, end, note, kind)| domain::Leave {
+            id,
+            assignee,
+            start,
+            end,
+            note,
+            kind,
+        })
+        .collect())
+}
+
+/// The names to show a row for, across every project this person can open.
+pub async fn assignees_everywhere(cx: &Cx, user_id: &str) -> Result<Vec<domain::Assignee>> {
+    let rows = sqlx::query_as::<_, (String, String, String)>(&format!(
+        "SELECT names.name,
+                COALESCE(assignees.color, '') AS color,
+                COALESCE(assignees.background, '') AS background
+           FROM (
+             SELECT CASE WHEN users.display_name = '' THEN users.email ELSE users.display_name END
+                    AS name
+               FROM project_members
+               JOIN users ON users.id = project_members.user_id
+              WHERE project_members.project_id IN ({MINE})
+             UNION
+             SELECT TRIM(assignee) FROM tasks
+              WHERE project_id IN ({MINE}) AND TRIM(assignee) <> ''
+             UNION
+             SELECT name FROM project_assignees WHERE project_id IN ({MINE})
+           ) AS names
+           LEFT JOIN assignees ON assignees.name = names.name
+          ORDER BY names.name"
+    ))
+    .bind(user_id)
+    .fetch_all(db::pool(cx))
+    .await?;
+
+    Ok(rows
+        .into_iter()
+        .map(|(name, color, background)| domain::Assignee {
+            name,
+            color,
+            background,
+        })
+        .collect())
+}
+
 /// The projects a caller can reach, by name.
 pub async fn summaries(cx: &Cx, reach: &Reach) -> Result<Vec<Summary>> {
     let rows = match reach {

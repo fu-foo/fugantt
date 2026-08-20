@@ -5309,6 +5309,72 @@ check(
   JSON.stringify(patching),
 );
 
+// --- 全体の空き検索 -----------------------------------------------------------
+
+// プロジェクトごとの空き検索は、その計画のバーしか見えない。3案件持っている人は
+// どのページでも3倍空いて見える。全体版は同じ人の予定を全部合わせて数える。
+const everywhere = await page.evaluate(async () => {
+  const 月 = "2026-11";
+  const 期間 = `?from=${月}&to=${月}`;
+
+  const 作る = async (name, dates) => {
+    await fetch("/projects", { method: "POST", body: new URLSearchParams({ name }), redirect: "manual" });
+
+    const html = await (await fetch("/")).text();
+    const id = [...html.matchAll(/href="\/projects\/([^"]+)"/g)]
+      .map((m) => decodeURIComponent(m[1]))
+      .find((slug) => slug.startsWith(name.replace(/ .*/, "")));
+
+    const grid = await (await fetch(`/api/projects/${encodeURIComponent(id)}/grid`)).json();
+    const task = grid.tasks[0].id;
+
+    for (const [field, value] of [["name", name], ["assignee", "横断さん"], ["schedule", dates]]) {
+      await fetch(`/api/projects/${encodeURIComponent(id)}/tasks/${task}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ field, value }),
+      });
+    }
+
+    return id;
+  };
+
+  const 読む = async (url) => {
+    const html = await (await fetch(url)).text();
+    const row = [...new DOMParser().parseFromString(html, "text/html").querySelectorAll("tbody tr")]
+      .find((tr) => tr.textContent.includes("横断さん"));
+    if (!row) return null;
+
+    const cells = [...row.querySelectorAll("td")].map((td) => td.textContent.trim());
+    return { 稼働可能: cells[1], 経過済: cells[2], 割当済: cells[3], 空き: cells[4], 重複: cells[5] };
+  };
+
+  // 11月の前半と、それに5日かぶる後半。別々の計画に1つずつ。
+  const 甲 = await 作る(`横断甲 ${Date.now()}`, "2026-11-02/2026-11-13");
+  const 乙 = await 作る(`横断乙 ${Date.now()}`, "2026-11-09/2026-11-20");
+
+  return {
+    甲だけ: await 読む(`/projects/${encodeURIComponent(甲)}/capacity${期間}`),
+    乙だけ: await 読む(`/projects/${encodeURIComponent(乙)}/capacity${期間}`),
+    全体: await 読む(`/capacity${期間}`),
+  };
+});
+
+// 甲は10日、乙は10日、重なりは5日（11/9〜11/13）。合わせて15日埋まり、
+// 足し算の20日ではない。同じ日に2つあることは「重複」に出る。
+check(
+  "全体の空き検索は同じ人の予定を合わせて数える",
+  everywhere.全体?.割当済 === "15日" && everywhere.甲だけ?.割当済 === "10日" && everywhere.乙だけ?.割当済 === "10日",
+  JSON.stringify(everywhere),
+);
+check(
+  "重なりは重複に出て、空きはその分だけ減る",
+  everywhere.全体?.重複 === "5日" &&
+    everywhere.甲だけ?.重複 === "—" &&
+    Number(everywhere.全体.空き.replace("日", "")) === Number(everywhere.甲だけ.空き.replace("日", "")) - 5,
+  JSON.stringify(everywhere),
+);
+
 check("JavaScript エラーが出ていない", pageErrors.length === 0, pageErrors.join(" / "));
 
 await browser.close();

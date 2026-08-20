@@ -130,6 +130,7 @@ async fn shell(cx: &Cx, slot: Result) -> Result {
                         <nav class="flex flex-col gap-1 text-sm">
                             <span class="px-3 pb-1 text-xs tracking-wide text-slate-400">(l.t("自分"))</span>
                             drawer_link(href: "/", label: l.t("プロジェクト一覧"))
+                            drawer_link(href: "/capacity", label: l.t("全体の空き検索"))
                             drawer_link(href: "/me", label: l.t("自分の設定"))
                         </nav>
 

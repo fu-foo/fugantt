@@ -110,6 +110,11 @@ pub fn of(ja: &str) -> Option<&'static str> {
 
         // --- capacity -----------------------------------------------------
         "空き検索" => "Availability",
+        "全体の空き検索" => "Availability everywhere",
+        "件のプロジェクトを合わせて" => " projects counted together",
+        "自分が開けるプロジェクトをすべて合わせて数えます。休みの日は会社の暦（土日と全体の設定の祝日）と、その人の休暇です。プロジェクトごとの暦の違いはここでは使いません。" => {
+            "Counts every project you can open, together. Days off are the shared calendar — weekends and the holidays in the global settings — plus the person's own leave. A single project's own calendar is not used here."
+        }
         "稼働可能日数" => "Available days",
         "経過済" => "Elapsed",
         "割当済" => "Committed",

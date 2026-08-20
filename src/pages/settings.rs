@@ -90,7 +90,7 @@ async fn settings(cx: &Cx) -> Result {
                 .iter()
                 .find(|field| field.id == key)
                 .map(|field| field.label.clone())
-                .unwrap_or_else(|| column_label(&key).to_owned()),
+                .unwrap_or_else(|| l.word(column_label(&key))),
             shown: !data.hidden_columns.contains(&key),
             width: data
                 .column_widths
@@ -115,9 +115,10 @@ async fn settings(cx: &Cx) -> Result {
             .collect();
 
         if pairs.is_empty() {
-            "ステータスに連動（進捗を決めたステータスがまだありません）".to_owned()
+            l.t("ステータスに連動（進捗を決めたステータスがまだありません）")
+                .to_owned()
         } else {
-            format!("ステータスに連動（{}）", pairs.join(" / "))
+            l.about("ステータスに連動（{}）", &pairs.join(" / "))
         }
     };
 
@@ -140,12 +141,12 @@ async fn settings(cx: &Cx) -> Result {
 
     view! {
         <div class="mx-auto w-full max-w-3xl">
-            <h1 class="text-2xl font-bold tracking-tight">"設定"</h1>
+            <h1 class="text-2xl font-bold tracking-tight">(l.t("設定"))</h1>
 
             // --- view -------------------------------------------------------
 
             <section id="view" class="mt-6 rounded-xl border border-slate-200 bg-white p-6">
-                <h2 class="text-lg font-semibold">"表示"</h2>
+                <h2 class="text-lg font-semibold">(l.t("表示"))</h2>
 
                 if !project.can_edit() {
                     <p class="mt-3 text-sm text-slate-600">
@@ -160,38 +161,38 @@ async fn settings(cx: &Cx) -> Result {
                     class="mt-4 flex flex-col gap-4"
                 >
                     <fieldset class="flex flex-col gap-2">
-                        <legend class="text-xs font-medium text-slate-500">"日数から除く日"</legend>
-                        count_switch(name: "skip_monday", label: "月曜", on: data.counting.monday)
-                        count_switch(name: "skip_tuesday", label: "火曜", on: data.counting.tuesday)
+                        <legend class="text-xs font-medium text-slate-500">(l.t("日数から除く日"))</legend>
+                        count_switch(name: "skip_monday", label: l.t("月曜"), on: data.counting.monday)
+                        count_switch(name: "skip_tuesday", label: l.t("火曜"), on: data.counting.tuesday)
                         count_switch(
                             name: "skip_wednesday",
-                            label: "水曜",
+                            label: l.t("水曜"),
                             on: data.counting.wednesday,
                         )
                         count_switch(
                             name: "skip_thursday",
-                            label: "木曜",
+                            label: l.t("木曜"),
                             on: data.counting.thursday,
                         )
-                        count_switch(name: "skip_friday", label: "金曜", on: data.counting.friday)
+                        count_switch(name: "skip_friday", label: l.t("金曜"), on: data.counting.friday)
                         count_switch(
                             name: "skip_saturday",
-                            label: "土曜",
+                            label: l.t("土曜"),
                             on: data.counting.saturday,
                         )
                         count_switch(
                             name: "skip_sunday",
-                            label: "日曜",
+                            label: l.t("日曜"),
                             on: data.counting.sunday,
                         )
                         count_switch(
                             name: "skip_holidays",
-                            label: "祝日・休業日",
+                            label: l.t("祝日・休業日"),
                             on: data.counting.holidays,
                         )
                         count_switch(
                             name: "skip_leave",
-                            label: "担当者の休暇",
+                            label: l.t("担当者の休暇"),
                             on: data.counting.leave,
                         )
                     </fieldset>
@@ -234,8 +235,7 @@ async fn settings(cx: &Cx) -> Result {
                                             (month == data.fiscal_year_start).then_some("selected")
                                         )
                                     >
-                                        (month.to_string())
-                                        (l.t("月"))
+                                        (&l.month(month))
                                     </option>
                                 }
                             </select>
@@ -255,8 +255,8 @@ async fn settings(cx: &Cx) -> Result {
                                         value=(count.to_string())
                                         selected=((count == data.frozen_columns).then_some("selected"))
                                     >
-                                        if count == 0 { "固定しない" }
-                                        else { (&format!("左から {count} 列")) }
+                                        if count == 0 { (l.t("固定しない")) }
+                                        else { (&l.about(l.t("左から{}列"), &count.to_string())) }
                                     </option>
                                 }
                             </select>
@@ -271,7 +271,7 @@ async fn settings(cx: &Cx) -> Result {
                                 name="day_width"
                                 class="rounded-lg border border-slate-300 px-3 py-2"
                             >
-                                for (width, label) in [(12u32, "狭い"), (18, "やや狭い"), (26, "標準"), (36, "広い")] {
+                                for (width, label) in [(12u32, l.t("狭い")), (18, l.t("やや狭い")), (26, l.t("標準")), (36, l.t("広い"))] {
                                     <option
                                         value=(width.to_string())
                                         selected=((width == data.day_width).then_some("selected"))
@@ -317,7 +317,7 @@ async fn settings(cx: &Cx) -> Result {
             // --- columns ----------------------------------------------------
 
             <section id="columns" class="mt-6 rounded-xl border border-slate-200 bg-white p-6">
-                <h2 class="text-lg font-semibold">"列"</h2>
+                <h2 class="text-lg font-semibold">(l.t("列"))</h2>
                 <p class="mt-1 text-sm text-slate-500">
                     (l.t("表示・幅（px、空欄で自動）・並び順。タスク名は先頭で固定です。"))
                 </p>
@@ -449,7 +449,7 @@ async fn settings(cx: &Cx) -> Result {
                 <summary class="cursor-pointer text-lg font-semibold">
                     (l.t("ステータス"))
                     <span class="ml-2 text-sm font-normal text-slate-400">
-                        (&format!("{} 種類", data.statuses.len()))
+                        (&l.about(l.t("{} 種類"), &data.statuses.len().to_string()))
                     </span>
                 </summary>
                 <p class="mt-1 text-sm text-slate-500">
@@ -520,8 +520,8 @@ async fn settings(cx: &Cx) -> Result {
                             </span>
                             <span class="text-sm text-slate-500">
                                 match status.percent {
-                                    Some(percent) => (&format!("進捗 {percent}%")),
-                                    None => "進捗は手入力",
+                                    Some(percent) => (&l.about(l.t("進捗 {}%"), &percent.to_string())),
+                                    None => (l.t("進捗は手入力")),
                                 }
                             </span>
 
@@ -570,7 +570,7 @@ async fn settings(cx: &Cx) -> Result {
             // --- custom fields ----------------------------------------------
 
             <section id="fields" class="mt-6 rounded-xl border border-slate-200 bg-white p-6">
-                <h2 class="text-lg font-semibold">"独自の項目"</h2>
+                <h2 class="text-lg font-semibold">(l.t("独自の項目"))</h2>
 
                 if project.can_edit() {
                     <form
@@ -600,11 +600,11 @@ async fn settings(cx: &Cx) -> Result {
                                 name="kind"
                                 class="rounded-lg border border-slate-300 px-3 py-2"
                             >
-                                <option value="text">"フリー"</option>
-                                <option value="select">"選択"</option>
-                                <option value="suggest">"フリー＋選択"</option>
-                                <option value="date">"日付"</option>
-                                <option value="number">"数値"</option>
+                                <option value="text">(l.t("フリー"))</option>
+                                <option value="select">(l.t("選択"))</option>
+                                <option value="suggest">(l.t("フリー＋選択"))</option>
+                                <option value="date">(l.t("日付"))</option>
+                                <option value="number">(l.t("数値"))</option>
                             </select>
                         </div>
 
@@ -617,7 +617,7 @@ async fn settings(cx: &Cx) -> Result {
                 }
 
                 if data.fields.is_empty() {
-                    <p class="mt-6 text-sm text-slate-400">"まだ登録がありません。"</p>
+                    <p class="mt-6 text-sm text-slate-400">(l.t("まだ登録がありません。"))</p>
                 } else {
                     <ul class="mt-6 flex flex-col divide-y divide-slate-100 border-t border-slate-100">
                         for field in &data.fields {
@@ -662,11 +662,11 @@ async fn settings(cx: &Cx) -> Result {
                                                 class="rounded-lg border border-slate-300 px-2 py-1.5 text-sm"
                                             >
                                                 for (value, label) in [
-                                                    ("text", "フリー"),
-                                                    ("select", "選択"),
-                                                    ("suggest", "フリー＋選択"),
-                                                    ("date", "日付"),
-                                                    ("number", "数値"),
+                                                    ("text", l.t("フリー")),
+                                                    ("select", l.t("選択")),
+                                                    ("suggest", l.t("フリー＋選択")),
+                                                    ("date", l.t("日付")),
+                                                    ("number", l.t("数値")),
                                                 ] {
                                                     <option
                                                         value=(value)
@@ -698,7 +698,7 @@ async fn settings(cx: &Cx) -> Result {
                                             <input type="hidden" name="field_id" value=(&field.id)>
                                             <button
                                                 class="text-sm text-slate-400 hover:text-red-600"
-                                                onclick="return confirm('この項目に入力した内容もすべて消えます。よろしいですか？')"
+                                                onclick=(&format!("return confirm('{}')", l.t("この項目に入力した内容もすべて消えます。よろしいですか？")))
                                             >
                                                 (l.t("削除"))
                                             </button>
@@ -716,11 +716,12 @@ async fn settings(cx: &Cx) -> Result {
                                                 option: option,
                                                 index: index,
                                                 last: index + 1 == field.options.len(),
+                                                l: l,
                                             )
                                         }
 
                                         if field.options.is_empty() {
-                                            <p class="text-xs text-slate-400">"選択肢がありません。"</p>
+                                            <p class="text-xs text-slate-400">(l.t("選択肢がありません。"))</p>
                                         }
 
                                         if project.can_edit() {
@@ -776,7 +777,7 @@ async fn settings(cx: &Cx) -> Result {
                 <summary class="cursor-pointer text-lg font-semibold">
                     (l.t("担当者"))
                     <span class="ml-2 text-sm font-normal text-slate-400">
-                        (&format!("{} 人", data.assignees.len()))
+                        (&l.people(i64::try_from(data.assignees.len()).unwrap_or(0)))
                     </span>
                 </summary>
                 <p class="mt-1 text-sm text-slate-500">
@@ -805,7 +806,7 @@ async fn settings(cx: &Cx) -> Result {
                 }
 
                 if data.assignees.is_empty() {
-                    <p class="mt-6 text-sm text-slate-400">"まだ誰も出てきていません。"</p>
+                    <p class="mt-6 text-sm text-slate-400">(l.t("まだ誰も出てきていません。"))</p>
                 } else {
                     <ul class="mt-6 divide-y divide-slate-100 border-t border-slate-100">
                         for person in &data.assignees {
@@ -827,7 +828,7 @@ async fn settings(cx: &Cx) -> Result {
                                 </span>
 
                                 if person.color.is_empty() && person.background.is_empty() {
-                                    <span class="text-xs text-slate-400">"色なし"</span>
+                                    <span class="text-xs text-slate-400">(l.t("色なし"))</span>
                                 }
 
                                 if project.can_edit() {
@@ -854,7 +855,7 @@ async fn settings(cx: &Cx) -> Result {
                 <summary class="cursor-pointer text-lg font-semibold">
                     (l.t("祝日・休業日"))
                     <span class="ml-2 text-sm font-normal text-slate-400">
-                        (&format!("{} 日", holidays.len()))
+                        (&l.days(i64::try_from(holidays.len()).unwrap_or(0)))
                     </span>
                 </summary>
                 <p class="mt-1 text-sm text-slate-500">
@@ -902,7 +903,7 @@ async fn settings(cx: &Cx) -> Result {
 
                 if !skipped.is_empty() {
                     <div class="mt-4 rounded-lg bg-amber-50 px-3 py-2">
-                        <p class="text-xs text-amber-900">"全体の休みだが、このプロジェクトでは動く日"</p>
+                        <p class="text-xs text-amber-900">(l.t("全体の休みだが、このプロジェクトでは動く日"))</p>
                         <ul class="mt-1 flex flex-wrap gap-2">
                             for date in &skipped {
                                 <li class="flex items-center gap-1 rounded-full bg-white px-2.5 py-0.5 text-xs">
@@ -913,7 +914,7 @@ async fn settings(cx: &Cx) -> Result {
                                             action=(("/projects/", &project.id, "/holidays/restore"))
                                         >
                                             <input type="hidden" name="date" value=(date)>
-                                            <button class="text-slate-400 hover:text-blue-600">"戻す"</button>
+                                            <button class="text-slate-400 hover:text-blue-600">(l.t("戻す"))</button>
                                         </form>
                                     }
                                 </li>
@@ -923,7 +924,7 @@ async fn settings(cx: &Cx) -> Result {
                 }
 
                 if holidays.is_empty() {
-                    <p class="mt-6 text-sm text-slate-400">"まだ登録がありません。"</p>
+                    <p class="mt-6 text-sm text-slate-400">(l.t("まだ登録がありません。"))</p>
                 } else {
                     <ul class="mt-6 divide-y divide-slate-100 border-t border-slate-100">
                         for holiday in &holidays {
@@ -969,18 +970,18 @@ async fn settings(cx: &Cx) -> Result {
             // --- colours ----------------------------------------------------
 
             <section id="colours" class="mt-6 rounded-xl border border-slate-200 bg-white p-6">
-                <h2 class="text-lg font-semibold">"バーの色"</h2>
+                <h2 class="text-lg font-semibold">(l.t("バーの色"))</h2>
 
                 if !project.can_edit() {
                     <div class="mt-4 flex flex-wrap gap-5">
                         for (label, value) in [
-                            ("予定", theme.bar.as_str()),
-                            ("完了分", theme.done.as_str()),
-                            ("集計行", theme.summary.as_str()),
-                            ("遅延", theme.late.as_str()),
-                            ("土曜", theme.saturday.as_str()),
-                            ("日曜", theme.sunday.as_str()),
-                            ("祝日", theme.holiday.as_str()),
+                            (l.t("予定"), theme.bar.as_str()),
+                            (l.t("完了分"), theme.done.as_str()),
+                            (l.t("集計行"), theme.summary.as_str()),
+                            (l.t("遅延"), theme.late.as_str()),
+                            (l.t("土曜"), theme.saturday.as_str()),
+                            (l.t("日曜"), theme.sunday.as_str()),
+                            (l.t("祝日"), theme.holiday.as_str()),
                         ] {
                             <div class="flex items-center gap-2 text-sm">
                                 <span
@@ -1001,57 +1002,57 @@ async fn settings(cx: &Cx) -> Result {
                 >
                     colour_field(
                         name: "color_bar",
-                        label: "予定",
+                        label: l.t("予定"),
                         value: theme.bar.as_str(),
                     )
                     colour_field(
                         name: "color_done",
-                        label: "完了分",
+                        label: l.t("完了分"),
                         value: theme.done.as_str(),
                     )
                     colour_field(
                         name: "color_actual",
-                        label: "実施",
+                        label: l.t("実施"),
                         value: theme.actual.as_str(),
                     )
                     colour_field(
                         name: "color_summary",
-                        label: "集計行",
+                        label: l.t("集計行"),
                         value: theme.summary.as_str(),
                     )
                     colour_field(
                         name: "color_late",
-                        label: "遅延",
+                        label: l.t("遅延"),
                         value: theme.late.as_str(),
                     )
                     colour_field(
                         name: "color_saturday",
-                        label: "土曜",
+                        label: l.t("土曜"),
                         value: theme.saturday.as_str(),
                     )
                     colour_field(
                         name: "color_sunday",
-                        label: "日曜",
+                        label: l.t("日曜"),
                         value: theme.sunday.as_str(),
                     )
                     colour_field(
                         name: "color_holiday",
-                        label: "祝日",
+                        label: l.t("祝日"),
                         value: theme.holiday.as_str(),
                     )
                     colour_field(
                         name: "color_leave",
-                        label: "休暇",
+                        label: l.t("休暇"),
                         value: theme.leave.as_str(),
                     )
                     colour_field(
                         name: "color_today",
-                        label: "今日",
+                        label: l.t("今日"),
                         value: theme.today.as_str(),
                     )
                     colour_field(
                         name: "color_wait",
-                        label: "待ち",
+                        label: l.t("待ち"),
                         value: theme.wait.as_str(),
                     )
 
@@ -1170,7 +1171,7 @@ async fn settings(cx: &Cx) -> Result {
             // --- members ----------------------------------------------------
 
             <section id="members" class="mt-6 rounded-xl border border-slate-200 bg-white p-6">
-                <h2 class="text-lg font-semibold">"メンバー"</h2>
+                <h2 class="text-lg font-semibold">(l.t("メンバー"))</h2>
 
                 if project.is_owner() {
                     <form
@@ -1211,9 +1212,9 @@ async fn settings(cx: &Cx) -> Result {
                                 name="role"
                                 class="rounded-lg border border-slate-300 px-3 py-2"
                             >
-                                <option value="editor">"編集者"</option>
-                                <option value="viewer">"閲覧者"</option>
-                                <option value="owner">"オーナー"</option>
+                                <option value="editor">(l.t("編集者"))</option>
+                                <option value="viewer">(l.t("閲覧者"))</option>
+                                <option value="owner">(l.t("オーナー"))</option>
                             </select>
                         </div>
 
@@ -1352,6 +1353,7 @@ async fn option_row(
     option: &crate::domain::Option_,
     index: usize,
     last: bool,
+    l: crate::i18n::Lang,
 ) -> Result {
     let base = format!("/projects/{}/fields/options", project.id);
     let move_to = format!("{base}/move");
@@ -1397,7 +1399,7 @@ async fn option_row(
                 <form method="POST" action=(&remove)>
                     <input type="hidden" name="field_id" value=(&field.id)>
                     <input type="hidden" name="value" value=(&option.value)>
-                    <button class="text-xs text-slate-400 hover:text-red-600">"削除"</button>
+                    <button class="text-xs text-slate-400 hover:text-red-600">(l.t("削除"))</button>
                 </form>
             }
         </div>

@@ -63,8 +63,8 @@ async fn index(cx: &Cx) -> Result {
 
     view! {
         <div class="mx-auto w-full max-w-3xl">
-            <h1 class="text-2xl font-bold tracking-tight">"全体の設定"</h1>
-            <p class="mt-1 text-sm text-slate-500">"全員に有効です"</p>
+            <h1 class="text-2xl font-bold tracking-tight">(l.t("全体の設定"))</h1>
+            <p class="mt-1 text-sm text-slate-500">(l.t("全員に有効です"))</p>
 
             <form
                 method="POST"
@@ -85,15 +85,15 @@ async fn index(cx: &Cx) -> Result {
                 </div>
 
                 <div class="flex flex-col gap-1">
-                    <label for="language" class="text-xs font-medium text-slate-500">"言語"</label>
+                    <label for="language" class="text-xs font-medium text-slate-500">(l.t("言語"))</label>
                     <select
                         id="language"
                         name="language"
                         class="w-64 rounded-lg border border-slate-300 px-3 py-2"
                     >
                         for (value, label) in [
-                            ("auto", "自動（ブラウザに合わせる）"),
-                            ("ja", "日本語"),
+                            ("auto", l.t("自動（ブラウザに合わせる）")),
+                            ("ja", l.t("日本語")),
                             ("en", "English"),
                         ] {
                             <option
@@ -110,7 +110,7 @@ async fn index(cx: &Cx) -> Result {
                 </div>
 
                 <div class="flex flex-col gap-1">
-                    <label for="eras" class="text-xs font-medium text-slate-500">"元号"</label>
+                    <label for="eras" class="text-xs font-medium text-slate-500">(l.t("元号"))</label>
                     <textarea
                         id="eras"
                         name="eras"
@@ -132,7 +132,7 @@ async fn index(cx: &Cx) -> Result {
             // --- passwords --------------------------------------------------
 
             <section id="password" class="mt-6 rounded-xl border border-slate-200 bg-white p-6">
-                <h2 class="text-lg font-semibold">"パスワードの決まり"</h2>
+                <h2 class="text-lg font-semibold">(l.t("パスワードの決まり"))</h2>
                 <p class="mt-1 text-sm text-slate-500">
                     (l.t("新しく設定するときにだけ適用されます。"))
                 </p>
@@ -152,11 +152,11 @@ async fn index(cx: &Cx) -> Result {
                                 value=(rule.min.to_string())
                                 class="w-28 rounded-lg border border-slate-300 px-3 py-2"
                             >
-                            <span class="text-xs text-slate-400">"バイトではなく文字で数えます"</span>
+                            <span class="text-xs text-slate-400">(l.t("バイトではなく文字で数えます"))</span>
                         </div>
 
                         <div class="flex flex-col gap-1">
-                            <span class="text-xs font-medium text-slate-500">"必ず入れる文字"</span>
+                            <span class="text-xs font-medium text-slate-500">(l.t("必ず入れる文字"))</span>
                             <div class="flex flex-wrap items-center gap-4 py-2">
                                 for kind in app_settings::Kind::ALL {
                                     <label class="flex items-center gap-1.5 text-sm">
@@ -166,7 +166,7 @@ async fn index(cx: &Cx) -> Result {
                                             checked=(rule.kinds.contains(&kind).then_some("checked"))
                                             class="size-4 rounded border-slate-300"
                                         >
-                                        (kind.label())
+                                        (kind.label(l))
                                     </label>
                                 }
                             </div>
@@ -192,7 +192,7 @@ async fn index(cx: &Cx) -> Result {
                     </div>
 
                     <p class="text-sm text-slate-600">
-                        "いまの決まり: "<span class="font-medium">(&rule.describe())</span>
+                        (l.t("いまの決まり: "))<span class="font-medium">(&rule.describe(l))</span>
                     </p>
 
                     <button
@@ -398,7 +398,7 @@ async fn index(cx: &Cx) -> Result {
                 <h2 class="text-lg font-semibold">
                     (l.t("祝日・休業日"))
                     <span class="ml-2 text-sm font-normal text-slate-400">
-                        (&format!("{} 日", holidays.len()))
+                        (&l.days(i64::try_from(holidays.len()).unwrap_or(0)))
                     </span>
                 </h2>
                 <p class="mt-1 text-sm text-slate-500">
@@ -434,7 +434,7 @@ async fn index(cx: &Cx) -> Result {
 
                 <form method="POST" action="/admin/holidays" class="mt-4 flex flex-wrap items-end gap-3">
                     <div class="flex flex-col gap-1">
-                        <label for="holiday-date" class="text-xs font-medium text-slate-500">"日付"</label>
+                        <label for="holiday-date" class="text-xs font-medium text-slate-500">(l.t("日付"))</label>
                         <input
                             id="holiday-date"
                             name="date"
@@ -445,7 +445,7 @@ async fn index(cx: &Cx) -> Result {
                     </div>
 
                     <div class="flex flex-1 flex-col gap-1">
-                        <label for="holiday-name" class="text-xs font-medium text-slate-500">"名称"</label>
+                        <label for="holiday-name" class="text-xs font-medium text-slate-500">(l.t("名称"))</label>
                         <input
                             id="holiday-name"
                             name="name"
@@ -460,7 +460,7 @@ async fn index(cx: &Cx) -> Result {
                 </form>
 
                 if holidays.is_empty() {
-                    <p class="mt-6 text-sm text-slate-400">"まだ登録がありません。"</p>
+                    <p class="mt-6 text-sm text-slate-400">(l.t("まだ登録がありません。"))</p>
                 } else {
                     <ul class="mt-6 divide-y divide-slate-100 border-t border-slate-100">
                         for holiday in &holidays {
@@ -470,7 +470,7 @@ async fn index(cx: &Cx) -> Result {
 
                                 <form method="POST" action="/admin/holidays/remove" class="ml-auto">
                                     <input type="hidden" name="date" value=(&holiday.date)>
-                                    <button class="text-sm text-slate-400 hover:text-red-600">"削除"</button>
+                                    <button class="text-sm text-slate-400 hover:text-red-600">(l.t("削除"))</button>
                                 </form>
                             </li>
                         }
@@ -484,7 +484,7 @@ async fn index(cx: &Cx) -> Result {
                 <h2 class="text-lg font-semibold">
                     (l.t("担当者の色"))
                     <span class="ml-2 text-sm font-normal text-slate-400">
-                        (&format!("{} 人", assignees.len()))
+                        (&l.people(i64::try_from(assignees.len()).unwrap_or(0)))
                     </span>
                 </h2>
                 <p class="mt-1 text-sm text-slate-500">
@@ -493,7 +493,7 @@ async fn index(cx: &Cx) -> Result {
 
                 <form method="POST" action="/admin/assignees" class="mt-4 flex flex-wrap items-end gap-3">
                     <div class="flex flex-col gap-1">
-                        <label for="assignee-name" class="text-xs font-medium text-slate-500">"名前"</label>
+                        <label for="assignee-name" class="text-xs font-medium text-slate-500">(l.t("名前"))</label>
                         <input
                             id="assignee-name"
                             name="name"
@@ -504,7 +504,7 @@ async fn index(cx: &Cx) -> Result {
                     </div>
 
                     <div class="flex flex-col gap-1">
-                        <label for="assignee-color" class="text-xs font-medium text-slate-500">"文字色"</label>
+                        <label for="assignee-color" class="text-xs font-medium text-slate-500">(l.t("文字色"))</label>
                         <input
                             id="assignee-color"
                             name="color"
@@ -579,7 +579,7 @@ async fn index(cx: &Cx) -> Result {
 
                                 <form method="POST" action="/admin/assignees/remove">
                                     <input type="hidden" name="name" value=(&person.name)>
-                                    <button class="text-sm text-slate-400 hover:text-red-600">"色を外す"</button>
+                                    <button class="text-sm text-slate-400 hover:text-red-600">(l.t("色を外す"))</button>
                                 </form>
                             </li>
                         }
@@ -730,16 +730,17 @@ struct PasswordForm {
 
 #[route(POST "/admin/password")]
 async fn save_password_rule(cx: &Cx, Form(form): Form<PasswordForm>) -> Result<SeeOther> {
+    let l = crate::i18n::lang(cx).await;
     require_admin(cx).await?;
 
     let min: usize = form
         .password_min
         .trim()
         .parse()
-        .map_err(|_| bad_request("最低文字数は数字で入れてください。"))?;
+        .map_err(|_| bad_request(l.t("最低文字数は数字で入れてください。")))?;
 
     if !(4..=128).contains(&min) {
-        return Err(bad_request("最低文字数は4〜128の範囲で決めてください。").into());
+        return Err(bad_request(l.t("最低文字数は4〜128の範囲で決めてください。")).into());
     }
 
     let kinds: Vec<&str> = [
@@ -838,15 +839,16 @@ struct StatusForm {
 /// those on the record before it can add to them.
 #[route(POST "/admin/statuses")]
 async fn set_status(cx: &Cx, Form(form): Form<StatusForm>) -> Result<SeeOther> {
+    let l = crate::i18n::lang(cx).await;
     require_admin(cx).await?;
 
     let name = form.name.trim();
     if name.is_empty() {
-        return Err(bad_request("名前を入力してください。").into());
+        return Err(bad_request(l.t("名前を入力してください。")).into());
     }
 
     if !crate::domain::is_hex_colour(form.color.trim()) {
-        return Err(bad_request("色は #rrggbb の形式で指定してください。").into());
+        return Err(bad_request(l.t("色は #rrggbb の形式で指定してください。")).into());
     }
 
     let percent = match form.percent.as_deref().map(str::trim).unwrap_or("") {
@@ -856,7 +858,7 @@ async fn set_status(cx: &Cx, Form(form): Form<StatusForm>) -> Result<SeeOther> {
                 .parse::<i64>()
                 .ok()
                 .filter(|percent| (0..=100).contains(percent))
-                .ok_or_else(|| bad_request("進捗は 0〜100 で指定してください。"))?,
+                .ok_or_else(|| bad_request(l.t("進捗は 0〜100 で指定してください。")))?,
         ),
     };
 
@@ -935,6 +937,7 @@ struct RemoveStatus {
 
 #[route(POST "/admin/statuses/remove")]
 async fn remove_status(cx: &Cx, Form(form): Form<RemoveStatus>) -> Result<SeeOther> {
+    let l = crate::i18n::lang(cx).await;
     require_admin(cx).await?;
 
     let statuses = project::default_statuses(cx).await?;
@@ -942,7 +945,7 @@ async fn remove_status(cx: &Cx, Form(form): Form<RemoveStatus>) -> Result<SeeOth
     // Emptying the list only brings the shipped defaults back, which is not
     // what pressing 削除 on the last one means.
     if statuses.len() <= 1 {
-        return Err(bad_request("ステータスは1つ以上必要です。").into());
+        return Err(bad_request(l.t("ステータスは1つ以上必要です。")).into());
     }
 
     let left: Vec<crate::domain::Status> = statuses
@@ -989,13 +992,14 @@ struct HolidayForm {
 
 #[route(POST "/admin/holidays")]
 async fn add_holiday(cx: &Cx, Form(form): Form<HolidayForm>) -> Result<SeeOther> {
+    let l = crate::i18n::lang(cx).await;
     require_admin(cx).await?;
 
     let date: jiff::civil::Date = form
         .date
         .trim()
         .parse()
-        .map_err(|_| bad_request("日付は YYYY-MM-DD の形式で入力してください。"))?;
+        .map_err(|_| bad_request(l.t("日付は YYYY-MM-DD の形式で入力してください。")))?;
 
     sqlx::query(
         "INSERT INTO app_holidays (date, name) VALUES (?1, ?2)
@@ -1022,10 +1026,11 @@ struct ImportHolidays {
 /// 休業」 meant it.
 #[route(POST "/admin/holidays/japan")]
 async fn import_japanese_holidays(cx: &Cx, Form(form): Form<ImportHolidays>) -> Result<SeeOther> {
+    let l = crate::i18n::lang(cx).await;
     require_admin(cx).await?;
 
     if !(2020..=2099).contains(&form.year) {
-        return Err(bad_request("2020〜2099 年に対応しています。").into());
+        return Err(bad_request(l.t("2020〜2099 年に対応しています。")).into());
     }
 
     let mut tx = db::pool(cx).begin().await?;
@@ -1075,11 +1080,12 @@ struct AssigneeForm {
 
 #[route(POST "/admin/assignees")]
 async fn set_assignee(cx: &Cx, Form(form): Form<AssigneeForm>) -> Result<SeeOther> {
+    let l = crate::i18n::lang(cx).await;
     require_admin(cx).await?;
 
     let name = form.name.trim();
     if name.is_empty() {
-        return Err(bad_request("名前を入力してください。").into());
+        return Err(bad_request(l.t("名前を入力してください。")).into());
     }
 
     let colour = |value: Option<&str>| -> Result<String> {
@@ -1089,7 +1095,7 @@ async fn set_assignee(cx: &Cx, Form(form): Form<AssigneeForm>) -> Result<SeeOthe
             return Ok(String::new());
         }
         if !crate::domain::is_hex_colour(value) {
-            return Err(bad_request("色は #rrggbb の形式で指定してください。").into());
+            return Err(bad_request(l.t("色は #rrggbb の形式で指定してください。")).into());
         }
 
         Ok(value.to_owned())

@@ -5637,6 +5637,78 @@ check(
   JSON.stringify(backToToday),
 );
 
+// --- 英語の画面 ---------------------------------------------------------------
+
+// README は「ブラウザが英語なら英語で出る」と書いているのに、自分の設定・統計・
+// プロジェクトの設定は日本語のままだった。文言が l.t() を通っていなかった。
+const inEnglish = await page.evaluate(async () => {
+  // ブラウザが画面を開くときと同じ Accept を送る。見つからないページは、
+  // 画面を見に来た人にだけ画面を返す（API には素っ気ない一行のまま）。
+  const 読む = async (path, language) => {
+    const headers = { accept: "text/html" };
+    if (language) headers["accept-language"] = language;
+    const html = await (await fetch(path, { headers })).text();
+    const text = html.replace(/<script[\s\S]*?<\/script>|<style[\s\S]*?<\/style>|<[^>]*>/g, "\n");
+    return text
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => line.length > 1);
+  };
+
+  await fetch("/me/name", {
+    method: "POST",
+    body: new URLSearchParams({ name: "grid-test@example.com", language: "en" }),
+  });
+
+  const 画面 = {
+    自分の設定: await 読む("/me"),
+    統計: await 読む("/projects/test-project/stats"),
+    設定: await 読む("/projects/test-project/settings"),
+    // 見つからないページは行き止まりで、本人の設定を読みに行く相手（データベース）が
+    // いない。だから言語はブラウザの申告で決める。
+    ありませんページ: await 読む("/projects/ないよ", "en-US,en"),
+    ありませんページ日本語: await 読む("/projects/ないよ", "ja"),
+  };
+
+  await fetch("/me/name", {
+    method: "POST",
+    body: new URLSearchParams({ name: "grid-test@example.com", language: "" }),
+  });
+
+  const 出ている = (どこ, 言葉) => 画面[どこ].some((line) => line.includes(言葉));
+
+  return {
+    自分の設定: ["Current password", "New password", "Follow the global setting"].filter((w) => !出ている("自分の設定", w)),
+    統計: ["Average progress", "Late", "Where the slippage went"].filter((w) => !出ている("統計", w)),
+    設定: ["Monday", "April", "Standard"].filter((w) => !出ている("設定", w)),
+    ありませんページ: ["There is no such page", "Back to the projects"].filter((w) => !出ている("ありませんページ", w)),
+    ありませんページ日本語: 画面.ありませんページ日本語,
+    // 日本語が残っていないこと。データ（計画名・タスク名・ステータス）は別。
+    日本語が残った行: 画面.自分の設定.filter((line) => /[ぁ-んァ-ヶ]/.test(line)),
+  };
+});
+
+check(
+  "英語では自分の設定も統計も設定も英語になる",
+  inEnglish.自分の設定.length === 0 && inEnglish.統計.length === 0 && inEnglish.設定.length === 0,
+  JSON.stringify(inEnglish),
+);
+check(
+  "英語の画面に日本語が残らない（自分の設定）",
+  inEnglish.日本語が残った行.length === 0,
+  JSON.stringify(inEnglish.日本語が残った行),
+);
+check(
+  "見つからないページは画面になっていて、戻る道がある",
+  inEnglish.ありませんページ.length === 0,
+  JSON.stringify(inEnglish.ありませんページ),
+);
+check(
+  "見つからないページはブラウザの言語で出る",
+  inEnglish.ありませんページ日本語.some((line) => line.includes("そのページはありません")),
+  JSON.stringify(inEnglish.ありませんページ日本語.slice(0, 3)),
+);
+
 check("JavaScript エラーが出ていない", pageErrors.length === 0, pageErrors.join(" / "));
 
 await browser.close();

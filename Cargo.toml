@@ -11,6 +11,9 @@ authors = ["Kazunari Fukagawa"]
 
 [dependencies]
 argon2 = "0.5"
+# Named directly for the request parts a layer reads; already in the tree
+# under topcoat.
+http = "1"
 futures-core = "0.3.34"
 futures-util = "0.3.34"
 jiff = "0.2.35"

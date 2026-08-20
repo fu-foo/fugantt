@@ -134,26 +134,26 @@ async fn index(cx: &Cx) -> Result {
     // Said out loud rather than left as a subtraction. "12 late" reads very
     // differently next to 14 and next to 400.
     let on_time_text = (total - delayed).to_string();
-    let late_text = format!("{late_days}日");
-    let wait_text = format!("{wait_days}日");
-    let slipped_text = format!("{slipped}日");
+    let late_text = l.days(late_days);
+    let wait_text = l.days(wait_days);
+    let slipped_text = l.days(slipped);
 
     view! {
         <div class="mx-auto w-full max-w-4xl">
-            <h1 class="text-2xl font-bold tracking-tight">"統計"</h1>
+            <h1 class="text-2xl font-bold tracking-tight">(l.t("統計"))</h1>
             <p class="mt-1 text-sm text-slate-500">(&project.name)</p>
 
             <div class="mt-6 grid gap-4 sm:grid-cols-4">
-                tile(label: "タスク", value: &total_text, tone: "")
-                tile(label: "平均進捗", value: &progress_text, tone: "")
+                tile(label: l.t("タスク"), value: &total_text, tone: "")
+                tile(label: l.t("平均進捗"), value: &progress_text, tone: "")
                 tile(
-                    label: "遅延中",
+                    label: l.t("遅延中"),
                     value: &delayed_text,
                     tone: if delayed > 0 { "late" } else { "" },
                 )
-                tile(label: "遅れていない", value: &on_time_text, tone: "")
+                tile(label: l.t("遅れていない"), value: &on_time_text, tone: "")
                 tile(
-                    label: "作業の遅れ",
+                    label: l.t("作業の遅れ"),
                     value: &late_text,
                     tone: if late_days > 0 { "late" } else { "" },
                 )
@@ -162,13 +162,13 @@ async fn index(cx: &Cx) -> Result {
             // --- what the plan slipped by, and why -----------------------------
 
             <section class="mt-6 rounded-xl border border-slate-200 bg-white p-6">
-                <h2 class="text-lg font-semibold">"ずれの内訳"</h2>
+                <h2 class="text-lg font-semibold">(l.t("ずれの内訳"))</h2>
                 <p class="mt-1 text-sm text-slate-500">
                     (l.t("差異は待ちを除いて数えているので、作業の遅れと待ちを足したものが実際のずれです。"))
                 </p>
 
                 if slipped == 0 {
-                    <p class="mt-4 text-sm text-slate-500">"予定からずれているタスクはありません。"</p>
+                    <p class="mt-4 text-sm text-slate-500">(l.t("予定からずれているタスクはありません。"))</p>
                 } else {
                     <ul class="mt-4 flex flex-col gap-2 text-sm">
                         <li class="flex items-center gap-2 font-medium">
@@ -190,7 +190,7 @@ async fn index(cx: &Cx) -> Result {
                             if *days > 0 {
                                 <li class="flex items-center gap-2 pl-10 text-xs text-slate-500">
                                     (reason)
-                                    <span class="ml-auto tabular-nums">(&format!("{days}日"))</span>
+                                    <span class="ml-auto tabular-nums">(&l.days(*days))</span>
                                 </li>
                             }
                         }
@@ -201,7 +201,7 @@ async fn index(cx: &Cx) -> Result {
             // --- status -----------------------------------------------------
 
             <section class="mt-6 rounded-xl border border-slate-200 bg-white p-6">
-                <h2 class="text-lg font-semibold">"ステータス"</h2>
+                <h2 class="text-lg font-semibold">(l.t("ステータス"))</h2>
 
                 <ul class="mt-4 flex flex-col gap-2">
                     for (status, count) in &by_status {
@@ -217,13 +217,13 @@ async fn index(cx: &Cx) -> Result {
             // --- assignees --------------------------------------------------
 
             <section class="mt-6 rounded-xl border border-slate-200 bg-white p-6">
-                <h2 class="text-lg font-semibold">"担当者"</h2>
+                <h2 class="text-lg font-semibold">(l.t("担当者"))</h2>
 
                 <ul class="mt-4 flex flex-col divide-y divide-slate-100">
                     for (name, (count, sum)) in &by_assignee {
                         <li class="flex flex-wrap items-center gap-x-3 gap-y-2 py-2.5 text-sm">
                             <span class="w-28 shrink-0 truncate">(name)</span>
-                            <span class="tabular-nums text-slate-500">(count.to_string())"件"</span>
+                            <span class="tabular-nums text-slate-500">(&l.items(i64::try_from(*count).unwrap_or(0)))</span>
 
                             // Beside the count, not in a table of its own:
                             // otherwise reading it means matching two lists by eye.

@@ -20,7 +20,7 @@ async fn login_page(cx: &Cx) -> Result {
     let may_register = users::none_yet(cx).await?;
 
     let l = crate::i18n::lang(cx).await;
-    let rule = crate::app_settings::password_rule(cx).await.describe();
+    let rule = crate::app_settings::password_rule(cx).await.describe(l);
 
     view! {
         <div class=(
@@ -33,10 +33,10 @@ async fn login_page(cx: &Cx) -> Result {
             <section
                 class="rounded-xl border border-slate-200 bg-white p-6 shadow-sm"
             >
-                <h1 class="text-lg font-semibold">"ログイン"</h1>
+                <h1 class="text-lg font-semibold">(l.t("ログイン"))</h1>
 
                 <form method="POST" action="/login" class="mt-4 flex flex-col gap-3">
-                    credential_fields(prefix: "login")
+                    credential_fields(l: l, prefix: "login")
                     <button
                         class="rounded-lg bg-blue-600 px-4 py-2 font-medium text-white hover:bg-blue-500"
                     >
@@ -59,7 +59,7 @@ async fn login_page(cx: &Cx) -> Result {
 
                     <form method="POST" action="/register" class="mt-4 flex flex-col gap-3">
 
-                        <label for="register-name" class="text-sm font-medium">"名前"</label>
+                        <label for="register-name" class="text-sm font-medium">(l.t("名前"))</label>
                         <input
                             id="register-name"
                             name="name"
@@ -72,8 +72,8 @@ async fn login_page(cx: &Cx) -> Result {
                             (l.t("画面にはこの名前が出ます。担当者としても選べます。"))
                         </p>
 
-                        credential_fields(prefix: "register")
-                        <p class="text-xs text-slate-500">"パスワードは"(&rule)</p>
+                        credential_fields(l: l, prefix: "register")
+                        <p class="text-xs text-slate-500">(&l.about("パスワードは{}", &rule))</p>
                         <button
                             class="rounded-lg border border-slate-300 px-4 py-2 font-medium hover:bg-slate-50"
                         >
@@ -90,12 +90,12 @@ async fn login_page(cx: &Cx) -> Result {
 ///
 /// `prefix` keeps the `id`/`for` pairs unique across the two forms on the page.
 #[topcoat::view::component]
-async fn credential_fields(prefix: &str) -> Result {
+async fn credential_fields(prefix: &str, l: crate::i18n::Lang) -> Result {
     let email_id = format!("{prefix}-email");
     let password_id = format!("{prefix}-password");
 
     view! {
-        <label for=(&email_id) class="text-sm font-medium">"ユーザー名"</label>
+        <label for=(&email_id) class="text-sm font-medium">(l.t("ユーザー名"))</label>
         <input
             id=(&email_id)
             name="email"
@@ -105,7 +105,7 @@ async fn credential_fields(prefix: &str) -> Result {
             class="rounded-lg border border-slate-300 px-3 py-2"
         >
 
-        <label for=(&password_id) class="text-sm font-medium">"パスワード"</label>
+        <label for=(&password_id) class="text-sm font-medium">(l.t("パスワード"))</label>
         <input
             id=(&password_id)
             name="password"

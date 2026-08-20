@@ -47,13 +47,13 @@ impl Kind {
         }
     }
 
-    pub fn label(self) -> &'static str {
-        match self {
+    pub fn label(self, l: crate::i18n::Lang) -> &'static str {
+        l.t(match self {
             Kind::Lower => "英小文字",
             Kind::Upper => "英大文字",
             Kind::Digit => "数字",
             Kind::Symbol => "記号",
-        }
+        })
     }
 
     fn present_in(self, password: &str) -> bool {
@@ -108,21 +108,43 @@ pub fn banned_words(text: &str) -> Vec<String> {
 impl PasswordRule {
     /// The wording shown on the form. A rule and a description that disagree
     /// leave a screen nobody can satisfy.
-    pub fn describe(&self) -> String {
-        let kinds = if self.kinds.is_empty() {
-            String::new()
-        } else {
-            let names: Vec<&str> = self.kinds.iter().map(|kind| kind.label()).collect();
-            format!("。{}を含む", names.join("・"))
-        };
+    pub fn describe(&self, l: crate::i18n::Lang) -> String {
+        let names: Vec<&str> = self.kinds.iter().map(|kind| kind.label(l)).collect();
 
-        let banned = if self.banned.is_empty() {
-            String::new()
-        } else {
-            "。よくある語は使えません".to_owned()
-        };
+        // Built as a whole sentence in each language rather than as pieces
+        // glued together: the order of "at least N characters" and what it must
+        // contain is not the same in the two, and a sentence assembled out of
+        // translated fragments reads like neither.
+        match l {
+            crate::i18n::Lang::Ja => {
+                let kinds = if names.is_empty() {
+                    String::new()
+                } else {
+                    format!("。{}を含む", names.join("・"))
+                };
+                let banned = if self.banned.is_empty() {
+                    String::new()
+                } else {
+                    "。よくある語は使えません".to_owned()
+                };
 
-        format!("{}文字以上{}{}", self.min, kinds, banned)
+                format!("{}文字以上{}{}", self.min, kinds, banned)
+            }
+            crate::i18n::Lang::En => {
+                let kinds = if names.is_empty() {
+                    String::new()
+                } else {
+                    format!(", including {}", names.join(", "))
+                };
+                let banned = if self.banned.is_empty() {
+                    String::new()
+                } else {
+                    ". Common words are refused".to_owned()
+                };
+
+                format!("{} characters or more{}{}", self.min, kinds, banned)
+            }
+        }
     }
 
     /// Why it was refused, or that it passed.
@@ -151,7 +173,7 @@ impl PasswordRule {
             .kinds
             .iter()
             .filter(|kind| !kind.present_in(password))
-            .map(|kind| kind.label())
+            .map(|kind| kind.label(crate::i18n::Lang::Ja))
             .collect();
 
         if !missing.is_empty() {
@@ -334,7 +356,7 @@ mod tests {
                 kinds: vec![],
                 banned: vec![]
             }
-            .describe(),
+            .describe(crate::i18n::Lang::Ja),
             "12文字以上"
         );
         assert_eq!(
@@ -343,7 +365,7 @@ mod tests {
                 kinds: vec![Kind::Digit, Kind::Symbol],
                 banned: vec!["password".to_owned()],
             }
-            .describe(),
+            .describe(crate::i18n::Lang::Ja),
             "12文字以上。数字・記号を含む。よくある語は使えません"
         );
     }

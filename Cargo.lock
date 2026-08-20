@@ -619,6 +619,7 @@ dependencies = [
  "argon2",
  "futures-core",
  "futures-util",
+ "http",
  "jiff",
  "rust_xlsxwriter",
  "serde",

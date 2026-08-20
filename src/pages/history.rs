@@ -40,19 +40,19 @@ async fn index(cx: &Cx) -> Result {
 
     view! {
         <div class="mx-auto w-full max-w-4xl">
-            <h1 class="text-2xl font-bold tracking-tight">"タスク変更履歴"</h1>
+            <h1 class="text-2xl font-bold tracking-tight">(l.t("タスク変更履歴"))</h1>
             <p class="mt-1 text-sm text-slate-500">
                 (&project.name)
                 if total > 0 {
                     <span class="ml-2 text-slate-400">
-                        (&format!("{total} 件中 {}〜{} 件目", (current - 1) * PER_PAGE + 1,
-                                  ((current - 1) * PER_PAGE + changes.len() as i64)))
+                        (&l.range_of(total, (current - 1) * PER_PAGE + 1,
+                                     (current - 1) * PER_PAGE + changes.len() as i64))
                     </span>
                 }
             </p>
 
             if changes.is_empty() {
-                <p class="mt-10 text-center text-sm text-slate-400">"まだ変更はありません。"</p>
+                <p class="mt-10 text-center text-sm text-slate-400">(l.t("まだ変更はありません。"))</p>
             } else {
                 <ul class="mt-6 divide-y divide-slate-100 rounded-xl border border-slate-200 bg-white">
                     for change in &changes {
@@ -64,24 +64,24 @@ async fn index(cx: &Cx) -> Result {
                             <span class="w-28 shrink-0 truncate text-slate-500">(&change.actor)</span>
 
                             <span class="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-600">
-                                (&change.action)
+                                (&l.word(&change.action))
                             </span>
 
                             <span class="font-medium">
-                                if change.task_name.is_empty() { "（無題）" } else { (&change.task_name) }
+                                if change.task_name.is_empty() { (l.t("（無題）")) } else { (&change.task_name) }
                             </span>
 
                             if !change.field.is_empty() {
-                                <span class="text-slate-400">(&change.field)</span>
+                                <span class="text-slate-400">(&l.word(&change.field))</span>
                             }
 
                             if change.action == "変更" {
                                 <span class="text-slate-500">
-                                    if change.before.is_empty() { "（空）" } else { (&change.before) }
+                                    if change.before.is_empty() { (l.t("（空）")) } else { (&change.before) }
                                     " → "
                                 </span>
                                 <span class="font-medium">
-                                    if change.after.is_empty() { "（空）" } else { (&change.after) }
+                                    if change.after.is_empty() { (l.t("（空）")) } else { (&change.after) }
                                 </span>
                             }
                         </li>
@@ -103,7 +103,7 @@ async fn index(cx: &Cx) -> Result {
                             <span></span>
                         }
 
-                        <span class="text-slate-500">(&format!("{current} / {pages} ページ"))</span>
+                        <span class="text-slate-500">(&l.page_of(current, pages))</span>
 
                         if current < pages {
                             <a

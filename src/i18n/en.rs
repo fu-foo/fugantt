@@ -377,6 +377,130 @@ pub fn of(ja: &str) -> Option<&'static str> {
         }
         "全案件の遅延を集める" => "Collecting lateness across projects",
 
+        // --- 画面ぜんぶを英語にしたときの残り ---------------------------
+        "進捗は 0〜100 の数値で入力してください。" => {
+            "Progress is a number from 0 to 100."
+        }
+        "進捗は 0〜100 の範囲です。" => "Progress runs from 0 to 100.",
+        "ステータスが不正です。" => "That is not one of the statuses.",
+        "項目が指定されていません。" => "No column was named.",
+        "期間は START/END の形式です。" => "A span is written START/END.",
+        "終了日が開始日より前です。" => "The end is before the start.",
+        "日付は YYYY-MM-DD の形式で入力してください。" => {
+            "Dates are written YYYY-MM-DD."
+        }
+        "担当者を入力してください。" => "Give it an assignee.",
+        "終了日は開始日より後にしてください。" => {
+            "The end has to come after the start."
+        }
+        "休暇の日付を確認してください。" => "Check the dates of the leave.",
+        "担当者を選んでください。" => "Choose an assignee.",
+        "ステータス名を入力してください。" => "Give the status a name.",
+        "進捗は 0〜100 で指定してください。" => "Progress runs from 0 to 100.",
+        "ステータスは1つ以上必要です。" => "Keep at least one status.",
+        "項目名を入力してください。" => "Give the column a name.",
+        "項目の種類が不正です。" => "That is not one of the column kinds.",
+        "担当者名を入力してください。" => "Give the person a name.",
+        "選択肢を入力してください。" => "Give it a choice to offer.",
+        "権限が不正です。" => "That is not one of the roles.",
+        "そのメールアドレスの利用者が見つかりません。" => {
+            "Nobody signs in with that address."
+        }
+        "最後の管理者は外せません。" => "The last administrator cannot be removed.",
+        "ファイルを選んでください。" => "Choose a file.",
+        "待ちは「8/17〜8/21」のように範囲で入力してください。" => {
+            "A wait is a span, written 8/17–8/21."
+        }
+        "待ちの日付は「8/17」か「2026-08-17」の形式です。" => {
+            "Waiting days are written 8/17 or 2026-08-17."
+        }
+        "日付は 20260805・8/5・2026-08-05 のように入力してください。" => {
+            "Dates take 20260805, 8/5 or 2026-08-05."
+        }
+        "全員に有効です" => "Applies to everybody",
+        "元号" => "Japanese eras",
+        "パスワードの決まり" => "Password rule",
+        "バイトではなく文字で数えます" => "Counted in characters, not bytes",
+        "必ず入れる文字" => "Must contain",
+        "いまの決まり: " => "The rule now: ",
+        "まだ登録がありません。" => "Nothing here yet.",
+        "文字色" => "Text colour",
+        "色を外す" => "Clear the colour",
+        "最低文字数は数字で入れてください。" => "The minimum length is a number.",
+        "最低文字数は4〜128の範囲で決めてください。" => {
+            "The minimum length runs from 4 to 128."
+        }
+        "名前を入力してください。" => "Give it a name.",
+        "2020〜2099 年に対応しています。" => "Years from 2020 to 2099.",
+        "（無題）" => "(untitled)",
+        "（空）" => "(empty)",
+        "パスワードは{}" => "Passwords are {}",
+        "プロジェクト" => "Projects",
+        "プロジェクト名を入力してください。" => "Give the project a name.",
+        "その名前のプロジェクトはすでにあります。" => {
+            "A project already has that name."
+        }
+        "閲覧のみの権限です。" => "You can read this one, not change it.",
+        "読み込み中…" => "Loading…",
+        "ステータスに連動（進捗を決めたステータスがまだありません）" => {
+            "From the status (no status names a progress yet)"
+        }
+        "ステータスに連動（{}）" => "From the status ({})",
+        "日数から除く日" => "Days left out of the count",
+        "月曜" => "Monday",
+        "火曜" => "Tuesday",
+        "水曜" => "Wednesday",
+        "木曜" => "Thursday",
+        "金曜" => "Friday",
+        "担当者の休暇" => "Leave",
+        "固定しない" => "None pinned",
+        "左から{}列" => "{} from the left",
+        "狭い" => "Narrow",
+        "やや狭い" => "Fairly narrow",
+        "標準" => "Standard",
+        "広い" => "Wide",
+        "{} 種類" => "{} of them",
+        "進捗 {}%" => "{}% done",
+        "進捗は手入力" => "Progress stays typed",
+        "この項目に入力した内容もすべて消えます。よろしいですか？" => {
+            "Everything entered in this column goes with it. Delete it?"
+        }
+        "選択肢がありません。" => "No choices yet.",
+        "まだ誰も出てきていません。" => "Nobody is on this plan yet.",
+        "色なし" => "No colour",
+        "全体の休みだが、このプロジェクトでは動く日" => {
+            "A shared holiday this project works through"
+        }
+        "バーの色" => "Bar colours",
+        "予定からずれているタスクはありません。" => "Nothing has slipped.",
+        "このユーザーを削除します。よろしいですか？" => "Delete this user?",
+        "その名前は別の人が使っています。担当者は名前で見分けるので、重ならない名前にしてください。" => {
+            "Somebody else goes by that name. Assignees are told apart by name, so two people cannot share one."
+        }
+        "そのユーザー名はすでに使われています。" => {
+            "Somebody already signs in with that."
+        }
+        "ユーザー名を入力してください。空白は使えません。" => {
+            "Give a username. Spaces are not allowed."
+        }
+        "管理者は1人以上必要です。" => "Keep at least one administrator.",
+        "自分は削除できません。" => "You cannot delete yourself.",
+        "ユーザー名（{}）とベース権限は管理者が決めます。" => {
+            "Your username ({}) and base role are the administrator's to set."
+        }
+        "全体の設定に従う" => "Follow the global setting",
+        "いまのパスワード" => "Current password",
+        "新しいパスワード" => "New password",
+        "その名前は別の人が使っています。別の名前にしてください。" => {
+            "Somebody else goes by that name. Pick another."
+        }
+        "いまのパスワードが違います。" => "That is not your current password.",
+        // --- 行き止まり ---------------------------------------------------
+        "そのページはありません" => "There is no such page",
+        "消されたか、住所が違うか、見る権限が無いかのどれかです。" => {
+            "It was deleted, the address is wrong, or it is not yours to see."
+        }
+        "プロジェクト一覧へ" => "Back to the projects",
         _ => return None,
     })
 }

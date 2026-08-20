@@ -48,7 +48,7 @@ async fn index(cx: &Cx) -> Result {
     view! {
         <div class="mx-auto w-full max-w-4xl">
         <div class="flex items-center justify-between gap-4">
-            <h1 class="text-2xl font-bold tracking-tight">"プロジェクト"</h1>
+            <h1 class="text-2xl font-bold tracking-tight">(l.t("プロジェクト"))</h1>
 
             <form method="POST" action="/projects" class="flex gap-2">
                 <input
@@ -99,16 +99,17 @@ struct NewProject {
 #[route(POST "/projects")]
 async fn create(cx: &Cx, Form(form): Form<NewProject>) -> Result<SeeOther> {
     let user = require_user(cx).await?;
+    let l = crate::i18n::lang(cx).await;
 
     let name = form.name.trim();
     if name.is_empty() {
-        return Err(bad_request("プロジェクト名を入力してください。").into());
+        return Err(bad_request(l.t("プロジェクト名を入力してください。")).into());
     }
 
     // The name is the URL, so two projects cannot share one. Refusing here is
     // clearer than quietly handing out "リリース計画-2".
     if project::name_taken(cx, name).await? {
-        return Err(bad_request("その名前のプロジェクトはすでにあります。").into());
+        return Err(bad_request(l.t("その名前のプロジェクトはすでにあります。")).into());
     }
 
     let id = project::available_id(cx, name).await?;
@@ -196,7 +197,7 @@ async fn show(cx: &Cx) -> Result {
 
     view! {
         if !project.can_edit() {
-            <p class="mb-3 text-xs text-slate-500">"閲覧のみの権限です。"</p>
+            <p class="mb-3 text-xs text-slate-500">(l.t("閲覧のみの権限です。"))</p>
         }
 
         if let Some(imported) = result.imported {
@@ -218,7 +219,7 @@ async fn show(cx: &Cx) -> Result {
             data-project=(&project.id)
             class="flex h-full flex-col overflow-hidden rounded-xl border border-slate-200 bg-white"
         >
-            <p class="px-5 py-16 text-center text-slate-400">"読み込み中…"</p>
+            <p class="px-5 py-16 text-center text-slate-400">(l.t("読み込み中…"))</p>
         </div>
 
         <script src=(crate::static_files::grid_js()) defer=""></script>

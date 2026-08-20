@@ -245,7 +245,7 @@ async fn table(rows: &[domain::Load], widest: i64, l: crate::i18n::Lang) -> Resu
                                 <td class="px-4 py-2 text-right tabular-nums text-slate-400">
                                     (&days(row.gone, l))
                                 </td>
-                                <td class="px-4 py-2 text-right tabular-nums">(&count(row.busy, l))</td>
+                                <td class="px-4 py-2 text-right tabular-nums">(&l.days(row.busy))</td>
                                 <td
                                     class=(
                                         if row.free.is_some_and(|free| free < 0) {
@@ -267,7 +267,7 @@ async fn table(rows: &[domain::Load], widest: i64, l: crate::i18n::Lang) -> Resu
                                     )
                                 >
                                     if row.overlap > 0 {
-                                        (&count(row.overlap, l))
+                                        (&l.days(row.overlap))
                                     } else {
                                         "—"
                                     }
@@ -331,15 +331,7 @@ fn spans(spans: &[crate::domain::Span], l: crate::i18n::Lang) -> String {
 
 /// `12日` or `12d`, and a dash where the question does not apply.
 fn days(value: Option<i64>, l: crate::i18n::Lang) -> String {
-    value.map_or_else(|| "—".to_owned(), |days| count(days, l))
-}
-
-/// A number of days, with the unit the reader counts in.
-fn count(days: i64, l: crate::i18n::Lang) -> String {
-    match l {
-        crate::i18n::Lang::Ja => format!("{days}日"),
-        crate::i18n::Lang::En => format!("{days}d"),
-    }
+    value.map_or_else(|| "—".to_owned(), |days| l.days(days))
 }
 
 /// Reads `2026-08` from a month field.

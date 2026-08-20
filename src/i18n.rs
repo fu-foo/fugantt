@@ -83,6 +83,82 @@ impl Lang {
         }
     }
 
+    /// A count of days: `12日`, or `12d`.
+    ///
+    /// Units are written into the sentence in Japanese and stand apart from
+    /// the number in English, so they cannot be a translated word bolted onto
+    /// a figure — the language has to build the whole phrase.
+    pub fn days(self, count: i64) -> String {
+        match self {
+            Lang::Ja => format!("{count}日"),
+            Lang::En => format!("{count}d"),
+        }
+    }
+
+    /// A count of people: `3 人`, or `3 people`.
+    pub fn people(self, count: i64) -> String {
+        match self {
+            Lang::Ja => format!("{count} 人"),
+            Lang::En if count == 1 => "1 person".to_owned(),
+            Lang::En => format!("{count} people"),
+        }
+    }
+
+    /// A count of things — rows, changes, whatever is being listed.
+    pub fn items(self, count: i64) -> String {
+        match self {
+            Lang::Ja => format!("{count} 件"),
+            Lang::En if count == 1 => "1 item".to_owned(),
+            Lang::En => format!("{count} items"),
+        }
+    }
+
+    /// A month on its own: `10月`, or `October`.
+    pub fn month(self, month: u32) -> String {
+        let name = MONTH_NAMES_EN.get(usize::try_from(month).unwrap_or(0).wrapping_sub(1));
+
+        match (self, name) {
+            (Lang::En, Some(name)) => (*name).to_owned(),
+            _ => format!("{month}月"),
+        }
+    }
+
+    /// Which slice of a list is on screen: `92 件中 1〜50 件目`.
+    pub fn range_of(self, total: i64, first: i64, last: i64) -> String {
+        match self {
+            Lang::Ja => format!("{total} 件中 {first}〜{last} 件目"),
+            Lang::En => format!("{first}–{last} of {total}"),
+        }
+    }
+
+    /// Which page of how many: `2 / 5 ページ`.
+    pub fn page_of(self, current: i64, pages: i64) -> String {
+        match self {
+            Lang::Ja => format!("{current} / {pages} ページ"),
+            Lang::En => format!("Page {current} of {pages}"),
+        }
+    }
+
+    /// A sentence with one thing dropped into it.
+    ///
+    /// The hole is `{}` and the sentence around it is translated whole, so the
+    /// two languages can put it in different places.
+    pub fn about(self, ja: &'static str, what: &str) -> String {
+        self.t(ja).replacen("{}", what, 1)
+    }
+
+    /// A word that was stored rather than written in the code.
+    ///
+    /// The history keeps what happened in the words the app uses — 追加, 移動,
+    /// 予定開始 — so translating it means looking one up at the time it is
+    /// read. Anything unknown is somebody's own wording and stays as it is.
+    pub fn word(self, stored: &str) -> String {
+        match self {
+            Lang::Ja => stored.to_owned(),
+            Lang::En => en::of(stored).unwrap_or(stored).to_owned(),
+        }
+    }
+
     /// A moment, to the minute: `08/16 14:30`, or `Aug 16 14:30`.
     pub fn stamp(self, at: i64) -> String {
         self.zoned(
@@ -117,9 +193,46 @@ impl Lang {
     }
 }
 
+const MONTH_NAMES_EN: [&str; 12] = [
+    "January",
+    "February",
+    "March",
+    "April",
+    "May",
+    "June",
+    "July",
+    "August",
+    "September",
+    "October",
+    "November",
+    "December",
+];
+
 const MONTHS_EN: [&str; 12] = [
     "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
 ];
+
+/// The language to answer in, from the browser alone.
+///
+/// For the places that have no database to ask — a layer wrapping a request
+/// that never reached a handler. The person's own choice is not known here, so
+/// only the browser's word counts.
+pub fn from_headers(headers: &topcoat::router::HeaderMap) -> Lang {
+    let accepts = headers
+        .get("accept-language")
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or_default();
+
+    if accepts
+        .split(',')
+        .next()
+        .is_some_and(|first| first.trim().to_lowercase().starts_with("en"))
+    {
+        Lang::En
+    } else {
+        Lang::Ja
+    }
+}
 
 /// The language of whoever is reading this page.
 pub async fn lang(cx: &Cx) -> Lang {

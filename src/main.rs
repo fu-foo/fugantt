@@ -11,6 +11,7 @@ mod holidays;
 mod i18n;
 mod interop;
 mod live;
+mod notfound;
 mod open_access;
 mod pages;
 mod project;
@@ -104,6 +105,7 @@ async fn serve(settings: config::Loaded) -> Result<(), Box<dyn Error>> {
         .app_context(db::Db(pool))
         .app_context(live::Hub::default())
         .app_context(ratelimit::Attempts::default())
+        .layer(notfound::NotFound)
         // Pages, layouts, and routes register themselves at link time.
         .discover()
         .build();

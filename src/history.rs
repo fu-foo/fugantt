@@ -84,6 +84,62 @@ pub async fn list(cx: &Cx, project_id: &str, limit: i64, skip: i64) -> Result<Ve
     Ok(changes)
 }
 
+/// One change to the accounts, rather than to a plan.
+pub struct AdminEntry<'a> {
+    pub action: &'a str,
+    pub about: &'a str,
+    pub before: &'a str,
+    pub after: &'a str,
+    pub actor: &'a str,
+}
+
+/// Records one change to the accounts.
+///
+/// The screens answer "who did this" for every task; the accounts had nobody
+/// to ask. Somebody arriving, leaving, or being handed the administrator's
+/// role is exactly the kind of thing that gets asked about later.
+pub async fn record_admin(cx: &Cx, entry: AdminEntry<'_>) -> Result<()> {
+    sqlx::query(
+        "INSERT INTO admin_changes (action, about, before, after, actor, at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+    )
+    .bind(entry.action)
+    .bind(entry.about)
+    .bind(entry.before)
+    .bind(entry.after)
+    .bind(entry.actor)
+    .bind(db::now())
+    .execute(db::pool(cx))
+    .await?;
+
+    Ok(())
+}
+
+/// The last changes to the accounts, newest first.
+pub async fn admin_changes(cx: &Cx, limit: i64) -> Result<Vec<AdminChange>> {
+    let changes = sqlx::query_as::<_, AdminChange>(
+        "SELECT action, about, before, after, actor, at
+           FROM admin_changes
+          ORDER BY id DESC
+          LIMIT ?1",
+    )
+    .bind(limit)
+    .fetch_all(db::pool(cx))
+    .await?;
+
+    Ok(changes)
+}
+
+#[derive(Debug, sqlx::FromRow)]
+pub struct AdminChange {
+    pub action: String,
+    pub about: String,
+    pub before: String,
+    pub after: String,
+    pub actor: String,
+    pub at: i64,
+}
+
 /// How many changes this project has, so the page can say where it is.
 pub async fn count(cx: &Cx, project_id: &str) -> Result<i64> {
     let (total,) =

@@ -301,11 +301,34 @@ defanged.
 
 ## Roles and sign-in
 
+Whoever registers first is the administrator. After that, accounts are made by
+an administrator — there is no open sign-up.
+
 - **The base roles "editor" and "viewer" apply to every project.** To keep a
   plan to a few people, set the base to "no access" and add them as members.
 - The password rule — minimum length, required kinds of character, refused
   words — is set per installation.
 - Changing a password ends that person's other sessions.
+- An administrator sets the first password and hands it over, and sets it again
+  if it is forgotten. No mail is ever sent.
+- **Accounts added, removed and moved are recorded with the name of whoever did
+  it**, at the foot of the users page.
+- Somebody who leaves can simply be deleted: assignees and task history keep
+  names as text, so the record survives them.
+
+**When no administrator can get in**, the way back is the machine the data is
+on:
+
+```sh
+fugantt --make-admin yamada@example.com
+```
+
+Whoever can run that can already read the database file, so it grants nothing
+that was not already theirs.
+
+There is no LDAP, SAML or OIDC. Put a reverse proxy in front and let it do the
+authenticating — the way Redmine is usually run — and the hard parts stay where
+they are already solved.
 
 `FUGANTT_NO_AUTH=yes-everyone-on-this-network-can-edit` runs it without sign-in
 at all. **Everyone who can reach that URL can read and edit every project.** A

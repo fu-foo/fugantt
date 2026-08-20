@@ -5709,6 +5709,48 @@ check(
   JSON.stringify(inEnglish.ありませんページ日本語.slice(0, 3)),
 );
 
+// --- 誰が口座を触ったか -------------------------------------------------------
+
+// タスクの変更は「誰が」まで残るのに、ユーザーの追加・削除・権限変更は何も残って
+// いなかった。管理側にだけ同じ穴が空いていた。
+const accountLog = await asAdmin(() =>
+  page.evaluate(async () => {
+    const 読む = async () => {
+      const html = await (await fetch("/users")).text();
+      const doc = new DOMParser().parseFromString(html, "text/html");
+      const 節 = [...doc.querySelectorAll("section")].find((s) =>
+        s.textContent.includes("最近の管理操作"),
+      );
+      return [...(節?.querySelectorAll("li") ?? [])].map((li) =>
+        [...li.querySelectorAll("span")].map((s) => s.textContent.trim()).join(" / "),
+      );
+    };
+
+    const 名前 = `記録テスト ${Date.now()}`;
+    await fetch("/users", {
+      method: "POST",
+      body: new URLSearchParams({
+        name: 名前,
+        email: `log-${Date.now()}@example.com`,
+        password: "zzzz9999zzzz",
+        base_role: "viewer",
+      }),
+    });
+
+    const 一覧 = await 読む();
+
+    return { いちばん上: 一覧[0] ?? "", 名前, 件数: 一覧.length };
+  }),
+);
+
+check(
+  "ユーザーを足すと、誰がやったかが残る",
+  accountLog.いちばん上.includes("追加") &&
+    accountLog.いちばん上.includes(accountLog.名前) &&
+    accountLog.いちばん上.includes("@"),
+  JSON.stringify(accountLog),
+);
+
 check("JavaScript エラーが出ていない", pageErrors.length === 0, pageErrors.join(" / "));
 
 await browser.close();

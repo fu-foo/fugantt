@@ -501,6 +501,19 @@ pub fn of(ja: &str) -> Option<&'static str> {
             "It was deleted, the address is wrong, or it is not yours to see."
         }
         "プロジェクト一覧へ" => "Back to the projects",
+        // --- 管理操作の記録 -----------------------------------------------
+        "最近の管理操作" => "Recent changes to accounts",
+        "ユーザーの追加・削除・権限変更を、誰がしたかと一緒に残します。" => {
+            "Accounts added, removed and moved, with the name of whoever did it."
+        }
+        "まだ何もありません。" => "Nothing yet.",
+        "権限変更" => "Role",
+        "名前変更" => "Renamed",
+        "パスワード変更" => "Password",
+        "admin" => "administrator",
+        "editor" => "editor",
+        "viewer" => "viewer",
+        "none" => "no default access",
         _ => return None,
     })
 }

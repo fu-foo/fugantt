@@ -247,6 +247,8 @@ pub fn help() -> String {
         "fugantt.ini（fugantt.conf・.env でも読みます）に書きます。\n\n",
         "  fugantt            そのまま起動する\n",
         "  fugantt --config   どの設定がどこから来ているかを出す\n",
+        "  fugantt --make-admin <ユーザー名>\n",
+        "                     その人を管理者にする（管理者が入れなくなったとき）\n",
         "  fugantt --help     これ\n\n",
         "書ける項目:\n",
     ));

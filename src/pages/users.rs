@@ -11,7 +11,7 @@ use topcoat::{
     view::view,
 };
 
-use crate::{auth::require_user, db, users};
+use crate::{auth::require_user, db, history, users};
 
 /// The people who can sign in. Only an administrator sees this.
 #[page("/users")]
@@ -25,6 +25,10 @@ async fn index(cx: &Cx) -> Result {
     // The rule lives in the installation settings. Building the description from
     // it too is what keeps the two from drifting apart on the day it changes.
     let rule = crate::app_settings::password_rule(cx).await.describe(l);
+
+    // The record of who did what to the accounts, on the page where those
+    // things are done. A log nobody can find answers nothing.
+    let admin_log = crate::history::admin_changes(cx, 20).await?;
 
     view! {
         <div class="mx-auto w-full max-w-3xl">
@@ -144,6 +148,39 @@ async fn index(cx: &Cx) -> Result {
                     </li>
                 }
             </ul>
+            <section class="mt-6 rounded-xl border border-slate-200 bg-white p-6">
+                <h2 class="text-lg font-semibold">(l.t("最近の管理操作"))</h2>
+                <p class="mt-1 text-xs text-slate-500">
+                    (l.t("ユーザーの追加・削除・権限変更を、誰がしたかと一緒に残します。"))
+                </p>
+
+                if admin_log.is_empty() {
+                    <p class="mt-4 text-sm text-slate-400">(l.t("まだ何もありません。"))</p>
+                } else {
+                    <ul class="mt-4 divide-y divide-slate-100 text-sm">
+                        for change in &admin_log {
+                            <li class="flex flex-wrap items-baseline gap-x-3 gap-y-1 py-2">
+                                <span class="w-36 shrink-0 font-mono text-xs tabular-nums text-slate-400">
+                                    (&l.stamp(change.at))
+                                </span>
+                                <span class="w-28 shrink-0 truncate text-slate-500">(&change.actor)</span>
+                                <span class="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-600">
+                                    (&l.word(&change.action))
+                                </span>
+                                <span class="font-medium">(&change.about)</span>
+                                if !change.after.is_empty() {
+                                    <span class="text-xs text-slate-500">
+                                        if !change.before.is_empty() {
+                                            (&l.word(&change.before))" → "
+                                        }
+                                        (&l.word(&change.after))
+                                    </span>
+                                }
+                            </li>
+                        }
+                    </ul>
+                }
+            </section>
         </div>
     }
 }
@@ -210,6 +247,18 @@ async fn create(cx: &Cx, Form(form): Form<NewUser>) -> Result<SeeOther> {
         return Err(bad_request(l.t("そのユーザー名はすでに使われています。")).into());
     }
 
+    history::record_admin(
+        cx,
+        history::AdminEntry {
+            action: "追加",
+            about: &name,
+            before: "",
+            after: role(&form.base_role),
+            actor: user.display(),
+        },
+    )
+    .await?;
+
     Ok(see_other("/users"))
 }
 
@@ -255,8 +304,48 @@ async fn update(cx: &Cx, Form(form): Form<EditUser>) -> Result<SeeOther> {
     // An assignee is a name, so a rename carries the assignments with it.
     users::rename_everywhere(cx, account.name(), form.name.trim()).await?;
 
+    if account.base_role != role(&form.base_role) {
+        history::record_admin(
+            cx,
+            history::AdminEntry {
+                action: "権限変更",
+                about: form.name.trim(),
+                before: &account.base_role,
+                after: role(&form.base_role),
+                actor: user.display(),
+            },
+        )
+        .await?;
+    }
+
+    if account.name() != form.name.trim() {
+        history::record_admin(
+            cx,
+            history::AdminEntry {
+                action: "名前変更",
+                about: form.name.trim(),
+                before: account.name(),
+                after: form.name.trim(),
+                actor: user.display(),
+            },
+        )
+        .await?;
+    }
+
     if !form.password.is_empty() {
         set_password(cx, &form.id, form.password).await?;
+
+        history::record_admin(
+            cx,
+            history::AdminEntry {
+                action: "パスワード変更",
+                about: form.name.trim(),
+                before: "",
+                after: "",
+                actor: user.display(),
+            },
+        )
+        .await?;
     }
 
     Ok(see_other("/users"))
@@ -277,10 +366,26 @@ async fn remove(cx: &Cx, Form(form): Form<RemoveUser>) -> Result<SeeOther> {
         return Err(bad_request(l.t("自分は削除できません。")).into());
     }
 
+    // Read while they still exist: afterwards there is no name to record, and
+    // "somebody was removed" is not an answer to who.
+    let gone = users::one(cx, &form.id).await?;
+
     sqlx::query("DELETE FROM users WHERE id = ?1")
         .bind(&form.id)
         .execute(db::pool(cx))
         .await?;
+
+    history::record_admin(
+        cx,
+        history::AdminEntry {
+            action: "削除",
+            about: gone.as_deref().unwrap_or_default(),
+            before: "",
+            after: "",
+            actor: user.display(),
+        },
+    )
+    .await?;
 
     Ok(see_other("/users"))
 }
@@ -428,6 +533,7 @@ async fn me(cx: &Cx) -> Result {
                     </button>
                 </form>
             </section>
+
         </div>
     }
 }

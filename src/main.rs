@@ -50,10 +50,55 @@ fn main() -> Result<(), Box<dyn Error>> {
             println!("fugantt {}", env!("CARGO_PKG_VERSION"));
             return Ok(());
         }
+        Some("--make-admin") => {
+            let who = std::env::args().nth(2);
+
+            return make_admin(who);
+        }
         _ => {}
     }
 
     serve(settings)
+}
+
+/// Hands the administrator's role to an account, from the machine itself.
+///
+/// The screen refuses to remove the last administrator, which stops the plan
+/// being locked by a slip of the mouse. It cannot help with the other way in:
+/// the one administrator forgets their password, or leaves. There is no mail
+/// to send a reset with — deliberately — so the way back has to be the machine
+/// the data is on.
+///
+/// Whoever can run this can already read the database file, so this grants
+/// nothing that was not already theirs. It only saves them writing the SQL.
+#[tokio::main]
+async fn make_admin(who: Option<String>) -> Result<(), Box<dyn Error>> {
+    let Some(who) = who
+        .map(|who| who.trim().to_owned())
+        .filter(|who| !who.is_empty())
+    else {
+        eprintln!("使い方: fugantt --make-admin <ユーザー名>");
+        std::process::exit(1);
+    };
+
+    let path = db::path();
+    let pool = db::connect(&path.to_string_lossy()).await?;
+
+    let changed = sqlx::query("UPDATE users SET base_role = 'admin' WHERE email = ?1")
+        .bind(&who)
+        .execute(&pool)
+        .await?
+        .rows_affected();
+
+    if changed == 0 {
+        eprintln!("{who} という利用者は居ません。");
+        eprintln!("データ: {}", path.display());
+        std::process::exit(1);
+    }
+
+    println!("{who} を管理者にしました。");
+
+    Ok(())
 }
 
 #[tokio::main]

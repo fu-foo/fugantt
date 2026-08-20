@@ -40,6 +40,19 @@ pub const ROLES: [(&str, &str); 4] = [
     ("none", "無効（招かれたプロジェクトだけ）"),
 ];
 
+/// What one account is called, for a record that outlives it.
+pub async fn one(cx: &Cx, id: &str) -> Result<Option<String>> {
+    let name = sqlx::query_scalar::<_, String>(
+        "SELECT CASE WHEN display_name = '' THEN email ELSE display_name END
+           FROM users WHERE id = ?1",
+    )
+    .bind(id)
+    .fetch_optional(db::pool(cx))
+    .await?;
+
+    Ok(name)
+}
+
 /// Whether nobody has registered yet, which is the one moment the register
 /// form is open.
 pub async fn none_yet(cx: &Cx) -> Result<bool> {

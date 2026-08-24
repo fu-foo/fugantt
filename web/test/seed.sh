@@ -70,8 +70,11 @@ INSERT INTO tasks (id, project_id, parent_id, sort_key, name, start_date, end_da
 -- 予定進捗. Nothing is behind unless the plan itself said what it wanted by
 -- when, so the fixture has to say it: one promise kept, one missed, one still
 -- to come, and rows that promised nothing at all.
-UPDATE tasks SET targets = '2026-08-14/100' WHERE id = 't-req';
-UPDATE tasks SET targets = '2026-08-12/50
-2026-08-24/90' WHERE id = 't-des';
-UPDATE tasks SET targets = '2026-08-05/50' WHERE id = 't-doc';
+--
+-- 日付は今日から数える。ここだけは固定の暦にできない——「まだ来ていない約束」は
+-- カレンダーが進めば来てしまい、走らせた日によってテストが落ちる。
+UPDATE tasks SET targets = date('now','-10 day') || '/100' WHERE id = 't-req';
+UPDATE tasks SET targets = date('now','-12 day') || '/50' || char(10)
+                        || date('now','+30 day') || '/90' WHERE id = 't-des';
+UPDATE tasks SET targets = date('now','-19 day') || '/50' WHERE id = 't-doc';
 SQL

@@ -2053,6 +2053,23 @@ check(
   }),
 );
 
+
+/** 種が置いた予定進捗を、そのまま読む。 */
+const targetsOf = (name) =>
+  page.evaluate(async (name) => {
+    const grid = await (await fetch("/api/projects/test-project/grid")).json();
+    return grid.tasks.find((task) => task.name === name)?.targets ?? [];
+  }, name);
+
+/** 画面に出る「8/5」の形。 */
+const shortDay = (date) => {
+  const [, month, day] = date.split("-").map(Number);
+  return `${month}/${day}`;
+};
+
+const docTarget = (await targetsOf("ドキュメント整備"))[0];
+const [designMet, designSoon] = await targetsOf("設計");
+
 // 予定進捗は「量」の位置に置き、日付を文字で書く。
 //
 // 逆（日付の位置に印、量を文字）を先に試して、手で触った瞬間に壊れた。このバーは
@@ -2092,7 +2109,7 @@ check(
 
 check(
   "いつまでか、は文字で出る",
-  await page.evaluate(() => {
+  await page.evaluate((wanted) => {
     const named = [...document.querySelectorAll(".fg-pane-left .fg-row.fg-data .fg-cell-name")].map(
       (c) => c.textContent.trim(),
     );
@@ -2106,14 +2123,14 @@ check(
     const style = getComputedStyle(label);
 
     return (
-      label.textContent === "8/5 50%" &&
+      label.textContent === wanted &&
       // 帯の端のすぐ右。離れると、どの約束の日付か分からなくなる。
       label.getBoundingClientRect().left - band.getBoundingClientRect().right < 8 &&
       style.color === "rgb(220, 38, 38)" &&
       // 塗りの上に乗ることがあるので、白い縁で必ず読めるようにしてある。
       style.textShadow.includes("rgb(255, 255, 255)")
     );
-  }),
+  }, `${shortDay(docTarget.date)} 50%`),
   await page.evaluate(() => {
     const label = document.querySelector(".fg-target-label");
     return label ? `${label.textContent} / ${getComputedStyle(label).color}` : "文字が無い";
@@ -2166,7 +2183,7 @@ check(
 // まだ来ていない約束は帯ではなく細い印。位置はやはり％、日付は文字。
 check(
   "これからの予定進捗はその％の位置に細く出る",
-  await page.evaluate(() => {
+  await page.evaluate((wanted) => {
     const named = [...document.querySelectorAll(".fg-pane-left .fg-row.fg-data .fg-cell-name")].map(
       (c) => c.textContent.trim(),
     );
@@ -2175,7 +2192,7 @@ check(
     const bar = row.querySelector(".fg-bar.is-plan");
     const mark = row.querySelector(".fg-target");
     const label = [...row.querySelectorAll(".fg-target-label")].find(
-      (l) => l.textContent === "8/24 90%",
+      (l) => l.textContent === wanted,
     );
     if (!mark || !label) return false;
 
@@ -2189,7 +2206,7 @@ check(
       !bar.querySelector(".fg-bar-behind") &&
       getComputedStyle(mark).backgroundColor !== "rgb(220, 38, 38)"
     );
-  }),
+  }, `${shortDay(designSoon.date)} 90%`),
   await page.evaluate(() => {
     const mark = document.querySelector(".fg-target");
     return mark ? `${mark.style.left} / ${mark.title}` : "印がない";
@@ -2199,7 +2216,7 @@ check(
 // 達成した約束は何も描かない。塗りがその先まで来ている、それが答えになっている。
 check(
   "達成した予定進捗は描かない",
-  await page.evaluate(async () => {
+  await page.evaluate(async ({ kept, short }) => {
     const grid = await (await fetch("/api/projects/test-project/grid")).json();
     const design = grid.tasks.find((task) => task.name === "設計");
     const met = design.targets.filter((target) => target.due && !target.missed);
@@ -2210,14 +2227,14 @@ check(
     const at = named.findIndex((n) => n.trim() === "設計");
     const row = [...document.querySelectorAll(".fg-bar-row")][at];
 
-    // 8/12 の 50% は達成済み。印も文字も出ていないこと。
+    // 過ぎた 50% は達成済み。印も文字も出ていないこと。
     return (
       met.length === 1 &&
       [...row.querySelectorAll(".fg-target, .fg-target-label")].every(
-        (el) => !el.title.includes("08-12") && !el.textContent.startsWith("8/12"),
+        (el) => !el.title.includes(kept) && !el.textContent.startsWith(short),
       )
     );
-  }),
+  }, { kept: designMet.date, short: shortDay(designMet.date) }),
   await page.evaluate(() => {
     const rows = [...document.querySelectorAll(".fg-bar-row")];
     return rows
@@ -2303,7 +2320,7 @@ check(
     const design = grid.tasks.find((task) => task.name === "設計");
     const [met, soon] = design.targets;
 
-    // 8/12 に 50% を約束して 60% まで来ている。8/24 の 90% はこれから。
+    // 過ぎた日の 50% を約束して 60% まで来ている。先の 90% はこれから。
     return (
       design.targets.length === 2 &&
       met.due === true && met.missed === false &&
@@ -4023,7 +4040,8 @@ const lateColumn = await page.evaluate(async () => {
   const headings = [...document.querySelectorAll(".fg-heading .fg-cell")].map((c) =>
     c.textContent.trim(),
   );
-  const named = [...document.querySelectorAll(".fg-pane-left .fg-row.fg-data .fg-cell-name")].map(
+  // 集計行の名前欄には畳むための ▼ が入る。比べたいのは名前だけ。
+  const named = [...document.querySelectorAll(".fg-pane-left .fg-row.fg-data .fg-name-text")].map(
     (c) => c.textContent.trim(),
   );
   const marked = [...document.querySelectorAll(".fg-pane-left .fg-row.fg-data")]
@@ -4065,11 +4083,20 @@ await filterBy("遅延", "順調");
 const onlyFine = (await state()).names;
 await clearFilters();
 
+// 集計行は、遅れている子と順調な子の両方を持てる。どちらで絞っても道筋として
+// 残るので、重なってはいけないのは葉のほうだけ。
+const aggregates = await page.evaluate(async () => {
+  const grid = await (await fetch("/api/projects/test-project/grid")).json();
+  const parents = new Set(grid.tasks.map((task) => task.parent_id).filter(Boolean));
+  return grid.tasks.filter((task) => parents.has(task.id)).map((task) => task.name);
+});
+const leavesOf = (names) => names.filter((name) => !aggregates.includes(name));
+
 check(
   "遅延で絞り込める",
   onlyLate.length > 0 &&
     onlyFine.length > 0 &&
-    !onlyLate.some((name) => onlyFine.includes(name)),
+    !leavesOf(onlyLate).some((name) => leavesOf(onlyFine).includes(name)),
   `遅延 ${onlyLate.join(",")} / 順調 ${onlyFine.join(",")}`,
 );
 

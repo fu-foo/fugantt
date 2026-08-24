@@ -2830,6 +2830,7 @@ ${lines.join("\n")}` : "";
       } else {
         this.capPaneWidth = true;
       }
+      grid.style.setProperty("--fg-day-width", `${this.dayWidth}px`);
       grid.style.setProperty("--fg-bar-soft", this.data.theme.bar);
       grid.style.setProperty("--fg-bar", this.data.theme.done);
       grid.style.setProperty("--fg-actual", this.data.theme.actual);

@@ -6094,6 +6094,77 @@ check(
   JSON.stringify(dayNote),
 );
 
+// --- 日の幅を変えても、バーは日付の上にある ---------------------------------
+
+// 列は CSS が並べ、バーは JavaScript が px で置く。両方が同じ「1日」を指していないと、
+// 1列ごとに少しずつ離れていく——既定の幅では一致していたので、337件が緑のまま
+// 半年動いていた。既定以外にして測る。
+const dayWidth = await (async () => {
+  await page.evaluate(() =>
+    fetch("/projects/test-project/view", {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ day_width: "14", quarters: "1", counting: "1" }),
+    }),
+  );
+
+  await page.goto(`${BASE}/projects/test-project`, { waitUntil: "domcontentloaded" });
+  await page.waitForSelector(".fg-grid");
+  await settle();
+
+  const measured = await page.evaluate(async () => {
+    const grid = await (await fetch("/api/projects/test-project/grid")).json();
+    const byId = new Map(grid.tasks.map((task) => [task.id, task]));
+
+    const columns = [...document.querySelectorAll(".fg-columns .fg-column")];
+    const pitch = columns[1].offsetLeft - columns[0].offsetLeft;
+
+    // 原点は「今日」の印から逆に数える。
+    const marker = document.querySelector(".fg-today");
+    const origin = new Date(grid.today + "T00:00:00Z");
+    origin.setUTCDate(origin.getUTCDate() - Math.round(parseFloat(marker.style.left) / pitch));
+
+    const dayOf = (iso) => Math.round((new Date(iso + "T00:00:00Z") - origin) / 86400000);
+    const canvas = document.querySelector(".fg-canvas").getBoundingClientRect();
+
+    let worst = 0;
+    for (const bar of document.querySelectorAll(".fg-bar[data-task]")) {
+      const task = byId.get(bar.dataset["task"]);
+      if (!task?.start) continue;
+      const box = bar.getBoundingClientRect();
+      worst = Math.max(worst, Math.abs((box.left - canvas.left) / pitch - dayOf(task.start)));
+    }
+
+    // 見出しの今日と、チャートに引く今日の線。
+    const head = document.querySelector(".fg-day.is-today")?.getBoundingClientRect();
+    const line = marker.getBoundingClientRect();
+
+    return {
+      pitch,
+      worst: +worst.toFixed(2),
+      todayGap: head ? +Math.abs(head.left - line.left).toFixed(1) : null,
+    };
+  });
+
+  // 既定に戻す。以降のテストは既定の幅で測っている。
+  await page.evaluate(() =>
+    fetch("/projects/test-project/view", {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ day_width: "26", quarters: "1", counting: "1" }),
+    }),
+  );
+  await page.goto(`${BASE}/projects/test-project`, { waitUntil: "domcontentloaded" });
+  await page.waitForSelector(".fg-grid");
+  await settle();
+
+  return measured;
+})();
+
+check("日の幅の設定は列の幅になる", dayWidth.pitch === 14, JSON.stringify(dayWidth));
+check("幅を変えてもバーは日付の上から動かない", dayWidth.worst < 0.02, JSON.stringify(dayWidth));
+check("今日の線は見出しの今日と同じ場所", dayWidth.todayGap === 0, JSON.stringify(dayWidth));
+
 check("JavaScript エラーが出ていない", pageErrors.length === 0, pageErrors.join(" / "));
 
 await browser.close();

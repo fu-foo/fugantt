@@ -4193,6 +4193,13 @@ class Grid {
       this.capPaneWidth = true;
     }
 
+    // The day columns and the header are laid out by CSS, the bars are placed
+    // by hand in pixels, and both have to mean the same day. The stylesheet
+    // knows one width; the project knows another. Say it here, or a plan whose
+    // day width is not the default draws its bars a little further from their
+    // dates with every column — half a day by the end of the first week.
+    grid.style.setProperty("--fg-day-width", `${this.dayWidth}px`);
+
     // The palette is per project, so it arrives with the data rather than
     // living in the stylesheet.
     grid.style.setProperty("--fg-bar-soft", this.data.theme.bar);

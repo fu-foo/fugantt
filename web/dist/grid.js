@@ -2515,6 +2515,26 @@ ${lines.join("\n")}` : "";
         last
       };
     }
+    /**
+     * Names the day under the pointer, without the wait.
+     *
+     * Put on the island rather than in the header: the header scrolls inside its
+     * own box and would cut the label off after two characters.
+     */
+    sayDay(cell, note) {
+      this.hideDay();
+      const grid = this.root.querySelector(".fg-grid");
+      if (!grid) return;
+      const label = element("div", "fg-day-note", note);
+      const box = cell.getBoundingClientRect();
+      const around = grid.getBoundingClientRect();
+      label.style.left = `${box.left - around.left + box.width / 2}px`;
+      label.style.top = `${box.bottom - around.top + 4}px`;
+      grid.append(label);
+    }
+    hideDay() {
+      this.root.querySelector(".fg-day-note")?.remove();
+    }
     /** A block of nothing, holding the place of the rows that are not drawn. */
     spacer(rows) {
       if (rows <= 0) return null;
@@ -3463,7 +3483,11 @@ ${lines.join("\n")}` : "";
           element("span", "fg-weekday", weekday(day))
         );
         const note = this.dayNote(iso);
-        if (note) cell.title = note;
+        if (note) {
+          cell.title = note;
+          cell.addEventListener("mouseenter", () => this.sayDay(cell, note));
+          cell.addEventListener("mouseleave", () => this.hideDay());
+        }
         if (holiday) {
           cell.classList.add("is-holiday");
         } else if (day === 6) {

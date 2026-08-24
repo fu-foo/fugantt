@@ -3745,6 +3745,32 @@ class Grid {
     };
   }
 
+  /**
+   * Names the day under the pointer, without the wait.
+   *
+   * Put on the island rather than in the header: the header scrolls inside its
+   * own box and would cut the label off after two characters.
+   */
+  private sayDay(cell: HTMLElement, note: string): void {
+    this.hideDay();
+
+    const grid = this.root.querySelector<HTMLElement>(".fg-grid");
+    if (!grid) return;
+
+    const label = element("div", "fg-day-note", note);
+    const box = cell.getBoundingClientRect();
+    const around = grid.getBoundingClientRect();
+
+    label.style.left = `${box.left - around.left + box.width / 2}px`;
+    label.style.top = `${box.bottom - around.top + 4}px`;
+
+    grid.append(label);
+  }
+
+  private hideDay(): void {
+    this.root.querySelector(".fg-day-note")?.remove();
+  }
+
   /** A block of nothing, holding the place of the rows that are not drawn. */
   private spacer(rows: number): HTMLElement | null {
     if (rows <= 0) return null;
@@ -5116,7 +5142,15 @@ class Grid {
       );
 
       const note = this.dayNote(iso);
-      if (note) cell.title = note;
+      if (note) {
+        // The browser's own tooltip is kept — it is the one that survives a
+        // screenshot and a keyboard focus — but it waits about a second, and a
+        // day here is 26 pixels wide. Nobody hovers a strip that narrow for a
+        // second on the off-chance. So the name is also said straight away.
+        cell.title = note;
+        cell.addEventListener("mouseenter", () => this.sayDay(cell, note));
+        cell.addEventListener("mouseleave", () => this.hideDay());
+      }
 
       if (holiday) {
         cell.classList.add("is-holiday");

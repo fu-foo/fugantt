@@ -2126,12 +2126,20 @@ const crossing = await page.evaluate(async () => {
   const grid = await (await fetch("/api/projects/test-project/grid")).json();
   const id = grid.tasks.find((task) => task.name === "ドキュメント整備").id;
 
-  const read = async (value) => {
-    await fetch(`/api/projects/test-project/tasks/${id}`, {
+  const write = (field, value) =>
+    fetch(`/api/projects/test-project/tasks/${id}`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ field: "progress", value: String(value) }),
+      body: JSON.stringify({ field, value: String(value) }),
     });
+
+  // 赤は「約束を割った」だけでなく「予定終了を過ぎた」でも点く。ここで見たいのは
+  // 前者の境目なので、種の日付が今日より前になっている分を先に外しておく。
+  const 種の終わり = "2026-08-20";
+  await write("end", new Date(Date.now() + 400 * 86400000).toISOString().slice(0, 10));
+
+  const read = async (value) => {
+    await write("progress", value);
     await new Promise((done) => setTimeout(done, 500));
 
     const bar = document.querySelector(`.fg-bar[data-task="${id}"]`);
@@ -2144,6 +2152,7 @@ const crossing = await page.evaluate(async () => {
   const before = await read(49);
   const after = await read(50);
   await read(5);
+  await write("end", 種の終わり);
 
   return { before, after };
 });
@@ -6005,6 +6014,57 @@ check(
   "塗った行は、カーソルが来ても自分の色のまま",
   paintedRow.選ぶ前 === "rgb(185, 28, 28)" && paintedRow.選んだ後 === paintedRow.選ぶ前,
   JSON.stringify(paintedRow),
+);
+
+// --- 何の日か -----------------------------------------------------------------
+
+// 祝日は色が付くだけで、名前はブラウザの吹き出し頼みだった。あれは1秒待たないと
+// 出ないし、1日は26ピクセルしかない。待たずに言う。
+const dayNote = await (async () => {
+  const 入れる = execFileSync("sqlite3", [
+    DB,
+    "INSERT OR REPLACE INTO app_holidays (date, name) VALUES ('2026-08-24','山の日（振替）')",
+  ]);
+  void 入れる;
+
+  await page.goto(`${BASE}/projects/test-project`, { waitUntil: "domcontentloaded" });
+  await page.waitForSelector(".fg-grid");
+  await settle();
+
+  const spot = await page.evaluate(() => {
+    const cell = document.querySelector(".fg-day.is-holiday");
+    if (!cell) return null;
+    const box = cell.getBoundingClientRect();
+    return { x: Math.round(box.x + box.width / 2), y: Math.round(box.y + box.height / 2) };
+  });
+  if (!spot) return { 出た: "祝日が画面に無い" };
+
+  await page.mouse.move(spot.x, spot.y);
+  await settle();
+  const 出た = await page.evaluate(() => document.querySelector(".fg-day-note")?.textContent ?? "");
+  const 見出しの吹き出し = await page.evaluate(
+    () => document.querySelector(".fg-day.is-holiday")?.title ?? "",
+  );
+
+  await page.mouse.move(10, 400);
+  await settle();
+  const 残る = await page.evaluate(() => !!document.querySelector(".fg-day-note"));
+
+  execFileSync("sqlite3", [DB, "DELETE FROM app_holidays WHERE date = '2026-08-24'"]);
+
+  return { 出た, 見出しの吹き出し, 残る };
+})();
+
+check(
+  "祝日はマウスを乗せた時点で名前を言う",
+  dayNote.出た === "山の日（振替）" && dayNote.残る === false,
+  JSON.stringify(dayNote),
+);
+// 画面の吹き出しは消えるので、掴んで撮る人のために title も残してある。
+check(
+  "祝日の名前はブラウザの吹き出しにも残っている",
+  dayNote.見出しの吹き出し === "山の日（振替）",
+  JSON.stringify(dayNote),
 );
 
 check("JavaScript エラーが出ていない", pageErrors.length === 0, pageErrors.join(" / "));

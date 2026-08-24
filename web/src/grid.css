@@ -479,6 +479,25 @@ html {
   height: var(--fg-row-height);
 }
 
+/* What that day is, said as soon as the pointer arrives. The browser's own
+   tooltip says the same thing a second later; this is for the second before
+   that, which is all anyone spends over a 26-pixel column. */
+.fg-day-note {
+  position: absolute;
+  z-index: 6;
+  transform: translateX(-50%);
+  border: 1px solid var(--fg-rule-strong);
+  border-radius: 6px;
+  padding: 2px 8px;
+  font-size: 11px;
+  line-height: 1.6;
+  white-space: pre;
+  color: var(--fg-text);
+  background: #fff;
+  box-shadow: 0 2px 8px rgb(15 23 42 / 0.12);
+  pointer-events: none;
+}
+
 .fg-day {
   flex: 0 0 var(--fg-day-width);
   width: var(--fg-day-width);

@@ -339,6 +339,14 @@ textarea {
   background: var(--row-current);
 }
 
+/* The day's name, on the ground the rest of the island uses. */
+.fg-day-note {
+  border-color: var(--rule-strong);
+  color: var(--ink);
+  background: var(--panel);
+  box-shadow: 0 2px 8px rgb(0 0 0 / 0.4);
+}
+
 .fg-button,
 .fg-shows,
 .fg-filter,

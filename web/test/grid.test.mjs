@@ -206,8 +206,21 @@ const refreshColumns = async () => {
 };
 
 /** Selects a cell the way a click would, without depending on its position. */
-const selectCell = (row, column) => {
-  if (row < 0) throw new Error(`選択しようとした行が見つかりません (column=${column})`);
+const selectCell = async (row, column) => {
+  // 「-1 行目を選ぼうとした」だけでは、何を探して何が見えていたのか分からない。
+  if (row < 0) {
+    const seen = (await state()).names;
+    throw new Error(
+      `選択しようとした行が見つかりません (column=${column}) 見えているのは: ${seen.join(" / ")}`,
+    );
+  }
+
+  // 開いたままの編集があると、セルの押下はそこで降りる——選択は動かず、続く操作は
+  // 前のセルに効く。人が次のセルへ行く前にやるのと同じで、先に閉じる。
+  if (await page.evaluate(() => !!document.querySelector(".fg-editor:not(.is-typist)"))) {
+    await page.keyboard.press("Escape");
+    await settle();
+  }
 
   return page.evaluate(
     (row, column) => {
@@ -245,12 +258,31 @@ const selectCell = (row, column) => {
  * 集計テストが「変わっていない」と言って落ちていた。
  */
 const replaceEditorText = async (text) => {
+  // 欄があることだけでは足りない。焦点が乗る前に打つと、打鍵は表のほうへ落ちて、
+  // セルは元の値のまま——「入力が効かなかった」ではなく「変わっていない」に見える。
   for (let at = 0; at < 20; at++) {
-    if (await page.evaluate(() => !!document.querySelector(".fg-editor:not(.is-typist)"))) break;
+    const ready = await page.evaluate(() => {
+      const field = document.querySelector(".fg-editor:not(.is-typist)");
+      return !!field && document.activeElement === field;
+    });
+    if (ready) break;
     await settle();
   }
 
-  await page.keyboard.type(text);
+  // 打ったあと、欄がその値になったか見る。描き直しが打鍵とすれ違うと、文字は
+  // どこにも入らないまま「値が変わっていない」として、ずっと先で落ちる。
+  for (let at = 0; at < 3; at++) {
+    await page.keyboard.type(text);
+
+    const landed = await page.evaluate(
+      (want) => document.querySelector(".fg-editor:not(.is-typist)")?.value === want,
+      text,
+    );
+    if (landed) return;
+
+    await settle();
+    await page.evaluate(() => document.querySelector(".fg-editor:not(.is-typist)")?.select());
+  }
 };
 
 let s;
@@ -377,7 +409,39 @@ const outline = async () =>
     }),
   );
 
+// 階層と並びはサーバーが決める。押した直後の画面はまだ前の形なので、変わるまで
+// 待つ——固定の待ち時間は、混んだ一回だけ「動かなかった」と言って落ちる。
 const move = async (key) => {
+  const before = JSON.stringify(await outline());
+
+  // 打つ前に、キーボードが表にあることを確かめる。描き直しの最中に押すと、
+  // 打鍵はどこにも届かず、あとから「動かなかった」として現れる。
+  for (let at = 0; at < 20; at++) {
+    const ready = await page.evaluate(() => {
+      const grid = document.querySelector(".fg-grid");
+      return !!grid && (grid === document.activeElement || grid.contains(document.activeElement));
+    });
+    if (ready) break;
+    await settle();
+  }
+
+  await page.keyboard.down("Alt");
+  await page.keyboard.press(key);
+  await page.keyboard.up("Alt");
+
+  for (let at = 0; at < 20; at++) {
+    await settle();
+    if (JSON.stringify(await outline()) !== before) return;
+  }
+};
+
+/**
+ * 押すだけ。動かないはずのときに使う。
+ *
+ * 待つほうの `move` は変わるまで見にいくので、動かない場合は待ちきってしまう
+ * ——そのあいだに「動かせません」の知らせは消えている。
+ */
+const nudge = async (key) => {
   await page.keyboard.down("Alt");
   await page.keyboard.press(key);
   await page.keyboard.up("Alt");
@@ -417,7 +481,7 @@ check("⌥← で階層が戻る", tree.find(([name]) => name === "テスト")?.
 // 先頭行では動かず、その理由を伝える
 await selectCell(0, 0);
 const beforeEdge = await outline();
-await move("ArrowRight");
+await nudge("ArrowRight");
 const edgeNotice = await page.evaluate(
   () => document.querySelector(".fg-notice")?.textContent ?? null,
 );
@@ -5640,31 +5704,35 @@ check(
 // しかないのは、いちばんよく戻る場所に対して不親切だった。
 const backToToday = await page.evaluate(async () => {
   const chart = document.querySelector(".fg-pane-chart");
-  const 開いたところ = Math.round(chart.scrollLeft);
+  const 見えるか = () => {
+    const 今日 = document.querySelector(".fg-today");
+    const 枠 = chart.getBoundingClientRect();
+    const 線 = 今日?.getBoundingClientRect();
+    return !!線 && 線.left >= 枠.left && 線.left <= 枠.right;
+  };
 
-  chart.scrollLeft = 0;
-  await new Promise((done) => setTimeout(done, 300));
-  const 左端へ = Math.round(chart.scrollLeft);
+  // 左端へ。描き直しが挟まると元の位置に戻されるので、着くまで押さえる。
+  for (let at = 0; at < 10 && Math.round(chart.scrollLeft) !== 0; at++) {
+    chart.scrollLeft = 0;
+    await new Promise((done) => setTimeout(done, 100));
+  }
+
+  const 離れたところ = Math.round(chart.scrollLeft);
+  const 離れても見えるか = 見えるか();
 
   document.querySelector(".fg-today-button").click();
   await new Promise((done) => setTimeout(done, 300));
 
-  const 今日 = document.querySelector(".fg-today");
-  const 枠 = chart.getBoundingClientRect();
-  const 線 = 今日?.getBoundingClientRect();
-
-  return {
-    開いたところ,
-    左端へ,
-    押したあと: Math.round(chart.scrollLeft),
-    今日が見えている: !!線 && 線.left >= 枠.left && 線.left <= 枠.right,
-  };
+  return { 離れたところ, 離れても見えるか, 押したあと: Math.round(chart.scrollLeft), 今日が見えている: 見えるか() };
 });
 
+// 「押したら座標がこの値になる」ではなく「押したら今日が見える」を見る。前は
+// 元の位置と一致するかを比べていて、描き直しが一度挟まるだけで落ちていた——
+// 落ちるのは常に、今日がちゃんと見えている画面のほうだった。
 check(
   "「今日」を押すとチャートが今日に戻る",
-  backToToday.左端へ === 0 &&
-    backToToday.押したあと === backToToday.開いたところ &&
+  backToToday.離れたところ === 0 &&
+    !backToToday.離れても見えるか &&
     backToToday.今日が見えている,
   JSON.stringify(backToToday),
 );

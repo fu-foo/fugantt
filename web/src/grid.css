@@ -883,6 +883,15 @@ html {
   background: #fff;
 }
 
+/* A note is the one field that holds more than a value. Tall enough that a few
+   lines are visible at once, and resizable for the one that is not. */
+.fg-dialog-prose {
+  min-height: 9rem;
+  line-height: 1.6;
+  resize: vertical;
+  font: inherit;
+}
+
 .fg-dialog-date,
 .fg-dialog-reason {
   border: 1px solid #e2e8f0;

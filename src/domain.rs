@@ -362,7 +362,7 @@ impl Status {
     pub fn defaults() -> Vec<Self> {
         [
             ("未着手", "#f1f5f9", Some(0)),
-            ("実施中", "#dbeafe", None),
+            ("進行中", "#dbeafe", None),
             ("待ち", "#ede9fe", None),
             ("完了", "#dcfce7", Some(100)),
             ("保留", "#fef3c7", None),

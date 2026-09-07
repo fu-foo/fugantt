@@ -231,6 +231,15 @@ html {
 }
 
 /* …and their headings sit over them rather than off to the left. */
+/* A column whose values are answers, not entries. The whole heading row is
+   already muted, so this is muted against that — enough to read as a different
+   kind of column, not so faint that the label stops being a label. The reason
+   itself is on the heading's tooltip; the cells below carry no mark, because a
+   column that is derived on every row would stripe every row. */
+.fg-heading .fg-cell.is-answer {
+  color: color-mix(in srgb, var(--fg-muted) 62%, transparent);
+}
+
 .fg-heading .fg-cell-days,
 .fg-heading .fg-cell-progress,
 .fg-heading .fg-cell-start_variance,

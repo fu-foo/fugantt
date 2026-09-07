@@ -1971,8 +1971,8 @@ check(
   `${parentBeforeStatus} → ${JSON.stringify(parent)}`,
 );
 
-row = await setCell("t-imp", "status", "実施中");
-check("実施中は手入力のまま", row.progress === 0, JSON.stringify(row));
+row = await setCell("t-imp", "status", "進行中");
+check("進行中は手入力のまま", row.progress === 0, JSON.stringify(row));
 
 // 予定終了が分かっている行を 100% にすると、実施終了はそこで埋まる。
 row = await setCell("t-test", "progress", "100");
@@ -4296,7 +4296,7 @@ check(
       rows.length >= 2 &&
       yamada.textContent.includes("平均") &&
       pills.length > 0 &&
-      [...yamada.querySelectorAll("span")].some((s) => /^(未着手|実施中|待ち|完了|保留)/.test(s.textContent.trim()))
+      [...yamada.querySelectorAll("span")].some((s) => /^(未着手|進行中|待ち|完了|保留)/.test(s.textContent.trim()))
     );
   }),
 );
@@ -5282,7 +5282,7 @@ const patching = await (async () => {
     // 続けて何度か書いて、そのあと画面が持っている計画と、サーバーの計画を比べる。
     await write("t-des", "progress", "45");
     await write("t-imp", "assignee", "佐藤");
-    await write("t-des", "status", "実施中");
+    await write("t-des", "status", "進行中");
     await wait(400);
 
     const server = await (await fetch("/api/projects/test-project/grid")).json();

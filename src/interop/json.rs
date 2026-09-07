@@ -328,7 +328,7 @@ mod tests {
             start: Some("2026-08-03".to_owned()),
             end: Some("2026-08-14".to_owned()),
             progress: 40,
-            status: "実施中".to_owned(),
+            status: "進行中".to_owned(),
             ..TaskView::default()
         }
     }

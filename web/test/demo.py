@@ -104,7 +104,7 @@ NAMES = [name for name, _, _ in PEOPLE]
 
 STATUSES = [
     (0, "未着手", "#f1f5f9", 0),
-    (1, "実施中", "#dbeafe", None),
+    (1, "進行中", "#dbeafe", None),
     (2, "待ち", "#ede9fe", None),
     (3, "完了", "#dcfce7", 100),
     (4, "保留", "#fef3c7", None),
@@ -236,7 +236,7 @@ def realise(start, end, team, kind="task"):
         # 開いたままなら、遅れの日数がその1行で数百日になり、合計が嘘になる。
         recent = end > TODAY - datetime.timedelta(days=45)
         if recent and random.random() < 0.30:
-            status, progress, actual_end = "実施中", random.randint(45, 95), None
+            status, progress, actual_end = "進行中", random.randint(45, 95), None
             note = random.choice([
                 "残作業あり。今週中に完了予定。",
                 "指摘の修正が残っている。",
@@ -259,7 +259,7 @@ def realise(start, end, team, kind="task"):
         ideal = max(5, min(95, round(elapsed / max(span, 1) * 100)))
         drift = random.choice([-35, -20, -12, -5, 0, 0, 5, 10])
         progress = max(0, min(95, ideal + drift))
-        status = "実施中"
+        status = "進行中"
         actual_start = iso(add_workdays(start, 0) + datetime.timedelta(days=random.choice([0, 0, 1, 2])))
 
         if random.random() < 0.10:
@@ -662,7 +662,7 @@ for plan in plans:
         states = {settle(kid) for kid in kids}
         row["status"] = ("完了" if states == {"完了"}
                          else "未着手" if states == {"未着手"}
-                         else "実施中")
+                         else "進行中")
         cur.execute("UPDATE tasks SET status = ? WHERE id = ?", (row["status"], row["id"]))
         return row["status"]
 
@@ -687,7 +687,7 @@ for name in NAMES[:20]:
 
 # --- 変更履歴 ----------------------------------------------------------------
 
-FIELDS = [("progress", "40", "60"), ("status", "未着手", "実施中"),
+FIELDS = [("progress", "40", "60"), ("status", "未着手", "進行中"),
           ("end_date", "2026-09-11", "2026-09-18"), ("assignee", "", "佐藤 健一"),
           ("note", "", "先方確認待ち")]
 for plan in plans:

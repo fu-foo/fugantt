@@ -1651,7 +1651,7 @@ async fn add_status(cx: &Cx, Form(form): Form<StatusForm>) -> Result<SeeOther> {
     }
 
     // Blank means "this state says nothing about progress", which is the honest
-    // answer for 実施中 and the reason the column stays hand-entered.
+    // answer for 進行中 and the reason the column stays hand-entered.
     let percent = match form.percent.as_deref().map(str::trim).unwrap_or("") {
         "" => None,
         text => Some(

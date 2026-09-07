@@ -63,7 +63,7 @@ INSERT INTO tasks (id, project_id, parent_id, sort_key, name, start_date, end_da
   ('t-test', 'test-project', NULL,    'p', 'テスト',          '2026-09-21', '2026-10-09',
    NULL,         NULL,         '未着手', '',                                      0, '山田', strftime('%s','now')),
   ('t-doc',  'test-project', NULL,    'q', 'ドキュメント整備', '2026-08-01', '2026-08-20',
-   NULL,         NULL,         '実施中', '',                                      5, '',     strftime('%s','now')),
+   NULL,         NULL,         '進行中', '',                                      5, '',     strftime('%s','now')),
   ('t-rev',  'test-project', NULL,    'r', 'レビュー',        '2026-07-27', '2026-08-06',
    '2026-07-27', NULL,         '待ち',   '',                                     40, '山田', strftime('%s','now'));
 

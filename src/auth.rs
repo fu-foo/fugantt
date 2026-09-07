@@ -106,15 +106,19 @@ async fn register(cx: &Cx, Form(form): Form<Credentials>) -> Result<SeeOther> {
     // hands out names like 山田 or yamada, and insisting on an @ would mean
     // inventing addresses that nobody reads.
     if email.is_empty() || email.chars().any(char::is_whitespace) {
-        return Err(bad_request("ユーザー名を入力してください。空白は使えません。").into());
+        return Ok(see_other("/login?e=name"));
     }
 
     // Argon2's whole point is to be slow, so what we can cheaply refuse here is
-    // a password that breaks the installation's rule.
-    crate::app_settings::password_rule(cx)
+    // a password that breaks the installation's rule. The form already prints
+    // the rule, so the page has only to say that it was not met.
+    if crate::app_settings::password_rule(cx)
         .await
         .check(&form.password)
-        .map_err(bad_request)?;
+        .is_err()
+    {
+        return Ok(see_other("/login?e=rule"));
+    }
 
     // The first account is the administrator; after that, an invitation is the
     // only way in. Without this the register form would be an open door to
@@ -122,7 +126,7 @@ async fn register(cx: &Cx, Form(form): Form<Credentials>) -> Result<SeeOther> {
     // The only self-service registration there is: the first account, which
     // becomes the administrator. After that, accounts are made by that person.
     if !users::none_yet(cx).await? {
-        return Err(bad_request("アカウントは管理者が作ります。管理者に頼んでください。").into());
+        return Ok(see_other("/login?e=closed"));
     }
 
     let id = uuid::Uuid::new_v4().to_string();
@@ -173,10 +177,7 @@ async fn login(cx: &Cx, Form(form): Form<Credentials>) -> Result<SeeOther> {
     if let Some(wait) = ratelimit::attempts(cx).retry_after(&keys) {
         let minutes = wait.as_secs().div_ceil(60).max(1);
 
-        return Err(bad_request(format!(
-            "ログインの試行が多すぎます。{minutes} 分ほど待ってからお試しください。"
-        ))
-        .into());
+        return Ok(see_other(&format!("/login?e=wait&m={minutes}")));
     }
 
     let found = sqlx::query_as::<_, (String, String)>(
@@ -188,14 +189,17 @@ async fn login(cx: &Cx, Form(form): Form<Credentials>) -> Result<SeeOther> {
 
     // Answer an unknown email and a wrong password identically, so the form
     // does not become a way to enumerate who has an account.
+    // Back to the form rather than onto a page of its own. A refusal that
+    // replaces the screen leaves nowhere to try again from, and the one thing
+    // somebody wants after a wrong password is the box they typed it in.
     let Some((id, password_hash)) = found else {
         ratelimit::attempts(cx).record_failure(&keys);
-        return Err(bad_request("ユーザー名かパスワードが違います。").into());
+        return Ok(see_other("/login?e=bad"));
     };
 
     if !verify_password(form.password, password_hash).await? {
         ratelimit::attempts(cx).record_failure(&keys);
-        return Err(bad_request("ユーザー名かパスワードが違います。").into());
+        return Ok(see_other("/login?e=bad"));
     }
 
     ratelimit::attempts(cx).forget(&keys);

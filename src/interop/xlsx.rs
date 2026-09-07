@@ -499,7 +499,7 @@ mod tests {
                 overdue: 0,
                 waits: Vec::new(),
                 wait_days: 0,
-                status: "実施中".to_owned(),
+                status: "進行中".to_owned(),
                 assignee: String::new(),
                 note: String::new(),
                 targets: Vec::new(),

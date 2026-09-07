@@ -503,6 +503,16 @@ const EN: Record<string, string> = {
 /** Which language to draw in. The server says so on every load. */
 let LANG: "ja" | "en" = "ja";
 
+/**
+ * Today, as the server counts it.
+ *
+ * Not the browser's clock. A shorthand date is read against the current month,
+ * and `new Date().getUTCMonth()` in Tokyo is last month between midnight and
+ * nine every first of the month. The server already says which day it is, and
+ * its answer is the one the rest of the plan is measured against.
+ */
+let TODAY = "";
+
 function t(ja: string): string {
   return LANG === "en" ? (EN[ja] ?? ja) : ja;
 }
@@ -627,9 +637,16 @@ function compare<T extends number | string>(at: Bound, left: T, right: T): boole
 /**
  * A date however somebody typed it, or null when it is not one.
  *
- * The same readings the server takes: `20260805`, `0805`, `8/5`, `2026年8月5日`.
- * A half-written date like `2026-08` comes back null on purpose — the filter
- * falls back to comparing it as a prefix, which is what half a date means.
+ * The same readings the server takes: `20260805`, `0805`, `805`, `05`, `5`,
+ * `8/5`, `2026年8月5日`. A half-written date like `2026-08` comes back null on
+ * purpose — the filter falls back to comparing it as a prefix, which is what
+ * half a date means.
+ *
+ * Bare digits are read by how many there are: one or two are a day this month,
+ * three or four a day this year, eight a whole date. Nothing is carried
+ * forward — `3` on the 28th of December is the third of December, in the past.
+ * Most of what gets typed into 実施開始 is in the past, and a reading that
+ * helpfully moved it to next month would make yesterday impossible to say.
  */
 function flexibleDate(text: string): string | null {
   const value = normalizeWidth(text)
@@ -638,12 +655,21 @@ function flexibleDate(text: string): string | null {
     .replace(/日/g, "")
     .replace(/-+$/, "");
 
-  const year = new Date().getUTCFullYear();
+  const today = TODAY || new Date().toISOString().slice(0, 10);
+  const year = today.slice(0, 4);
+  const month = today.slice(5, 7);
   let iso: string | null = null;
 
   if (/^\d+$/.test(value)) {
-    if (value.length === 8) iso = `${value.slice(0, 4)}-${value.slice(4, 6)}-${value.slice(6)}`;
-    else if (value.length === 4) iso = `${year}-${value.slice(0, 2)}-${value.slice(2)}`;
+    // Only the odd lengths that mean something: `5` is the fifth, `805` is the
+    // fifth of August. Padding any odd length would let seven digits fall into
+    // the whole-date reading and come back as the year 26.
+    const digits =
+      value.length === 1 || value.length === 3 ? `0${value}` : value;
+
+    if (digits.length === 8) iso = `${digits.slice(0, 4)}-${digits.slice(4, 6)}-${digits.slice(6)}`;
+    else if (digits.length === 4) iso = `${year}-${digits.slice(0, 2)}-${digits.slice(2)}`;
+    else if (digits.length === 2) iso = `${year}-${month}-${digits}`;
   } else {
     const parts = value.split("-").filter(Boolean);
     const pad = (part: string, width: number) => part.padStart(width, "0");
@@ -1018,6 +1044,7 @@ class Grid {
   ) {
     this.collapsed = loadCollapsed(projectId);
     LANG = data.language === "en" ? "en" : "ja";
+    TODAY = data.today;
     this.computeVisible();
     this.root.addEventListener("keydown", (event) => this.onKeyDown(event));
     // Every column moves when the window does, and a column pinned to where it
@@ -1147,6 +1174,7 @@ class Grid {
     // The server decides the language every time. The island draws; it does
     // not judge.
     LANG = grid.language === "en" ? "en" : "ja";
+    TODAY = grid.today;
     this.computeVisible();
   }
 
@@ -1662,6 +1690,12 @@ class Grid {
 
           // Eight digits become a date here too: the box takes what a cell
           // takes, and shows it back the way it will be compared.
+          //
+          // Only eight. The shorter readings are still understood — the
+          // comparison runs the same reading the cells do — but rewriting the
+          // box as it is typed destroys what is being typed: on the way to
+          // `20260810`, `202` is a complete three-digit date, and the box
+          // becomes `2026-02-02` with five characters still to come.
           const digits = normalizeWidth(input.value).trim();
           if (column.kind === "date" && /^\d{8}$/.test(digits)) {
             input.value = flexibleDate(digits) ?? input.value;

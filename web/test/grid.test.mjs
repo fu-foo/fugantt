@@ -6452,6 +6452,80 @@ check(
   JSON.stringify(answers),
 );
 
+// --- コメントは文章 -------------------------------------------------------------
+
+// 1行では足りなかったので箱にした。箱にした以上、Enter は改行でなければならない
+// ——決定にしてしまうと、改行を入れる手段がどこにも無くなる。
+const prose = await page.evaluate(async () => {
+  const named = [...document.querySelectorAll(".fg-pane-left .fg-row.fg-data .fg-cell-name")].map(
+    (c) => c.textContent.trim(),
+  );
+  const at = named.findIndex((n) => n.includes("実装"));
+  [...document.querySelectorAll(".fg-pane-left .fg-row.fg-data")]
+    [at].querySelector(".fg-cell-note .fg-wait-edit")
+    .click();
+
+  await new Promise((done) => setTimeout(done, 200));
+
+  const box = document.querySelector(".fg-dialog-prose");
+  if (!box) return { 開いた: false };
+
+  const style = getComputedStyle(box);
+  return {
+    開いた: true,
+    // 暗い画面では白地に薄い文字を描いていて、何を打っても空に見えた。
+    文字: style.color,
+    背景: style.backgroundColor,
+  };
+});
+
+check("コメントは箱で開く", prose.開いた, JSON.stringify(prose));
+check(
+  "コメントの箱は文字と背景が別の色",
+  prose.文字 !== prose.背景,
+  JSON.stringify(prose),
+);
+
+await page.click(".fg-dialog-prose");
+await page.evaluate(() => {
+  const box = document.querySelector(".fg-dialog-prose");
+  box.value = "";
+});
+await page.keyboard.type("一行目");
+await page.keyboard.press("Enter");
+await page.keyboard.type("二行目");
+await settle();
+
+const afterEnter = await page.evaluate(() => ({
+  開いたまま: !!document.querySelector(".fg-dialog-prose"),
+  中身: document.querySelector(".fg-dialog-prose")?.value ?? null,
+}));
+
+check(
+  "Enter は改行で、ダイアログを閉じない",
+  afterEnter.開いたまま && afterEnter.中身 === "一行目\n二行目",
+  JSON.stringify(afterEnter),
+);
+
+await page.keyboard.down("Meta");
+await page.keyboard.press("Enter");
+await page.keyboard.up("Meta");
+await settle();
+await settle();
+
+const savedProse = await page.evaluate(async () => ({
+  閉じた: !document.querySelector(".fg-dialog-prose"),
+  note: (await (await fetch("/api/projects/test-project/grid")).json()).tasks.find(
+    (task) => task.name === "実装",
+  ).note,
+}));
+
+check(
+  "⌘Enter で保存して閉じ、改行が残る",
+  savedProse.閉じた && savedProse.note === "一行目\n二行目",
+  JSON.stringify(savedProse),
+);
+
 check("JavaScript エラーが出ていない", pageErrors.length === 0, pageErrors.join(" / "));
 
 await browser.close();

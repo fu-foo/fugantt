@@ -513,6 +513,7 @@ const EN: Record<string, string> = {
   "納期遅れは納期と実施終了から決まります。": "Past due is read from the due date and the real end.",
   "納期を過ぎています": "Past the day this was promised for",
   "コメントを書く": "Write a note",
+  "⌘Enter でも保存できます": "⌘Enter saves too",
   "全部開く": "Open all",
   "全部閉じる": "Close all",
   "すべての親タスクを開きます": "Opens every summary row.",
@@ -2923,6 +2924,7 @@ class Grid {
     }
 
     const save = element("button", "fg-dialog-save", t("保存")) as HTMLButtonElement;
+    if (prose) save.title = t("⌘Enter でも保存できます");
     const cancel = element("button", "fg-dialog-cancel", t("キャンセル")) as HTMLButtonElement;
     cancel.type = "button";
     cancel.addEventListener("click", () => dialog.close());
@@ -2944,7 +2946,15 @@ class Grid {
 
     dialog.addEventListener("keydown", (event) => {
       event.stopPropagation();
-      if (event.key === "Enter" && !choices) save.click();
+      if (event.key !== "Enter" || choices) return;
+
+      // In a box meant for prose, Enter is a new line — it is the whole reason
+      // the box is there. ⌘Enter is the decision, the way it is in every other
+      // multi-line box; the 保存 button says so too.
+      if (prose && !(event.ctrlKey || event.metaKey)) return;
+
+      event.preventDefault();
+      save.click();
     });
     dialog.addEventListener("close", () => {
       dialog.remove();
@@ -2954,6 +2964,11 @@ class Grid {
     document.body.append(dialog);
     dialog.showModal();
     input.focus();
+    // Opened on what is already there, with the caret at the end rather than
+    // over the lot: a note is added to far more often than it is replaced.
+    if (input instanceof HTMLTextAreaElement) {
+      input.setSelectionRange(input.value.length, input.value.length);
+    }
   }
 
   /** The date the pointer is over, in the chart. */

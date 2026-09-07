@@ -352,6 +352,10 @@ textarea {
 .fg-shows,
 .fg-filter,
 .fg-editor,
+/* `.fg-dialog-field` paints itself white in the stylesheet, so without it here
+   the dark theme drew light text on a white box — a field that looks empty
+   however much is typed into it. */
+.fg-dialog-field,
 .fg-dialog-date,
 .fg-dialog-reason,
 .fg-dialog-percent,

@@ -230,6 +230,7 @@
     "\u7D0D\u671F\u9045\u308C\u306F\u7D0D\u671F\u3068\u5B9F\u65BD\u7D42\u4E86\u304B\u3089\u6C7A\u307E\u308A\u307E\u3059\u3002": "Past due is read from the due date and the real end.",
     "\u7D0D\u671F\u3092\u904E\u304E\u3066\u3044\u307E\u3059": "Past the day this was promised for",
     "\u30B3\u30E1\u30F3\u30C8\u3092\u66F8\u304F": "Write a note",
+    "\u2318Enter \u3067\u3082\u4FDD\u5B58\u3067\u304D\u307E\u3059": "\u2318Enter saves too",
     "\u5168\u90E8\u958B\u304F": "Open all",
     "\u5168\u90E8\u9589\u3058\u308B": "Close all",
     "\u3059\u3079\u3066\u306E\u89AA\u30BF\u30B9\u30AF\u3092\u958B\u304D\u307E\u3059": "Opens every summary row.",
@@ -1892,6 +1893,7 @@ ${lines.join("\n")}` : "";
         }
       }
       const save = element("button", "fg-dialog-save", t("\u4FDD\u5B58"));
+      if (prose) save.title = t("\u2318Enter \u3067\u3082\u4FDD\u5B58\u3067\u304D\u307E\u3059");
       const cancel = element("button", "fg-dialog-cancel", t("\u30AD\u30E3\u30F3\u30BB\u30EB"));
       cancel.type = "button";
       cancel.addEventListener("click", () => dialog.close());
@@ -1909,7 +1911,10 @@ ${lines.join("\n")}` : "";
       dialog.append(buttons);
       dialog.addEventListener("keydown", (event) => {
         event.stopPropagation();
-        if (event.key === "Enter" && !choices) save.click();
+        if (event.key !== "Enter" || choices) return;
+        if (prose && !(event.ctrlKey || event.metaKey)) return;
+        event.preventDefault();
+        save.click();
       });
       dialog.addEventListener("close", () => {
         dialog.remove();
@@ -1918,6 +1923,9 @@ ${lines.join("\n")}` : "";
       document.body.append(dialog);
       dialog.showModal();
       input.focus();
+      if (input instanceof HTMLTextAreaElement) {
+        input.setSelectionRange(input.value.length, input.value.length);
+      }
     }
     /** The date the pointer is over, in the chart. */
     dayUnder(clientX, origin) {

@@ -802,12 +802,30 @@ pub fn load(data: &GridData, from: Date, to: Date, today: Date) -> Vec<Load> {
 
                 counted += 1;
 
+                // The days this row is stopped on. A wait is the record that
+                // the work could not move — so the person is not on it, and the
+                // day is theirs to spend elsewhere. It already comes out of the
+                // day count and the lateness; leaving it in here was the one
+                // place a stopped task went on booking somebody's time.
+                let stopped: Vec<(Date, Date)> = task
+                    .waits
+                    .iter()
+                    .filter_map(|wait| {
+                        Some((parse_date(&wait.start)?, parse_date(&wait.end)?))
+                    })
+                    .collect();
+
                 let mut day = start.max(ahead);
                 let last = end.min(to);
                 while day <= last {
+                    // Asked separately from the calendar because the unassigned
+                    // row does not go through it: nobody's weekends or leave
+                    // apply there, but a stopped task is stopped for everyone.
+                    let paused = stopped.iter().any(|(from, to)| day >= *from && day <= *to);
+
                     // Days the person could not have worked anyway are not days
                     // their plan is using up.
-                    if name.is_empty() || calendar.is_workday(&name, &[], day) {
+                    if !paused && (name.is_empty() || calendar.is_workday(&name, &stopped, day)) {
                         *taken.entry(day).or_default() += 1;
                     }
 
@@ -1757,6 +1775,34 @@ mod tests {
 
     fn date(text: &str) -> Date {
         text.parse().unwrap()
+    }
+
+    /// A wait is time nobody is on the task, so it is time they can spend.
+    #[test]
+    fn a_stopped_task_stops_booking_the_person() {
+        let today = date("2026-09-07");
+        let month = |waits: &str| {
+            let mut task = row("t", None, "2026-09-07", "2026-09-18", 0);
+            task.assignee = "山田".to_owned();
+            task.waits = waits.to_owned();
+
+            let data = build_for_test("p", 1, today, vec![task]);
+            let load = load(&data, date("2026-09-01"), date("2026-09-30"), today);
+            let yamada = load.iter().find(|row| row.assignee == "山田").unwrap();
+
+            (yamada.busy, yamada.free)
+        };
+
+        let (busy, free) = month("");
+        let (paused, freed) = month("2026-09-09/2026-09-15");
+
+        // Every day of the span was booked; the stopped days come back.
+        assert!(paused < busy, "{paused} < {busy}");
+        assert_eq!(
+            free.zip(freed).map(|(before, after)| after - before),
+            Some(busy - paused),
+            "止まった日数がそのまま空きへ戻る",
+        );
     }
 
     /// 納期 is measured against the promise, and only against the promise.

@@ -25,7 +25,7 @@ const CHROME =
   process.env["CHROME"] ?? "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 
 const EMAIL = "grid-test@example.com";
-const PASSWORD = "grid-test-password";
+const PASSWORD = "grid-test-8871";
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -4351,7 +4351,7 @@ check(
   await page.evaluate(async () => {
     // 別の browser context ではなく、cookie を持たない fetch で「もう一つの
     // 端末」を作る——サーバー側の行が消えているかどうかだけを見る。
-    const password = "grid-test-password";
+    const password = "grid-test-8871";
 
     const login = await fetch("/login", {
       method: "POST",
@@ -4383,13 +4383,13 @@ check(
       const first = await post("/users", {
         name: "同姓同名 太郎",
         email: `dup-a-${Date.now()}`,
-        password: "grid-test-password",
+        password: "grid-test-8871",
         base_role: "editor",
       });
       const second = await post("/users", {
         name: "同姓同名 太郎",
         email: `dup-b-${Date.now()}`,
-        password: "grid-test-password",
+        password: "grid-test-8871",
         base_role: "editor",
       });
 

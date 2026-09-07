@@ -25,6 +25,7 @@ html {
   --fg-day-width: 26px;
   --fg-rule: #e2e8f0;
   --fg-rule-strong: #cbd5e1;
+  --fg-rule-on-tint: color-mix(in srgb, var(--fg-rule) 75%, #0f172a);
   --fg-text: #0f172a;
   --fg-muted: #64748b;
   --fg-bar: #2563eb;
@@ -76,6 +77,20 @@ html {
 .fg-row .fg-cell.is-frozen:not(:has(~ .is-frozen)) {
   box-shadow: inset -1px 0 0 var(--fg-rule);
 }
+.fg-column-grip {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 7px;
+  height: 100%;
+  cursor: col-resize;
+  touch-action: none;
+  z-index: 4;
+}
+.fg-column-grip:hover {
+  background: var(--fg-bar);
+  opacity: 0.35;
+}
 .fg-splitter {
   background: var(--fg-rule-strong);
   cursor: col-resize;
@@ -86,6 +101,7 @@ html {
 }
 .fg-row {
   --fg-row-bg: #fff;
+  background: var(--fg-row-bg);
   width: 100%;
   display: grid;
   align-items: center;
@@ -435,6 +451,14 @@ html {
 }
 .fg-column.is-holiday {
   background: var(--fg-holiday);
+}
+.fg-column.is-saturday,
+.fg-column.is-sunday,
+.fg-column.is-holiday,
+.fg-day.is-saturday,
+.fg-day.is-sunday,
+.fg-day.is-holiday {
+  border-right-color: var(--fg-rule-on-tint);
 }
 .fg-bar-row {
   position: relative;
@@ -882,13 +906,10 @@ html {
   outline: none;
 }
 .fg-row.is-current {
-  background: #f8fafc;
+  --fg-row-bg: #f8fafc;
 }
 .fg-bar-row.is-current {
   background: rgb(100 116 139 / 0.09);
-}
-.fg-row.is-current {
-  --fg-row-bg: #f8fafc;
 }
 .fg-cell.is-selected {
   box-shadow: inset 0 0 0 2px var(--fg-bar);

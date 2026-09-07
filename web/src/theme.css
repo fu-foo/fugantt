@@ -334,9 +334,10 @@ textarea {
   background: var(--panel-soft);
 }
 
+/* The variable alone: `.fg-row` paints from it, and a row somebody coloured
+   sets it on the element, so the colour survives the cursor. */
 .fg-row.is-current {
   --fg-row-bg: var(--row-current);
-  background: var(--row-current);
 }
 
 /* The day's name, on the ground the rest of the island uses. */

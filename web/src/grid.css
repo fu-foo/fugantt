@@ -29,6 +29,17 @@ html {
   --fg-day-width: 26px;
   --fg-rule: #e2e8f0;
   --fg-rule-strong: #cbd5e1;
+  /* The rule, dark enough to survive a tinted column. Measured in the browser:
+     on the pale ground of a weekend or a holiday the ordinary rule sits at
+     1.13:1 against it and simply is not there. This is 1.91:1 on that ground,
+     and 1.64:1 in the dark theme.
+
+     Mixed toward a fixed dark, not toward `--fg-text`, which is light when the
+     theme is. The tinted columns are lighter than the panel in both themes —
+     dark theme mixes the same pale tint into a dark panel — so the line has to
+     go the same way in both. `--fg-rule-strong` was measured too and is wrong:
+     it improves the light theme and takes the dark one from 1.49 to 1.18. */
+  --fg-rule-on-tint: color-mix(in srgb, var(--fg-rule) 75%, #0f172a);
   --fg-text: #0f172a;
   --fg-muted: #64748b;
   --fg-bar: #2563eb;
@@ -102,6 +113,27 @@ html {
   box-shadow: inset -1px 0 0 var(--fg-rule);
 }
 
+/* The handle on a column's right edge. Kept inside the cell: the heading has
+   `overflow: hidden`, so a handle straddling the seam would have its outer half
+   clipped away and only half of it would answer. Only visible once it is under
+   the pointer — a heading row wearing a stripe at every boundary is a heading
+   row nobody reads. */
+.fg-column-grip {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 7px;
+  height: 100%;
+  cursor: col-resize;
+  touch-action: none;
+  z-index: 4;
+}
+
+.fg-column-grip:hover {
+  background: var(--fg-bar);
+  opacity: 0.35;
+}
+
 /* The grab bar between the table and the chart. */
 .fg-splitter {
   background: var(--fg-rule-strong);
@@ -118,6 +150,12 @@ html {
   /* The pinned name cell paints over the rows it passes, so it needs its own
      row's background rather than the transparency it would otherwise have. */
   --fg-row-bg: #fff;
+  /* Painted through the variable rather than as a colour of its own, so that
+     everything which changes a row's ground — the cursor's row, a row somebody
+     coloured — changes one thing. A row painted by class would win over the
+     colour set on the element, which is how the cursor used to take the colour
+     off the row it was on. */
+  background: var(--fg-row-bg);
   /* Full width of the table below, not of the pane: a sticky cell can only
      travel inside its own row's box, and a row cut to the pane leaves a pinned
      column stopping short of the edge. Sizing each row to its own content
@@ -592,6 +630,18 @@ html {
 
 .fg-column.is-holiday {
   background: var(--fg-holiday);
+}
+
+/* A day that is coloured still has to be a day. Without this the tint and the
+   rule are the same brightness and the column loses its right-hand edge — the
+   week reads as one wide block rather than as days. */
+.fg-column.is-saturday,
+.fg-column.is-sunday,
+.fg-column.is-holiday,
+.fg-day.is-saturday,
+.fg-day.is-sunday,
+.fg-day.is-holiday {
+  border-right-color: var(--fg-rule-on-tint);
 }
 
 .fg-bar-row {
@@ -1180,8 +1230,10 @@ html {
   outline: none;
 }
 
+/* Only the variable: see `.fg-row`. A row somebody painted sets the same
+   variable on the element itself, and keeps its colour under the cursor. */
 .fg-row.is-current {
-  background: #f8fafc;
+  --fg-row-bg: #f8fafc;
 }
 
 /* Translucent on the chart side: an opaque highlight paints over the weekend
@@ -1191,9 +1243,6 @@ html {
   background: rgb(100 116 139 / 0.09);
 }
 
-.fg-row.is-current {
-  --fg-row-bg: #f8fafc;
-}
 
 /* Inset rather than `outline`, which the cell's own `overflow: hidden` clips. */
 .fg-cell.is-selected {

@@ -27,7 +27,7 @@ await page.setViewport({ width: 1600, height: 900 });
 
 await page.goto(`${BASE}/login`, { waitUntil: "domcontentloaded" });
 await page.evaluate(async () => {
-  await fetch("/login", { method: "POST", body: new URLSearchParams({ email: "grid-test@example.com", password: "grid-test-password" }) });
+  await fetch("/login", { method: "POST", body: new URLSearchParams({ email: "grid-test@example.com", password: "grid-test-8871" }) });
 });
 
 /** キーを1つ送って、次のフレームが出るまで。描き直しの実測値。 */

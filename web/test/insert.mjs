@@ -27,7 +27,7 @@ await page.goto(`${BASE}/login`, { waitUntil: "domcontentloaded" });
 await page.evaluate(async () => {
   await fetch("/login", {
     method: "POST",
-    body: new URLSearchParams({ email: "grid-test@example.com", password: "grid-test-password" }),
+    body: new URLSearchParams({ email: "grid-test@example.com", password: "grid-test-8871" }),
   });
 });
 

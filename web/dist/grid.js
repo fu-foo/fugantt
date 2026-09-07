@@ -9,18 +9,39 @@
     // Late, as a column rather than as red text. A colour cannot be filtered,
     // sorted or exported, and the text colour now belongs to whoever painted the
     // row. A column can be asked a question: show me only these.
+    //
+    // Two of them, because there are two rulers. 予定遅れ is measured against the
+    // plan — a checkpoint the plan named and missed, or a planned end gone by
+    // with nothing finished. 納期遅れ is measured against the day somebody was
+    // promised. They answer different questions and a row is easily one without
+    // being the other, so folding them into one column would lose whichever the
+    // reader was not asking about.
     {
       key: "late",
-      label: "\u9045\u5EF6",
+      label: "\u4E88\u5B9A\u9045\u308C",
       kind: "select",
       options: [
-        { value: "\u9045\u5EF6", color: "", background: "" },
+        { value: "\u9045\u308C", color: "", background: "" },
+        { value: "\u9806\u8ABF", color: "", background: "" }
+      ]
+    },
+    {
+      key: "due_late",
+      label: "\u7D0D\u671F\u9045\u308C",
+      kind: "select",
+      options: [
+        { value: "\u9045\u308C", color: "", background: "" },
         { value: "\u9806\u8ABF", color: "", background: "" }
       ]
     },
     // Who and what state, before any dates: the two things read at a glance.
     { key: "assignee", label: "\u62C5\u5F53\u8005", kind: "text" },
     { key: "status", label: "\u30B9\u30C6\u30FC\u30BF\u30B9", kind: "status" },
+    // 納期 before the plan, and for two reasons. Most rows in a real plan carry
+    // only this — "by the 30th" has no span — so the column that is actually
+    // filled comes first; and it is the order the question is asked in, which is
+    // by when, then when shall we.
+    { key: "due", label: "\u7D0D\u671F", kind: "date" },
     // The plan, then what happened, in the same four columns each: when it
     // starts, when it ends, how many days, how far along. Read down one and then
     // the other and the pairs line up.
@@ -48,6 +69,7 @@
     "actual_days",
     "start",
     "end",
+    "due",
     "actual_start",
     "actual_end",
     "days",
@@ -201,7 +223,12 @@
     "\u6761\u4EF6\u306B\u5408\u3046\u884C\u304C\u3042\u308A\u307E\u305B\u3093\u3002": "Nothing matches.",
     "\u3053\u306E\u30D7\u30ED\u30B8\u30A7\u30AF\u30C8\u306F\u8AAD\u3080\u3060\u3051\u3067\u3059\u3002": "You can read this project, not change it.",
     "\u65E5\u6570\u306F\u65E5\u4ED8\u304B\u3089\u6570\u3048\u307E\u3059\u3002": "The day count comes from the dates.",
-    "\u9045\u5EF6\u306F\u4E88\u5B9A\u9032\u6357\u3068\u5B9F\u9032\u6357\u304B\u3089\u6C7A\u307E\u308A\u307E\u3059\u3002": "Late is read from the promised progress against the real one.",
+    "\u4E88\u5B9A\u9045\u308C": "Behind plan",
+    "\u7D0D\u671F\u9045\u308C": "Past due",
+    "\u7D0D\u671F": "Due",
+    "\u4E88\u5B9A\u9045\u308C\u306F\u4E88\u5B9A\u9032\u6357\u3068\u4E88\u5B9A\u7D42\u4E86\u304B\u3089\u6C7A\u307E\u308A\u307E\u3059\u3002": "Behind plan is read from the promised progress and the planned end.",
+    "\u7D0D\u671F\u9045\u308C\u306F\u7D0D\u671F\u3068\u5B9F\u65BD\u7D42\u4E86\u304B\u3089\u6C7A\u307E\u308A\u307E\u3059\u3002": "Past due is read from the due date and the real end.",
+    "\u7D0D\u671F\u3092\u904E\u304E\u3066\u3044\u307E\u3059": "Past the day this was promised for",
     "\u30B3\u30E1\u30F3\u30C8\u3092\u66F8\u304F": "Write a note",
     "\u5168\u90E8\u958B\u304F": "Open all",
     "\u5168\u90E8\u9589\u3058\u308B": "Close all",
@@ -1278,13 +1305,37 @@ ${lines.join("\n")}` : "";
     behind(task) {
       return task.delayed || task.overdue > 0;
     }
+    /**
+     * Whether this row is late by the ruler this column holds.
+     *
+     * 予定遅れ reads the plan: a checkpoint it named and missed, or a planned end
+     * gone by with nothing finished. 納期遅れ reads the promise, and nothing else.
+     */
+    late(task, key) {
+      return key === "due_late" ? task.due_late : this.behind(task);
+    }
+    /**
+     * Whether this row was ever going to be judged by that ruler.
+     *
+     * 順調 is a claim, and a row that promised nothing has not kept anything: it
+     * belongs under neither word. Saying 順調 about it would be the tool making
+     * the claim on the plan's behalf.
+     */
+    judged(task, key) {
+      return key === "due_late" ? task.due !== null : task.targets.length > 0 || task.end !== null;
+    }
+    /** The row is late by either ruler, which is what a bar is painted for. */
+    lateEither(task) {
+      return this.behind(task) || task.due_late;
+    }
     /** Whether one cell satisfies one filter box. */
     matches(task, column2, needle) {
       const text = this.cellText(task, column2);
       const at = this.boundFor(column2);
       if (at === "behind" || at === "ahead") {
-        if (at === "behind") return task.delayed;
-        return task.targets.length > 0 && !task.delayed;
+        const late = this.late(task, column2.key);
+        if (at === "behind") return late;
+        return this.judged(task, column2.key) && !late;
       }
       if (this.choicesFor(column2)) {
         const wanted = needle.split("\n").filter(Boolean);
@@ -1340,7 +1391,8 @@ ${lines.join("\n")}` : "";
         case "targets":
           return task.targets.map((target) => `${short(target.date)} ${target.percent}%`).join(", ");
         case "late":
-          return this.behind(task) ? "\u9045\u5EF6" : "\u9806\u8ABF";
+        case "due_late":
+          return this.late(task, column2.key) ? "\u9045\u308C" : "\u9806\u8ABF";
         default:
           return task.note;
       }
@@ -1369,7 +1421,8 @@ ${lines.join("\n")}` : "";
      */
     answerColumn(column2) {
       if (column2.kind === "days") return t("\u65E5\u6570\u306F\u65E5\u4ED8\u304B\u3089\u6570\u3048\u307E\u3059\u3002");
-      if (column2.key === "late") return t("\u9045\u5EF6\u306F\u4E88\u5B9A\u9032\u6357\u3068\u5B9F\u9032\u6357\u304B\u3089\u6C7A\u307E\u308A\u307E\u3059\u3002");
+      if (column2.key === "late") return t("\u4E88\u5B9A\u9045\u308C\u306F\u4E88\u5B9A\u9032\u6357\u3068\u4E88\u5B9A\u7D42\u4E86\u304B\u3089\u6C7A\u307E\u308A\u307E\u3059\u3002");
+      if (column2.key === "due_late") return t("\u7D0D\u671F\u9045\u308C\u306F\u7D0D\u671F\u3068\u5B9F\u65BD\u7D42\u4E86\u304B\u3089\u6C7A\u307E\u308A\u307E\u3059\u3002");
       if (column2.kind === "variance") return t("\u5DEE\u7570\u306F\u4E88\u5B9A\u3068\u5B9F\u65BD\u306E\u5DEE\u3067\u3059\u3002");
       return null;
     }
@@ -3054,7 +3107,7 @@ ${lines.join("\n")}` : "";
     renderRow(task, index) {
       const row = element("div", "fg-row fg-data");
       row.dataset["index"] = String(index);
-      if (this.behind(task)) row.classList.add("is-delayed");
+      if (this.lateEither(task)) row.classList.add("is-delayed");
       if (index === this.row) row.classList.add("is-current");
       if (task.background) row.style.setProperty("--fg-row-bg", task.background);
       if (task.color) row.style.setProperty("--fg-row-color", task.color);
@@ -3078,10 +3131,10 @@ ${lines.join("\n")}` : "";
           cell.classList.add("is-editing");
           cell.append(this.renderEditor(task, column2));
           if (column2.kind === "date") cell.append(this.renderDatePicker());
-        } else if (column2.key === "late") {
-          if (this.behind(task)) {
-            const mark = element("span", "fg-late-mark", t("\u9045\u5EF6"));
-            mark.title = task.delayed ? t("\u4E88\u5B9A\u9032\u6357\u306B\u5C4A\u3044\u3066\u3044\u307E\u305B\u3093") : t("\u4E88\u5B9A\u7D42\u4E86\u3092\u904E\u304E\u3066\u3001\u5B9F\u65BD\u7D42\u4E86\u304C\u5165\u3063\u3066\u3044\u307E\u305B\u3093");
+        } else if (column2.key === "late" || column2.key === "due_late") {
+          if (this.late(task, column2.key)) {
+            const mark = element("span", "fg-late-mark", t("\u9045\u308C"));
+            mark.title = column2.key === "due_late" ? t("\u7D0D\u671F\u3092\u904E\u304E\u3066\u3044\u307E\u3059") : task.delayed ? t("\u4E88\u5B9A\u9032\u6357\u306B\u5C4A\u3044\u3066\u3044\u307E\u305B\u3093") : t("\u4E88\u5B9A\u7D42\u4E86\u3092\u904E\u304E\u3066\u3001\u5B9F\u65BD\u7D42\u4E86\u304C\u5165\u3063\u3066\u3044\u307E\u305B\u3093");
             cell.append(mark);
           }
         } else if (column2.kind === "name") {
@@ -3749,10 +3802,19 @@ ${lines.join("\n")}` : "";
       }
       const planned = span(task.start, task.end);
       const actual = span(task.actual_start, task.actual_end ?? this.data.today);
-      if (!planned && !actual) return row;
+      const promised = task.due ? span(task.due, task.due) : null;
+      if (promised) {
+        const mark = element("div", "fg-due");
+        if (task.due_late) mark.classList.add("is-late");
+        mark.style.left = `${promised.start * this.dayWidth}px`;
+        mark.style.width = `${this.dayWidth}px`;
+        mark.title = `${t("\u7D0D\u671F")} ${task.due}${task.due_late ? `\uFF08${t("\u9045\u308C")}\uFF09` : ""}`;
+        row.append(mark);
+      }
+      if (!planned && !actual && !promised) return row;
       if (planned) {
         const bar = element("div", "fg-bar");
-        if (this.behind(task)) bar.classList.add("is-delayed");
+        if (this.lateEither(task)) bar.classList.add("is-delayed");
         if (task.has_children) bar.classList.add("is-summary");
         bar.classList.add("is-plan");
         bar.dataset["task"] = task.id;
@@ -3786,22 +3848,22 @@ ${lines.join("\n")}` : "";
         }
         row.append(bar);
         const due = this.shows.targets ? task.targets.filter((target) => target.due) : [];
-        const promised = due.reduce(
+        const promised2 = due.reduce(
           (worst, target) => worst === null || target.percent >= worst.percent ? target : worst,
           null
         );
-        if (promised && promised.percent > task.progress) {
+        if (promised2 && promised2.percent > task.progress) {
           const behind = element("div", "fg-bar-behind");
           behind.style.left = `${task.progress}%`;
-          behind.style.width = `${promised.percent - task.progress}%`;
-          behind.title = `${promised.date} \u307E\u3067\u306B ${promised.percent}%\uFF08\u3044\u307E ${task.progress}%\uFF09`;
+          behind.style.width = `${promised2.percent - task.progress}%`;
+          behind.title = `${promised2.date} \u307E\u3067\u306B ${promised2.percent}%\uFF08\u3044\u307E ${task.progress}%\uFF09`;
           bar.append(behind);
           const label = element(
             "div",
             "fg-target-label is-missed",
-            `${short(promised.date)} ${promised.percent}%`
+            `${short(promised2.date)} ${promised2.percent}%`
           );
-          label.style.left = `${planned.start * this.dayWidth + planned.length * this.dayWidth * promised.percent / 100 + 4}px`;
+          label.style.left = `${planned.start * this.dayWidth + planned.length * this.dayWidth * promised2.percent / 100 + 4}px`;
           label.title = behind.title;
           row.append(label);
         }
@@ -4127,7 +4189,7 @@ ${lines.join("\n")}` : "";
         }
         for (const [label, run] of entries) item(label, "", run);
         if (entries.length > 0) menu.append(element("div", "fg-menu-rule"));
-        for (const key of ["start", "end", "actual_start", "actual_end"]) {
+        for (const key of ["due", "start", "end", "actual_start", "actual_end"]) {
           const target = column(key);
           if (this.editable(task, target)) {
             item(`${t(target.label)}\u2026`, "", () => this.openField(task, target));

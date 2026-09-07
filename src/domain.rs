@@ -19,6 +19,8 @@ pub struct TaskRow {
     pub name: String,
     pub start_date: Option<String>,
     pub end_date: Option<String>,
+    /// 納期: the day this was promised for, whatever the plan says.
+    pub due: Option<String>,
     pub actual_start: Option<String>,
     pub actual_end: Option<String>,
     pub progress: i64,
@@ -46,6 +48,10 @@ pub struct TaskView {
     /// The plan.
     pub start: Option<String>,
     pub end: Option<String>,
+    /// The promise. A different ruler from the plan, measuring a different
+    /// question: the plan says how many days were booked, this says whether the
+    /// day that was named has been met.
+    pub due: Option<String>,
     /// What actually happened, when it is known.
     pub actual_start: Option<String>,
     pub actual_end: Option<String>,
@@ -79,6 +85,12 @@ pub struct TaskView {
     /// never behind — nothing was promised, so nothing was missed. Running past
     /// the planned end is a separate fact, and stays in `overdue`.
     pub delayed: bool,
+    /// Past its 納期 and not finished, or finished after it. A row with no 納期
+    /// is never this: there is no promise to break. Kept apart from `delayed`
+    /// and `overdue`, which are both measured against the plan — this one is
+    /// measured against what was promised, and a row can easily be one without
+    /// being the other.
+    pub due_late: bool,
     /// The colours this row was given. Empty means the row looks like a row.
     pub color: String,
     pub background: String,
@@ -996,6 +1008,7 @@ fn visit<'rows>(
         name: row.name.clone(),
         start: None,
         end: None,
+        due: None,
         actual_start: None,
         actual_end: None,
         progress: 0,
@@ -1012,6 +1025,7 @@ fn visit<'rows>(
         targets: Vec::new(),
         expected: None,
         delayed: false,
+        due_late: false,
         color: row.color.clone(),
         background: row.background.clone(),
         has_children,
@@ -1045,12 +1059,14 @@ fn visit<'rows>(
     } else {
         let start = row.start_date.as_deref().and_then(parse_date);
         let end = row.end_date.as_deref().and_then(parse_date);
+        let due = row.due.as_deref().and_then(parse_date);
         let actual_start = row.actual_start.as_deref().and_then(parse_date);
         let actual_end = row.actual_end.as_deref().and_then(parse_date);
 
         Resolved {
             start,
             end,
+            due,
             actual_start,
             actual_end,
             progress: row.progress.clamp(0, 100),
@@ -1066,6 +1082,15 @@ fn visit<'rows>(
                 }
                 _ => 0,
             },
+            // Nothing is promised without a 納期, so nothing can be missed.
+            // Unfinished and the day has gone by, or finished after it: both
+            // are the promise broken, and neither has anything to do with how
+            // the work was scheduled.
+            due_late: match (due, actual_end) {
+                (Some(due), None) => today > due,
+                (Some(due), Some(actual_end)) => actual_end > due,
+                (None, _) => false,
+            },
             // Filled in below, once this row's own checkpoints are read.
             delayed: false,
         }
@@ -1080,6 +1105,7 @@ fn visit<'rows>(
     let view = &mut out[index];
     view.start = resolved.start.map(|date| date.to_string());
     view.end = resolved.end.map(|date| date.to_string());
+    view.due = resolved.due.map(|date| date.to_string());
     view.actual_start = resolved.actual_start.map(|date| date.to_string());
     view.actual_end = resolved.actual_end.map(|date| date.to_string());
     view.progress = resolved.progress;
@@ -1099,6 +1125,7 @@ fn visit<'rows>(
     view.start_variance = resolved.start_variance;
     view.end_variance = resolved.end_variance;
     view.overdue = resolved.overdue;
+    view.due_late = resolved.due_late;
 
     // Days the waits took out: the difference from counting as if they were not
     // there at all.
@@ -1148,6 +1175,7 @@ fn visit<'rows>(
 struct Resolved {
     start: Option<Date>,
     end: Option<Date>,
+    due: Option<Date>,
     actual_start: Option<Date>,
     actual_end: Option<Date>,
     progress: i64,
@@ -1157,6 +1185,8 @@ struct Resolved {
     start_variance: Option<i64>,
     end_variance: Option<i64>,
     overdue: i64,
+    /// Past a promised day, its own or one inside its subtree.
+    due_late: bool,
     /// Behind a checkpoint — its own, or one inside its subtree. A parent that
     /// is collapsed still has to say that something under it is behind.
     delayed: bool,
@@ -1168,6 +1198,9 @@ struct Resolved {
 fn rollup(children: &[(Resolved, i64)]) -> Resolved {
     let start = children.iter().filter_map(|(child, _)| child.start).min();
     let end = children.iter().filter_map(|(child, _)| child.end).max();
+    // The last day anything under this one was promised for: the day the whole
+    // group has to be done by.
+    let due = children.iter().filter_map(|(child, _)| child.due).max();
     let actual_start = children
         .iter()
         .filter_map(|(child, _)| child.actual_start)
@@ -1211,12 +1244,18 @@ fn rollup(children: &[(Resolved, i64)]) -> Resolved {
     Resolved {
         start,
         end,
+        due,
         actual_start,
         actual_end,
         progress,
         start_variance: sum(&mut children.iter().map(|(child, _)| child.start_variance)),
         end_variance: sum(&mut children.iter().map(|(child, _)| child.end_variance)),
         overdue: children.iter().map(|(child, _)| child.overdue).sum(),
+        // Taken from the children, never worked out again from the date above.
+        // A parent holding a 10/5 and an 11/30 has 11/30 as its own 納期, and
+        // asking that date would say nothing at all until December about the
+        // child that blew its date in October.
+        due_late: children.iter().any(|(child, _)| child.due_late),
         delayed: children.iter().any(|(child, _)| child.delayed),
     }
 }
@@ -1720,6 +1759,64 @@ mod tests {
         text.parse().unwrap()
     }
 
+    /// 納期 is measured against the promise, and only against the promise.
+    #[test]
+    fn a_promise_is_late_only_against_the_day_it_named() {
+        let today = date("2026-09-07");
+
+        let promised = |due: Option<&str>, actual_end: Option<&str>| {
+            let mut task = row("t", None, "", "", 0);
+            task.due = due.map(ToOwned::to_owned);
+            task.actual_end = actual_end.map(ToOwned::to_owned);
+
+            let data = build_for_test("p", 1, today, vec![task]);
+            data.tasks[0].due_late
+        };
+
+        // Nothing promised, nothing missed — however long it has been running.
+        assert!(!promised(None, None));
+        // The day has gone by and it is not finished.
+        assert!(promised(Some("2026-09-01"), None));
+        // Still to come.
+        assert!(!promised(Some("2026-09-30"), None));
+        // Finished, on either side of the day.
+        assert!(!promised(Some("2026-09-30"), Some("2026-09-05")));
+        assert!(promised(Some("2026-09-01"), Some("2026-09-05")));
+    }
+
+    /// A summary row's 納期 is the last of its children's; its lateness is not
+    /// worked out from that date but taken from whichever child broke first.
+    #[test]
+    fn a_summary_says_the_last_day_and_the_first_broken_promise() {
+        let today = date("2026-09-07");
+
+        let mut parent = row("p", None, "", "", 0);
+        parent.due = None;
+
+        let mut soon = row("a", Some("p"), "", "", 0);
+        soon.due = Some("2026-09-01".to_owned());
+
+        let mut later = row("b", Some("p"), "", "", 0);
+        later.due = Some("2026-11-30".to_owned());
+
+        let data = build_for_test("p", 1, today, vec![parent, soon, later]);
+        let summary = &data.tasks[0];
+
+        assert_eq!(summary.due.as_deref(), Some("2026-11-30"));
+        // Worked out from 11/30 this would say nothing until December, and the
+        // child that went past 9/1 would go unseen on the row people read.
+        assert!(summary.due_late);
+    }
+
+    /// The chart has to be able to draw a day nothing else reaches.
+    #[test]
+    fn the_window_opens_far_enough_to_hold_a_promise() {
+        let (start, end) = window(date("2026-09-07"), Some("2026-09-01"), Some("2026-12-25"));
+
+        assert!(start.as_str() < "2026-09-01", "{start}");
+        assert!(end.as_str() > "2026-12-25", "{end}");
+    }
+
     fn row(id: &str, parent: Option<&str>, start: &str, end: &str, progress: i64) -> TaskRow {
         TaskRow {
             id: id.to_owned(),
@@ -1728,6 +1825,7 @@ mod tests {
             name: id.to_owned(),
             start_date: (!start.is_empty()).then(|| start.to_owned()),
             end_date: (!end.is_empty()).then(|| end.to_owned()),
+            due: None,
             progress,
             actual_start: None,
             actual_end: None,

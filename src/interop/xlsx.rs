@@ -17,11 +17,16 @@ const FIRST_TASK_ROW: u32 = 2;
 ///
 /// The export used to carry four columns while the grid grew to sixteen, which
 /// made the spreadsheet a worse copy of the plan than the screen it came from.
-const COLUMNS: [(&str, &str, f64); 16] = [
+const COLUMNS: [(&str, &str, f64); 18] = [
     ("name", "タスク", 34.0),
-    ("late", "遅延", 6.0),
+    // Two rulers, two columns. 予定遅れ is measured against the plan — a
+    // checkpoint missed, or the planned end gone by — and 納期遅れ against the
+    // day somebody was promised. A row is easily one without being the other.
+    ("late", "予定遅れ", 8.0),
+    ("due_late", "納期遅れ", 8.0),
     ("assignee", "担当者", 10.0),
     ("status", "ステータス", 10.0),
+    ("due", "納期", 12.0),
     ("start", "予定開始", 12.0),
     ("end", "予定終了", 12.0),
     ("days", "予定日数", 8.0),
@@ -93,9 +98,14 @@ fn cell_text(task: &crate::domain::TaskView, key: &str) -> String {
             .collect::<Vec<_>>()
             .join(", "),
         "late" => match task.delayed || task.overdue > 0 {
-            true => "遅延".to_owned(),
+            true => "遅れ".to_owned(),
             false => String::new(),
         },
+        "due_late" => match task.due_late {
+            true => "遅れ".to_owned(),
+            false => String::new(),
+        },
+        "due" => task.due.clone().unwrap_or_default(),
         "progress" => format!("{}%", task.progress),
         "status" => task.status.clone(),
         "assignee" => task.assignee.clone(),
@@ -489,6 +499,8 @@ mod tests {
                 name: "設計".to_owned(),
                 start: Some("2026-08-03".to_owned()),
                 end: Some("2026-08-14".to_owned()),
+                due: Some("2026-08-20".to_owned()),
+                due_late: false,
                 progress: 50,
                 days: Some(12),
                 actual_start: None,
@@ -538,7 +550,7 @@ mod tests {
 
         assert_eq!(
             labels(&data),
-            "タスク,遅延,担当者,ステータス,予定開始,予定終了,予定日数,予定進捗,\
+            "タスク,予定遅れ,納期遅れ,担当者,ステータス,納期,予定開始,予定終了,予定日数,予定進捗,\
              実施開始,実施終了,実作業日数,実進捗,開始差異,終了差異,待ち,コメント"
         );
 

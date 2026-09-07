@@ -347,6 +347,9 @@ enum Field {
     Name,
     Start,
     End,
+    /// 納期: the day this was promised for. Not the plan's end — the plan says
+    /// which days are booked, this says which day was named to somebody else.
+    Due,
     Progress,
     Status,
     Assignee,
@@ -426,6 +429,7 @@ fn column_of(field: Field) -> &'static str {
         Field::Name => "name",
         Field::Start => "start_date",
         Field::End => "end_date",
+        Field::Due => "due",
         Field::ActualStart => "actual_start",
         Field::ActualEnd => "actual_end",
         Field::Progress => "progress",
@@ -509,6 +513,14 @@ async fn update_task(cx: &Cx, Json(edit): Json<CellEdit>) -> Result<Json<Mutatio
                 _ => "actual_end = ?1",
             };
             write_cell(cx, &task_id, &user.id, column, date).await?;
+        }
+        // No `check_order`: a 納期 is not one end of a span, and it is perfectly
+        // ordinary for one to sit before the planned start (a date agreed
+        // before the work was scheduled) or long after the planned end (the
+        // slack a plan is read for).
+        Field::Due => {
+            let date = parse_date(value, l)?;
+            write_cell(cx, &task_id, &user.id, "due = ?1", date).await?;
         }
         Field::Progress => {
             let progress: i64 = normalize_width(value)
@@ -750,6 +762,7 @@ fn field_label(field: Field) -> &'static str {
         Field::ActualStart => "実施開始",
         Field::ActualEnd => "実施終了",
         Field::Progress => "実進捗",
+        Field::Due => "納期",
         Field::Status => "ステータス",
         Field::Assignee => "担当者",
         Field::Note => "コメント",
@@ -1915,11 +1928,13 @@ async fn set_view(
 
 /// The built-in columns a project may turn off.
 /// Every built-in column, in the order they are declared.
-pub const COLUMN_KEYS: [&str; 16] = [
+pub const COLUMN_KEYS: [&str; 18] = [
     "name",
     "late",
+    "due_late",
     "assignee",
     "status",
+    "due",
     "start",
     "end",
     "days",
@@ -1934,10 +1949,12 @@ pub const COLUMN_KEYS: [&str; 16] = [
     "note",
 ];
 
-pub const OPTIONAL_COLUMNS: [&str; 15] = [
+pub const OPTIONAL_COLUMNS: [&str; 17] = [
     "late",
+    "due_late",
     "assignee",
     "status",
+    "due",
     "start",
     "end",
     "days",

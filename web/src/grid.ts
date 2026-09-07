@@ -21,6 +21,10 @@ interface Task {
   wait_days: number;
   /** Days past the planned end, on work that has not finished. */
   overdue: number;
+  /** 納期: the day this row was promised for, whatever the plan says. */
+  due: string | null;
+  /** Past that day and unfinished, or finished after it. */
+  due_late: boolean;
   /** 予定進捗: the checkpoints this plan named, in date order. */
   targets: { date: string; percent: number; due: boolean; missed: boolean }[];
   /** The last checkpoint that has come round. `null` when the plan named none. */
@@ -230,18 +234,39 @@ const BASE_COLUMNS: ColumnDef[] = [
   // Late, as a column rather than as red text. A colour cannot be filtered,
   // sorted or exported, and the text colour now belongs to whoever painted the
   // row. A column can be asked a question: show me only these.
+  //
+  // Two of them, because there are two rulers. 予定遅れ is measured against the
+  // plan — a checkpoint the plan named and missed, or a planned end gone by
+  // with nothing finished. 納期遅れ is measured against the day somebody was
+  // promised. They answer different questions and a row is easily one without
+  // being the other, so folding them into one column would lose whichever the
+  // reader was not asking about.
   {
     key: "late",
-    label: "遅延",
+    label: "予定遅れ",
     kind: "select",
     options: [
-      { value: "遅延", color: "", background: "" },
+      { value: "遅れ", color: "", background: "" },
+      { value: "順調", color: "", background: "" },
+    ],
+  },
+  {
+    key: "due_late",
+    label: "納期遅れ",
+    kind: "select",
+    options: [
+      { value: "遅れ", color: "", background: "" },
       { value: "順調", color: "", background: "" },
     ],
   },
   // Who and what state, before any dates: the two things read at a glance.
   { key: "assignee", label: "担当者", kind: "text" },
   { key: "status", label: "ステータス", kind: "status" },
+  // 納期 before the plan, and for two reasons. Most rows in a real plan carry
+  // only this — "by the 30th" has no span — so the column that is actually
+  // filled comes first; and it is the order the question is asked in, which is
+  // by when, then when shall we.
+  { key: "due", label: "納期", kind: "date" },
   // The plan, then what happened, in the same four columns each: when it
   // starts, when it ends, how many days, how far along. Read down one and then
   // the other and the pairs line up.
@@ -271,6 +296,7 @@ const ROLLED_UP: readonly string[] = [
   "actual_days",
   "start",
   "end",
+  "due",
   "actual_start",
   "actual_end",
   "days",
@@ -479,7 +505,13 @@ const EN: Record<string, string> = {
   "条件に合う行がありません。": "Nothing matches.",
   "このプロジェクトは読むだけです。": "You can read this project, not change it.",
   "日数は日付から数えます。": "The day count comes from the dates.",
-  "遅延は予定進捗と実進捗から決まります。": "Late is read from the promised progress against the real one.",
+  "予定遅れ": "Behind plan",
+  "納期遅れ": "Past due",
+  "納期": "Due",
+  "予定遅れは予定進捗と予定終了から決まります。":
+    "Behind plan is read from the promised progress and the planned end.",
+  "納期遅れは納期と実施終了から決まります。": "Past due is read from the due date and the real end.",
+  "納期を過ぎています": "Past the day this was promised for",
   "コメントを書く": "Write a note",
   "全部開く": "Open all",
   "全部閉じる": "Close all",
@@ -2077,17 +2109,48 @@ class Grid {
     return task.delayed || task.overdue > 0;
   }
 
+  /**
+   * Whether this row is late by the ruler this column holds.
+   *
+   * 予定遅れ reads the plan: a checkpoint it named and missed, or a planned end
+   * gone by with nothing finished. 納期遅れ reads the promise, and nothing else.
+   */
+  private late(task: Task, key: string): boolean {
+    return key === "due_late" ? task.due_late : this.behind(task);
+  }
+
+  /**
+   * Whether this row was ever going to be judged by that ruler.
+   *
+   * 順調 is a claim, and a row that promised nothing has not kept anything: it
+   * belongs under neither word. Saying 順調 about it would be the tool making
+   * the claim on the plan's behalf.
+   */
+  private judged(task: Task, key: string): boolean {
+    return key === "due_late"
+      ? task.due !== null
+      : task.targets.length > 0 || task.end !== null;
+  }
+
+  /** The row is late by either ruler, which is what a bar is painted for. */
+  private lateEither(task: Task): boolean {
+    return this.behind(task) || task.due_late;
+  }
+
   /** Whether one cell satisfies one filter box. */
   private matches(task: Task, column: ColumnDef, needle: string): boolean {
     const text = this.cellText(task, column);
     const at = this.boundFor(column);
 
-    // Behind and on track read the checkpoints the plan named. A row that named
-    // none is neither: nothing was promised, so nothing was kept or missed, and
-    // putting it under 順調 would be the tool making the claim for it.
+    // Behind and on track, by whichever ruler this column holds. Asked of the
+    // same reading the cell draws: 遅れ used to answer only the checkpoints
+    // while the cell also said so for a planned end gone by, so a row could be
+    // marked 遅れ on screen and be missing from the rows 遅れ returned.
     if (at === "behind" || at === "ahead") {
-      if (at === "behind") return task.delayed;
-      return task.targets.length > 0 && !task.delayed;
+      const late = this.late(task, column.key);
+      if (at === "behind") return late;
+
+      return this.judged(task, column.key) && !late;
     }
 
     // A column with a list of values is asked "which of these", so the answer is
@@ -2170,10 +2233,11 @@ class Grid {
         // The same shape read or written: `8/20 30%, 8/28 100%`.
         return task.targets.map((target) => `${short(target.date)} ${target.percent}%`).join(", ");
       case "late":
+      case "due_late":
         // Both words, always, so the filter can ask for either. Only one of
         // them is drawn — a column that says 順調 on every quiet row is a
         // column of noise.
-        return this.behind(task) ? "遅延" : "順調";
+        return this.late(task, column.key) ? "遅れ" : "順調";
       default:
         return task.note;
     }
@@ -2214,7 +2278,8 @@ class Grid {
 
     // 遅延 is the reading of the checkpoints against the progress, and a
     // variance is the gap between two dates. Both are answers, not entries.
-    if (column.key === "late") return t("遅延は予定進捗と実進捗から決まります。");
+    if (column.key === "late") return t("予定遅れは予定進捗と予定終了から決まります。");
+    if (column.key === "due_late") return t("納期遅れは納期と実施終了から決まります。");
     if (column.kind === "variance") return t("差異は予定と実施の差です。");
 
     return null;
@@ -4586,7 +4651,8 @@ class Grid {
     // belongs — a field on the island can be a render out of date by the time
     // anything is measured.
     row.dataset["index"] = String(index);
-    if (this.behind(task)) row.classList.add("is-delayed");
+    // Either ruler: the row is drawn as late if anything about it is.
+    if (this.lateEither(task)) row.classList.add("is-delayed");
     if (index === this.row) row.classList.add("is-current");
 
     // The row's own colours, if somebody gave it any. Set as a custom property
@@ -4628,15 +4694,18 @@ class Grid {
         cell.classList.add("is-editing");
         cell.append(this.renderEditor(task, column));
         if (column.kind === "date") cell.append(this.renderDatePicker());
-      } else if (column.key === "late") {
-        // Before the kind-based branches: this column is a select so that its
-        // filter offers 遅延 and 順調, and the select branch would otherwise
-        // print 順調 on every quiet row — a column of noise.
-        if (this.behind(task)) {
-          const mark = element("span", "fg-late-mark", t("遅延"));
-          mark.title = task.delayed
-            ? t("予定進捗に届いていません")
-            : t("予定終了を過ぎて、実施終了が入っていません");
+      } else if (column.key === "late" || column.key === "due_late") {
+        // Before the kind-based branches: these columns are selects so that
+        // their filters offer 遅れ and 順調, and the select branch would
+        // otherwise print 順調 on every quiet row — a column of noise.
+        if (this.late(task, column.key)) {
+          const mark = element("span", "fg-late-mark", t("遅れ"));
+          mark.title =
+            column.key === "due_late"
+              ? t("納期を過ぎています")
+              : task.delayed
+                ? t("予定進捗に届いていません")
+                : t("予定終了を過ぎて、実施終了が入っていません");
           cell.append(mark);
         }
       } else if (column.kind === "name") {
@@ -5585,11 +5654,27 @@ class Grid {
     // length, not a dot.
     const actual = span(task.actual_start, task.actual_end ?? this.data.today);
 
-    if (!planned && !actual) return row;
+    // 納期 is a day, not a length: a mark at the top edge of the row, pointing
+    // down at the column it belongs to. Above the bars rather than on them, so
+    // a row whose plan ends on the day it was promised for still shows both —
+    // and so the gap between the end of the bar and the mark reads as what it
+    // is, which is the slack left in the promise.
+    const promised = task.due ? span(task.due, task.due) : null;
+
+    if (promised) {
+      const mark = element("div", "fg-due");
+      if (task.due_late) mark.classList.add("is-late");
+      mark.style.left = `${promised.start * this.dayWidth}px`;
+      mark.style.width = `${this.dayWidth}px`;
+      mark.title = `${t("納期")} ${task.due}${task.due_late ? `（${t("遅れ")}）` : ""}`;
+      row.append(mark);
+    }
+
+    if (!planned && !actual && !promised) return row;
 
     if (planned) {
       const bar = element("div", "fg-bar");
-      if (this.behind(task)) bar.classList.add("is-delayed");
+      if (this.lateEither(task)) bar.classList.add("is-delayed");
       if (task.has_children) bar.classList.add("is-summary");
       // The height does not depend on whether an actual exists. Bars of differing
       // thickness on one screen look like they mean different things.
@@ -6153,7 +6238,9 @@ class Grid {
       // pulled to where it belongs, but "the 21st" is quicker to say than to
       // aim at. A summary row takes its dates from its children and is left
       // out here, the same as in the table.
-      for (const key of ["start", "end", "actual_start", "actual_end"]) {
+      // 納期 first: it is the date most rows carry, and the one the table puts
+      // ahead of the plan for the same reason.
+      for (const key of ["due", "start", "end", "actual_start", "actual_end"]) {
         const target = column(key);
         if (this.editable(task, target)) {
           item(`${t(target.label)}…`, "", () => this.openField(task, target));

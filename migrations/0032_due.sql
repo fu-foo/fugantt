@@ -1,0 +1,15 @@
+-- 納期: the date something is promised for, as opposed to the days it is
+-- planned to take.
+--
+-- Most rows in a real plan turned out to need only this. "Do it by the 30th"
+-- has no span, and putting one on it to make it visible was a lie that cost
+-- twice: an invented plan on the chart, and days booked against somebody's
+-- capacity that nobody had committed.
+--
+-- Kept apart from 予定終了 rather than replacing it, because the two answer
+-- different questions and a row can hold both — "the customer's date is the
+-- 30th, we mean to do it the 10th to the 25th", where the gap between them is
+-- exactly the slack a plan is read for. Which of them measures what is settled
+-- once, in `domain.rs`: 納期 says whether a promise was kept, 予定 says how
+-- many days were booked.
+ALTER TABLE tasks ADD COLUMN due TEXT;

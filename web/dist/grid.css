@@ -463,6 +463,26 @@ html {
 .fg-day.is-holiday {
   border-right-color: var(--fg-rule-on-tint);
 }
+.fg-due {
+  position: absolute;
+  top: 0;
+  height: 0;
+  pointer-events: auto;
+  z-index: 2;
+}
+.fg-due::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 0;
+  translate: -50% 0;
+  border-left: 5px solid transparent;
+  border-right: 5px solid transparent;
+  border-top: 7px solid var(--fg-summary);
+}
+.fg-due.is-late::before {
+  border-top-color: var(--fg-late);
+}
 .fg-bar-row {
   position: relative;
   height: var(--fg-row-height);

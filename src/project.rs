@@ -311,9 +311,11 @@ pub async fn numbers(cx: &Cx, project: &Project) -> Result<Numbers> {
         .collect();
 
     let tasks = leaves.len();
+    // Both rulers. Counting only the plan's would empty this number out as
+    // soon as a project holds mostly rows that carry a 納期 and no span.
     let delayed = leaves
         .iter()
-        .filter(|task| task.delayed || task.overdue > 0)
+        .filter(|task| task.delayed || task.overdue > 0 || task.due_late)
         .count();
 
     let progress = if tasks == 0 {
@@ -535,7 +537,7 @@ pub async fn reload(cx: &Cx, project_id: &str, role: &str) -> Result<Project> {
 /// The columns a row is worked out from. One list, so the two ways of reading
 /// rows cannot drift apart.
 const TASK_COLUMNS: &str = "id, parent_id, sort_key, name, start_date, end_date,
-     actual_start, actual_end, progress, tags,
+     due, actual_start, actual_end, progress, tags,
      status, assignee, note, waits, targets, color, background";
 
 /// Everything the grid needs to draw the project once.
@@ -617,10 +619,19 @@ async fn chart_window(cx: &Cx, project_id: &str) -> Result<(Option<String>, Opti
         Option<String>,
         Option<String>,
         Option<String>,
+        Option<String>,
+        Option<String>,
     );
 
     let ends = sqlx::query_as::<_, Ends>(
-        "SELECT MIN(start_date), MIN(actual_start), MAX(end_date), MAX(actual_end)
+        // 納期 is asked for at both ends. A row whose only date is a 納期 — and
+        // most rows in a real plan turned out to be exactly that — would
+        // otherwise fall outside the window and draw nothing at all. Folded in
+        // Rust rather than with SQLite's two-argument `max`, which answers NULL
+        // as soon as either side is NULL: one plan with no 納期 in it would
+        // take the actual dates out of the window with it.
+        "SELECT MIN(start_date), MIN(actual_start), MIN(due),
+                MAX(end_date), MAX(actual_end), MAX(due)
            FROM tasks
           WHERE project_id = ?1
             AND id NOT IN (SELECT parent_id FROM tasks WHERE parent_id IS NOT NULL)",
@@ -629,8 +640,8 @@ async fn chart_window(cx: &Cx, project_id: &str) -> Result<(Option<String>, Opti
     .fetch_one(db::pool(cx))
     .await?;
 
-    let first = [ends.0, ends.1].into_iter().flatten().min();
-    let last = [ends.2, ends.3].into_iter().flatten().max();
+    let first = [ends.0, ends.1, ends.2].into_iter().flatten().min();
+    let last = [ends.3, ends.4, ends.5].into_iter().flatten().max();
 
     Ok((first, last))
 }
@@ -1378,7 +1389,7 @@ pub async fn import_project(
                         start_date = ?6, end_date = ?7, actual_start = ?8, actual_end = ?9,
                         progress = ?10, status = ?11, assignee = ?12, note = ?13, waits = ?14,
                         targets = ?15, color = ?16, background = ?17,
-                        updated_at = ?18, updated_by = ?19
+                        updated_at = ?18, updated_by = ?19, due = ?20
                   WHERE id = ?1 AND project_id = ?2",
             )
         } else {
@@ -1386,9 +1397,9 @@ pub async fn import_project(
                 "INSERT INTO tasks (id, project_id, parent_id, sort_key, name,
                                     start_date, end_date, actual_start, actual_end,
                                     progress, status, assignee, note, waits, targets,
-                                    color, background, updated_at, updated_by)
+                                    color, background, updated_at, updated_by, due)
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15,
-                         ?16, ?17, ?18, ?19)",
+                         ?16, ?17, ?18, ?19, ?20)",
             )
         }
         .bind(&id)
@@ -1413,6 +1424,7 @@ pub async fn import_project(
         // points at an account, and inventing one would put a name on work
         // nobody did.
         .bind((!user_id.is_empty()).then_some(user_id))
+        .bind(&task.due)
         .execute(&mut *tx)
         .await?;
 

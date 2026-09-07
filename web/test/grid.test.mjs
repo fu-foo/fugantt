@@ -175,7 +175,7 @@ const COLUMN = Object.fromEntries(
  * one of them at once.
  */
 const ALL_COLUMNS = [
-  "name", "late", "assignee", "status", "start", "end", "days", "targets",
+  "name", "late", "due_late", "assignee", "status", "due", "start", "end", "days", "targets",
   "actual_start", "actual_end", "actual_days", "progress",
   "start_variance", "end_variance", "waits", "note",
 ];
@@ -212,9 +212,13 @@ const selectCell = (row, column) => {
   return page.evaluate(
     (row, column) => {
       const rows = [...document.querySelectorAll(".fg-pane-left .fg-row.fg-data")];
-      rows[row]
-        .querySelectorAll(".fg-cell")
-        [column].dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+      const cells = rows[row].querySelectorAll(".fg-cell");
+      if (!cells[column]) {
+        throw new Error(
+          `${column} 列目が無い: いま ${cells.length} 列 — ${[...document.querySelectorAll(".fg-heading .fg-cell")].map((c) => c.textContent.trim()).join(",")}`,
+        );
+      }
+      cells[column].dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
 
       // 作った event は選択を動かすが、フォーカスは動かさない。本物のクリックとの
       // この違いのせいで、直前に Escape などでフォーカスが表の外へ出ていると、
@@ -1003,26 +1007,10 @@ check(
 );
 
 // 元に戻す
-await page.evaluate(async () => {
+await page.evaluate(async (all) => {
   const columns = new URLSearchParams();
-  for (const key of [
-    "name",
-    "late",
-    "start",
-    "end",
-    "actual_start",
-    "actual_end",
-    "days",
-    "actual_days",
-    "start_variance",
-    "end_variance",
-    "targets",
-    "progress",
-    "status",
-    "assignee",
-    "note",
-    "waits",
-  ]) {
+  // 手で書いた一覧は、後から足した列を必ず忘れる。ALL_COLUMNS を通す。
+  for (const key of all) {
     columns.set(`column_${key}`, "1");
   }
   columns.set("move", "up:start");
@@ -1033,7 +1021,7 @@ await page.evaluate(async () => {
   view.set("skip_leave", "1");
   view.set("quarters", "1");
   await fetch("/projects/test-project/view", { method: "POST", body: view });
-});
+}, ALL_COLUMNS);
 await page.reload({ waitUntil: "domcontentloaded" });
 await page.waitForSelector(".fg-grid");
 await settle();
@@ -1871,27 +1859,11 @@ execFileSync("sh", [join(here, "seed.sh"), DB, EMAIL], { stdio: "inherit" });
 /** The view form rewrites every column, so each post has to carry them all. */
 const setView = (extra = {}) =>
   page.evaluate(
-    async (extra) => {
+    async (extra, all) => {
       // 列は別のフォーム、それ以外は表示の設定。どちらも受け取ったものだけを見る。
+      // 一覧はここで書かない——書いた一覧は、後から足した列を必ず忘れる。
       const columns = new URLSearchParams();
-      for (const key of [
-        "name",
-        "late",
-        "start",
-        "end",
-        "actual_start",
-        "actual_end",
-        "days",
-        "actual_days",
-        "start_variance",
-        "end_variance",
-        "targets",
-        "progress",
-        "status",
-        "assignee",
-        "note",
-        "waits",
-      ]) {
+      for (const key of all) {
         columns.set(`column_${key}`, "1");
       }
       await fetch("/projects/test-project/columns", { method: "POST", body: columns });
@@ -1905,6 +1877,7 @@ const setView = (extra = {}) =>
       await fetch("/projects/test-project/view", { method: "POST", body });
     },
     extra,
+    ALL_COLUMNS,
   );
 
 /**
@@ -2675,6 +2648,12 @@ const typeNote = async (text) => {
   await settle();
   await page.evaluate((value) => {
     const box = document.querySelector(".fg-dialog-prose");
+    if (!box) {
+      const cell = document.querySelector(".fg-cell.is-selected");
+      throw new Error(
+        `コメントのダイアログが開かない: 選択セル ${cell?.className} / 見出し ${[...document.querySelectorAll(".fg-heading .fg-cell")].map((c) => c.textContent.trim()).join(",")}`,
+      );
+    }
     box.value = value;
     document.querySelector(".fg-dialog-save").click();
   }, text);
@@ -4067,8 +4046,8 @@ const lateColumn = await page.evaluate(async () => {
 });
 
 check(
-  "遅延は列として、タスクのすぐ右に出る",
-  lateColumn.place.join(",") === "タスク,遅延,担当者",
+  "遅れは列として、タスクのすぐ右に出る",
+  lateColumn.place.join(",") === "タスク,予定遅れ,納期遅れ",
   lateColumn.place.join(","),
 );
 check(
@@ -4083,9 +4062,9 @@ check(
 );
 
 // 列になったので絞り込める。ここが「マークではなく列」にした理由。
-await filterBy("遅延", "遅延");
+await filterBy("予定遅れ", "遅れ");
 const onlyLate = (await state()).names;
-await filterBy("遅延", "順調");
+await filterBy("予定遅れ", "順調");
 const onlyFine = (await state()).names;
 await clearFilters();
 
@@ -4093,8 +4072,9 @@ await clearFilters();
 // 残るので、重なってはいけないのは葉のほうだけ。
 const aggregates = await page.evaluate(async () => {
   const grid = await (await fetch("/api/projects/test-project/grid")).json();
-  const parents = new Set(grid.tasks.map((task) => task.parent_id).filter(Boolean));
-  return grid.tasks.filter((task) => parents.has(task.id)).map((task) => task.name);
+  // 親子は `has_children` で言う。`parent_id` は画面が使わないので送っていない
+  // ——読めば毎回 undefined になり、集計行が1つも見つからない。
+  return grid.tasks.filter((task) => task.has_children).map((task) => task.name);
 });
 const leavesOf = (names) => names.filter((name) => !aggregates.includes(name));
 
@@ -4236,7 +4216,7 @@ await page.evaluate(async () => {
 // --- 空き検索 ---------------------------------------------------------------
 
 // 「山田は今月どれくらい空いてる？」は、チャートを指で追って数える質問だった。
-const capacity = await page.evaluate(async () => {
+const capacity = await page.evaluate(async (months) => {
   const read = async (query) => {
     const html = await (await fetch(`/projects/test-project/capacity${query}`)).text();
     const doc = new DOMParser().parseFromString(html, "text/html");
@@ -4248,11 +4228,21 @@ const capacity = await page.evaluate(async () => {
   };
 
   return {
-    august: await read("?from=2026-08&to=2026-08"),
+    // 今月。種は今日から数えて蒔かれるので、決め打ちの月はいつか仕事の無い月に
+    // なる——そのときだけ「日付が出ない」ように見える。
+    august: await read(`?from=${months.now}&to=${months.now}`),
     // 期間は月単位で、任意に選べる。
-    autumn: await read("?from=2026-09&to=2026-10"),
+    autumn: await read(`?from=${months.next}&to=${months.after}`),
   };
-});
+}, (() => {
+  const at = (ahead) => {
+    const day = new Date(`${today()}T00:00:00`);
+    day.setMonth(day.getMonth() + ahead);
+    return day.toLocaleDateString("sv-SE").slice(0, 7);
+  };
+
+  return { now: at(0), next: at(1), after: at(2) };
+})());
 
 check(
   "空き検索は担当者ごとに、稼働可能日数・割当済・空き日数・重複を出す",
@@ -5846,7 +5836,7 @@ const refusals = await (async () => {
 
 check(
   "打てないセルは、そのセルの理由を言う",
-  refusals.遅延.includes("遅延は") &&
+  refusals.遅延.includes("予定遅れは") &&
     refusals.日数.includes("日数は") &&
     refusals.差異.includes("差異は") &&
     refusals.ふつうのセル === "編集が開いた",
@@ -6056,7 +6046,10 @@ check(
 const dayNote = await (async () => {
   const 入れる = execFileSync("sqlite3", [
     DB,
-    "INSERT OR REPLACE INTO app_holidays (date, name) VALUES ('2026-08-24','山の日（振替）')",
+    // 今日から数える。固定の日付にすると、いつか窓の外へ出て、そのときだけ
+    // 「マウスを乗せても何も出ない」に見える——出ていないのではなく、画面外の
+    // どこかを指している。
+    "INSERT OR REPLACE INTO app_holidays (date, name) VALUES (date('now','+3 day'),'山の日（振替）')",
   ]);
   void 入れる;
 
@@ -6083,7 +6076,7 @@ const dayNote = await (async () => {
   await settle();
   const 残る = await page.evaluate(() => !!document.querySelector(".fg-day-note"));
 
-  execFileSync("sqlite3", [DB, "DELETE FROM app_holidays WHERE date = '2026-08-24'"]);
+  execFileSync("sqlite3", [DB, "DELETE FROM app_holidays WHERE date = date('now','+3 day')"]);
 
   return { 出た, 見出しの吹き出し, 残る };
 })();
@@ -6170,6 +6163,226 @@ const dayWidth = await (async () => {
 check("日の幅の設定は列の幅になる", dayWidth.pitch === 14, JSON.stringify(dayWidth));
 check("幅を変えてもバーは日付の上から動かない", dayWidth.worst < 0.02, JSON.stringify(dayWidth));
 check("今日の線は見出しの今日と同じ場所", dayWidth.todayGap === 0, JSON.stringify(dayWidth));
+
+// --- 納期 -------------------------------------------------------------------
+
+// 大半のタスクは「この日までにやればOK」で、期間を持たない。期間を置かせると
+// 嘘の予定がチャートに出て、その人の稼働まで食う。
+execFileSync("sh", [join(here, "seed.sh"), DB, EMAIL], { stdio: "inherit" });
+await page.goto(`${BASE}/projects/test-project`, { waitUntil: "domcontentloaded" });
+await page.waitForSelector(".fg-grid");
+await settle();
+await refreshColumns();
+
+const promise = await page.evaluate(async (soon, gone) => {
+  const write = (id, field, value) =>
+    fetch(`/api/projects/test-project/tasks/${id}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ field, value }),
+    });
+
+  // 予定を持たない行に納期だけ。もう一つは、予定を外して過ぎた納期だけにする
+  // ——2本のものさしを別々に見るには、片方しか持たない行が要る。
+  await write("t-rev", "due", soon);
+  await write("t-doc", "start", "");
+  await write("t-doc", "end", "");
+  await write("t-doc", "targets", "");
+  await write("t-doc", "due", gone);
+  await new Promise((done) => setTimeout(done, 500));
+
+  const grid = await (await fetch("/api/projects/test-project/grid")).json();
+  const of = (name) => grid.tasks.find((task) => task.name === name);
+
+  return {
+    soon: { due: of("レビュー").due, late: of("レビュー").due_late },
+    gone: { due: of("ドキュメント整備").due, late: of("ドキュメント整備").due_late },
+    // 集計行は子の最大を言い、遅れは子から吸い上げる。
+    summary: { due: of("開発").due, late: of("開発").due_late },
+    windowEnd: grid.range_end,
+  };
+}, today(), "2020-01-06");
+
+check(
+  "納期は予定と別に持てる",
+  promise.soon.due !== null && promise.gone.due === "2020-01-06",
+  JSON.stringify(promise),
+);
+check(
+  "過ぎた納期は納期遅れになり、これからの納期はならない",
+  promise.gone.late === true && promise.soon.late === false,
+  JSON.stringify(promise),
+);
+check(
+  "チャートの窓は納期まで開く",
+  promise.windowEnd >= promise.soon.due,
+  `${promise.windowEnd} / ${promise.soon.due}`,
+);
+
+await page.reload({ waitUntil: "domcontentloaded" });
+await page.waitForSelector(".fg-grid");
+await settle();
+await refreshColumns();
+
+const dueMark = await page.evaluate(() => {
+  const named = [...document.querySelectorAll(".fg-pane-left .fg-row.fg-data .fg-cell-name")].map(
+    (c) => c.textContent.trim(),
+  );
+  const rows = [...document.querySelectorAll(".fg-bar-row")];
+  const at = (name) => rows[named.findIndex((n) => n.includes(name))];
+
+  const soon = at("レビュー")?.querySelector(".fg-due");
+  const gone = at("ドキュメント整備")?.querySelector(".fg-due");
+  const plain = at("実装")?.querySelector(".fg-due");
+
+  return {
+    drawn: !!soon,
+    // 期限を過ぎた印だけ色が変わる。
+    lateMark: gone?.classList.contains("is-late") ?? null,
+    onTimeMark: soon?.classList.contains("is-late") ?? null,
+    // 納期を持たない行には印が無い。
+    none: plain === null,
+    title: soon?.title ?? "",
+  };
+});
+
+check("納期はチャートに印として出る", dueMark.drawn && dueMark.none, JSON.stringify(dueMark));
+check(
+  "過ぎた納期の印だけ色が変わる",
+  dueMark.lateMark === true && dueMark.onTimeMark === false,
+  JSON.stringify(dueMark),
+);
+
+// 2本のものさし。段取りの遅れと、約束の遅れは別の列で言う。
+const rulers = await page.evaluate(() => {
+  const heads = [...document.querySelectorAll(".fg-heading .fg-cell")].map((c) =>
+    c.textContent.trim(),
+  );
+  const named = [...document.querySelectorAll(".fg-pane-left .fg-row.fg-data .fg-cell-name")].map(
+    (c) => c.textContent.trim(),
+  );
+  const rows = [...document.querySelectorAll(".fg-pane-left .fg-row.fg-data")];
+  const mark = (name, column) =>
+    !!rows[named.findIndex((n) => n.includes(name))]?.querySelector(`.fg-cell-${column} .fg-late-mark`);
+
+  return {
+    heads: heads.slice(0, 3),
+    // 納期だけを持って過ぎている行は、納期遅れに出て、予定遅れには出ない。
+    dueOnly: { due: mark("ドキュメント整備", "due_late"), plan: mark("ドキュメント整備", "late") },
+  };
+});
+
+check(
+  "遅れは2列に分かれている",
+  rulers.heads.join(",") === "タスク,予定遅れ,納期遅れ",
+  rulers.heads.join(","),
+);
+check(
+  "納期の遅れは納期遅れの列にだけ出る",
+  rulers.dueOnly.due === true && rulers.dueOnly.plan === false,
+  JSON.stringify(rulers),
+);
+
+// --- 日付の速記 ---------------------------------------------------------------
+
+// 桁数だけで決まる。1〜2桁は当月の日、3〜4桁は当年の月日。
+const shorthand = await page.evaluate(async () => {
+  const write = async (value) => {
+    await fetch("/api/projects/test-project/tasks/t-imp", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ field: "due", value }),
+    });
+    const grid = await (await fetch("/api/projects/test-project/grid")).json();
+    return grid.tasks.find((task) => task.id === "t-imp").due;
+  };
+
+  return { one: await write("5"), two: await write("12"), three: await write("305") };
+});
+
+const thisMonth = today().slice(0, 7);
+check(
+  "1〜2桁は当月のその日",
+  shorthand.one === `${thisMonth}-05` && shorthand.two === `${thisMonth}-12`,
+  JSON.stringify(shorthand),
+);
+check(
+  "3桁は先頭に0を補って当年の月日",
+  shorthand.three === `${today().slice(0, 4)}-03-05`,
+  JSON.stringify(shorthand),
+);
+
+// --- 全部開く・全部閉じる -------------------------------------------------------
+
+const folding = await page.evaluate(async () => {
+  const button = (label) =>
+    [...document.querySelectorAll(".fg-toolbar .fg-button")].find(
+      (b) => b.textContent.trim() === label,
+    );
+  const rows = () => document.querySelectorAll(".fg-pane-left .fg-row.fg-data").length;
+
+  button("全部閉じる")?.click();
+  await new Promise((done) => setTimeout(done, 300));
+  const closed = rows();
+
+  button("全部開く")?.click();
+  await new Promise((done) => setTimeout(done, 300));
+
+  return { closed, opened: rows() };
+});
+
+check(
+  "全部閉じると子が隠れ、全部開くと戻る",
+  folding.closed < folding.opened,
+  JSON.stringify(folding),
+);
+
+// --- 集計行に入れないもの -------------------------------------------------------
+
+const parentCells = await page.evaluate(() => {
+  const named = [...document.querySelectorAll(".fg-pane-left .fg-row.fg-data .fg-cell-name")].map(
+    (c) => c.textContent.trim(),
+  );
+  const at = named.findIndex((n) => n.includes("開発"));
+  const row = [...document.querySelectorAll(".fg-pane-left .fg-row.fg-data")][at];
+
+  return {
+    // 待ちと予定進捗は子で管理するので、親には入口を出さない。
+    waits: !!row.querySelector(".fg-cell-waits .fg-wait-edit"),
+    targets: !!row.querySelector(".fg-cell-targets .fg-wait-edit"),
+    // コメントは親にも書ける。
+    note: !!row.querySelector(".fg-cell-note .fg-wait-edit"),
+  };
+});
+
+check(
+  "集計行では待ちと予定進捗を打てず、コメントは打てる",
+  !parentCells.waits && !parentCells.targets && parentCells.note,
+  JSON.stringify(parentCells),
+);
+
+// --- 自動算出の列 ---------------------------------------------------------------
+
+const answers = await page.evaluate(() => {
+  const head = (key) => document.querySelector(`.fg-heading .fg-cell-${key}`);
+
+  return {
+    marked: ["days", "late", "due_late", "start_variance"].every((key) =>
+      head(key)?.classList.contains("is-answer"),
+    ),
+    reason: head("days")?.title ?? "",
+    // 打てる列には印を出さない。
+    plain: ["name", "start", "due", "note"].every(
+      (key) => !head(key)?.classList.contains("is-answer"),
+    ),
+  };
+});
+
+check(
+  "計算で決まる列は見出しでそう言う",
+  answers.marked && answers.plain && answers.reason.includes("日数は日付から"),
+  JSON.stringify(answers),
+);
 
 check("JavaScript エラーが出ていない", pageErrors.length === 0, pageErrors.join(" / "));
 

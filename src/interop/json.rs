@@ -129,6 +129,10 @@ pub struct Task {
     pub start: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub end: Option<String>,
+    /// 納期. Optional on the way in, so every document written before it
+    /// existed still reads.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub due: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub actual_start: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -253,6 +257,7 @@ pub fn write(project_name: &str, data: &GridData, extras: Option<Extras>) -> Str
                 // moves. They are rebuilt on the way back in.
                 start: (!task.has_children).then(|| task.start.clone()).flatten(),
                 end: (!task.has_children).then(|| task.end.clone()).flatten(),
+                due: (!task.has_children).then(|| task.due.clone()).flatten(),
                 actual_start: (!task.has_children)
                     .then(|| task.actual_start.clone())
                     .flatten(),

@@ -3134,7 +3134,7 @@ fn parse_date(value: &str, l: crate::i18n::Lang) -> Result<Option<String>> {
     }
 
     let date = flexible_date(value).ok_or_else(|| {
-        bad_request(l.t("日付は 20260805・8/5・2026-08-05 のように入力してください。"))
+        bad_request(l.t("日付は 5・805・0805・20260805・8/5・2026-08-05 のように入力してください。"))
     })?;
 
     Ok(Some(date.to_string()))
@@ -3142,9 +3142,15 @@ fn parse_date(value: &str, l: crate::i18n::Lang) -> Result<Option<String>> {
 
 /// A date, however somebody typed it.
 ///
-/// Nobody reaches for the hyphens: on a numeric keypad `20260805` and `0805`
-/// are the fast ways to say a day, and `8/5` is how it gets written by hand.
-/// All of them mean a day, so all of them are accepted.
+/// Nobody reaches for the hyphens: on a numeric keypad `20260805`, `0805`,
+/// `805` and `05` are the fast ways to say a day, and `8/5` is how it gets
+/// written by hand. All of them mean a day, so all of them are accepted.
+///
+/// Bare digits are read by how many there are: one or two are a day this
+/// month, three or four a day this year, eight a whole date. Nothing is
+/// carried forward — `3` on the 28th of December is the third of December, in
+/// the past. Most of what gets typed into 実施開始 is in the past, and a
+/// reading that helpfully moved it on would make yesterday impossible to say.
 pub fn flexible_date(value: &str) -> Option<Date> {
     // 年, 月 and 日 read as separators; a trailing 日 is only punctuation.
     let value = normalize_width(value)
@@ -3152,17 +3158,27 @@ pub fn flexible_date(value: &str) -> Option<Date> {
         .replace(['/', '.', '年', '月'], "-")
         .replace('日', "");
     let value = value.trim_end_matches('-').to_owned();
-    let year = jiff::Zoned::now().date().year();
+    let today = jiff::Zoned::now().date();
+    let year = today.year();
+    let month = today.month();
 
-    // Bare digits: eight of them are a whole date, four are a day this year.
     if value.chars().all(|c| c.is_ascii_digit()) {
-        return match value.len() {
-            8 => format!("{}-{}-{}", &value[..4], &value[4..6], &value[6..])
+        // Only the odd lengths that mean something. Padding any odd length
+        // would let seven digits fall into the whole-date reading and come
+        // back as the year 26.
+        let padded = match value.len() {
+            1 | 3 => format!("0{value}"),
+            _ => value.clone(),
+        };
+
+        return match padded.len() {
+            8 => format!("{}-{}-{}", &padded[..4], &padded[4..6], &padded[6..])
                 .parse()
                 .ok(),
-            4 => format!("{year}-{}-{}", &value[..2], &value[2..])
+            4 => format!("{year}-{}-{}", &padded[..2], &padded[2..])
                 .parse()
                 .ok(),
+            2 => format!("{year}-{month:02}-{padded}").parse().ok(),
             _ => None,
         };
     }
@@ -3279,6 +3295,41 @@ mod tests {
             flexible_date("２０２６－０８－０５").map(|date| date.to_string()),
             Some("2026-08-05".to_owned())
         );
+    }
+
+    /// How many digits there are is the whole of the reading.
+    #[test]
+    fn a_short_number_is_a_day_close_to_hand() {
+        let today = jiff::Zoned::now().date();
+        let (year, month) = (today.year(), today.month());
+
+        // One or two digits: a day this month, this year.
+        assert_eq!(
+            flexible_date("5").map(|date| date.to_string()),
+            Some(format!("{year}-{month:02}-05"))
+        );
+        assert_eq!(
+            flexible_date("12").map(|date| date.to_string()),
+            Some(format!("{year}-{month:02}-12"))
+        );
+        // Three or four: a month and a day, this year. `12` is the twelfth and
+        // `1225` is Christmas, and the count of digits is what says which.
+        assert_eq!(
+            flexible_date("305").map(|date| date.to_string()),
+            Some(format!("{year}-03-05"))
+        );
+        assert_eq!(
+            flexible_date("1225").map(|date| date.to_string()),
+            Some(format!("{year}-12-25"))
+        );
+        // Lengths that mean nothing stay meaning nothing. Seven digits must not
+        // be padded into a whole date: `0260805` would come back as the year 26.
+        assert_eq!(flexible_date("12345"), None);
+        assert_eq!(flexible_date("123456"), None);
+        assert_eq!(flexible_date("0260805"), None);
+        // A day that is not there is not a date.
+        assert_eq!(flexible_date("0231"), None);
+        assert_eq!(flexible_date("0"), None);
     }
 
     #[test]

@@ -219,6 +219,7 @@
     "\u30B9\u30B1\u30B8\u30E5\u30FC\u30EB\u3092\u8AAD\u307F\u8FBC\u3081\u307E\u305B\u3093\u3067\u3057\u305F\u3002\u518D\u8AAD\u307F\u8FBC\u307F\u3057\u3066\u304F\u3060\u3055\u3044\u3002": "Could not load the schedule. Please reload."
   };
   var LANG = "ja";
+  var TODAY = "";
   function t(ja) {
     return LANG === "en" ? EN[ja] ?? ja : ja;
   }
@@ -297,11 +298,15 @@
   }
   function flexibleDate(text) {
     const value = normalizeWidth(text).trim().replace(/[/.年月]/g, "-").replace(/日/g, "").replace(/-+$/, "");
-    const year = (/* @__PURE__ */ new Date()).getUTCFullYear();
+    const today = TODAY || (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+    const year = today.slice(0, 4);
+    const month = today.slice(5, 7);
     let iso = null;
     if (/^\d+$/.test(value)) {
-      if (value.length === 8) iso = `${value.slice(0, 4)}-${value.slice(4, 6)}-${value.slice(6)}`;
-      else if (value.length === 4) iso = `${year}-${value.slice(0, 2)}-${value.slice(2)}`;
+      const digits = value.length === 1 || value.length === 3 ? `0${value}` : value;
+      if (digits.length === 8) iso = `${digits.slice(0, 4)}-${digits.slice(4, 6)}-${digits.slice(6)}`;
+      else if (digits.length === 4) iso = `${year}-${digits.slice(0, 2)}-${digits.slice(2)}`;
+      else if (digits.length === 2) iso = `${year}-${month}-${digits}`;
     } else {
       const parts = value.split("-").filter(Boolean);
       const pad = (part, width) => part.padStart(width, "0");
@@ -524,6 +529,7 @@
       this.lastPress = null;
       this.collapsed = loadCollapsed(projectId);
       LANG = data.language === "en" ? "en" : "ja";
+      TODAY = data.today;
       this.computeVisible();
       this.root.addEventListener("keydown", (event) => this.onKeyDown(event));
       window.addEventListener("resize", () => this.pinColumns());
@@ -608,6 +614,7 @@
     setData(grid) {
       this.data = grid;
       LANG = grid.language === "en" ? "en" : "ja";
+      TODAY = grid.today;
       this.computeVisible();
     }
     /**

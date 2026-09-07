@@ -198,6 +198,14 @@ interface ColumnDef {
     | "suggest";
   /** Set for project-defined columns; the built-ins live on the task itself. */
   fieldId?: string;
+  /**
+   * This column's own width, when the kind's default is wrong for it.
+   *
+   * Kinds are shared — five columns are `text` — so a width set there is a width
+   * set for all of them. Only a column that genuinely differs from its kind
+   * names one here.
+   */
+  width?: string;
   options?: { value: string; color: string; background: string }[];
 }
 
@@ -254,7 +262,8 @@ const BASE_COLUMNS: ColumnDef[] = [
   { key: "waits", label: "待ち", kind: "text" },
   // Last on purpose: free text is the widest column and the least often read,
   // so it is the one that should run off the edge rather than push anything.
-  { key: "note", label: "コメント", kind: "text" },
+  // Wider than its kind because it holds sentences, not a value.
+  { key: "note", label: "コメント", kind: "text", width: "12rem" },
 ];
 
 /** Columns a summary row takes from its children rather than its own row. */
@@ -756,8 +765,19 @@ function saveCollapsed(projectId: string, collapsed: Set<string>): void {
 }
 
 /** How wide each kind of column wants to be, as a grid track. */
+/**
+ * How wide each kind of column is.
+ *
+ * Every one of them is a fixed length, and that is the point: a track that
+ * sizes itself to its contents changes width as the plan is scrolled, because
+ * only the rows on screen are in the document. A column that moves for reasons
+ * the reader cannot see is worse than a column that is slightly too narrow —
+ * the narrow one can be dragged, and the drag is a decision somebody made.
+ *
+ * Widths that differ from their kind are named on the column itself.
+ */
 const TRACKS: Record<ColumnDef["kind"], string> = {
-  name: "minmax(11rem, 1.6fr)",
+  name: "18rem",
   date: "6.5rem",
   // These three carry a direction button in the filter row as well as their
   // own short values, and a 3.4rem column has no room for both.
@@ -765,10 +785,10 @@ const TRACKS: Record<ColumnDef["kind"], string> = {
   variance: "4.8rem",
   progress: "4.6rem",
   status: "5.5rem",
-  text: "minmax(5rem, 0.8fr)",
-  suggest: "minmax(5rem, 0.8fr)",
+  text: "5.5rem",
+  suggest: "5.5rem",
   number: "4.5rem",
-  select: "minmax(5rem, 0.6fr)",
+  select: "5.5rem",
 };
 
 /**
@@ -792,6 +812,45 @@ const TEXT_COLOURS = ["#0f172a", "#b91c1c", "#a16207", "#15803d", "#1d4ed8", "#7
 
 const PANE_KEY = "fugantt:pane-width";
 const SHOWS_KEY = "fugantt:chart-shows";
+const WIDTHS_KEY = "fugantt:column-widths";
+
+/**
+ * The widths this browser was dragged to, by column key.
+ *
+ * Kept beside the pane width and for the same reason: it is one reader's view
+ * of the plan, not a decision about the plan. The project's own widths are a
+ * setting, shared by everyone; these sit on top and belong to whoever dragged
+ * them.
+ */
+function loadColumnWidths(): Record<string, number> {
+  try {
+    const stored = window.localStorage.getItem(WIDTHS_KEY);
+    if (!stored) return {};
+
+    const read: unknown = JSON.parse(stored);
+    if (typeof read !== "object" || read === null) return {};
+
+    const widths: Record<string, number> = {};
+    for (const [key, value] of Object.entries(read as Record<string, unknown>)) {
+      if (typeof value === "number" && Number.isFinite(value) && value >= MIN_COLUMN_WIDTH) {
+        widths[key] = value;
+      }
+    }
+
+    return widths;
+  } catch {
+    // A browser that refuses storage, or a value left by an older version.
+    return {};
+  }
+}
+
+/**
+ * Narrower than this and the column cannot be aimed at any more.
+ *
+ * An empty cell with no width is a cell nobody can click, which is exactly the
+ * state a column is in before anyone types in it.
+ */
+const MIN_COLUMN_WIDTH = 40;
 
 /** What gets drawn over the chart. More of it says more, and reads worse. */
 type Shows = { start: boolean; end: boolean; worked: boolean; targets: boolean };
@@ -944,6 +1003,9 @@ class Grid {
   private filterFocus: { key: string; caret: number | null } | null = null;
   /** How much of the width the left pane takes, dragged by the splitter. */
   private paneWidth = loadPaneWidth();
+
+  /** This browser's own column widths, over the project's. */
+  private widths = loadColumnWidths();
   /** Whether the table pane still needs holding back to half the window. */
   private capPaneWidth = false;
   /** The last cell pressed, for spotting a double-click ourselves. */
@@ -4086,12 +4148,7 @@ class Grid {
 
     // The columns are data now, so the track list has to be too: a fixed one
     // sends the extra columns onto a second, implicit row.
-    const tracks = this.columns
-      .map((column) => {
-        const width = this.data.column_widths[column.key];
-        return width ? `${width}px` : TRACKS[column.kind];
-      })
-      .join(" ");
+    const tracks = this.trackList();
 
     const headings = element("div", "fg-row fg-heading");
     headings.style.gridTemplateColumns = tracks;
@@ -4105,6 +4162,7 @@ class Grid {
         heading.title = t("土日・祝日を除いた営業日で数えています");
       }
       if (index < this.data.frozen_columns) heading.classList.add("is-frozen");
+      heading.append(this.renderColumnGrip(column));
       headings.append(heading);
     });
     // Filters above the headings, so the labels sit directly over the data.
@@ -4266,6 +4324,98 @@ class Grid {
     });
 
     return grid;
+  }
+
+  /**
+   * The grid's track list, from the widest claim to the narrowest.
+   *
+   * Three of them, in order: what this browser was dragged to, what the project
+   * set, and what the column is by default. Every row in the table is laid out
+   * from this one string, so there is one answer rather than one per row.
+   */
+  private trackList(): string {
+    return this.columns
+      .map((column) => {
+        const mine = this.widths[column.key];
+        if (mine) return `${mine}px`;
+
+        const set = this.data.column_widths[column.key];
+        return set ? `${set}px` : (column.width ?? TRACKS[column.kind]);
+      })
+      .join(" ");
+  }
+
+  /** Lays every row out again, without rebuilding any of them. */
+  private applyTracks(): void {
+    const tracks = this.trackList();
+
+    for (const row of this.root.querySelectorAll<HTMLElement>(".fg-pane-left .fg-row")) {
+      row.style.gridTemplateColumns = tracks;
+    }
+
+    // Measured, so it has to run after the tracks land.
+    this.pinColumns();
+  }
+
+  /**
+   * The handle on a column's right edge.
+   *
+   * The width it sets is this browser's, not the project's: "let me see it
+   * wider for a minute" is a different thing from "this column is 200 pixels",
+   * and the settings page already says the second one. Double-click gives the
+   * column back to whichever of those two it had.
+   */
+  private renderColumnGrip(column: ColumnDef): HTMLElement {
+    const grip = element("div", "fg-column-grip");
+    grip.title = t("ドラッグで幅を変える。ダブルクリックで戻す");
+
+    grip.addEventListener("pointerdown", (event) => {
+      // Not the heading's own press: this is a drag, not a click on the column.
+      event.preventDefault();
+      event.stopPropagation();
+
+      const heading = grip.parentElement;
+      if (!heading) return;
+
+      const startX = event.clientX;
+      const startWidth = heading.getBoundingClientRect().width;
+
+      const drag = (move: PointerEvent) => {
+        this.widths[column.key] = Math.max(
+          MIN_COLUMN_WIDTH,
+          Math.round(startWidth + move.clientX - startX),
+        );
+        this.applyTracks();
+      };
+
+      const stop = () => {
+        window.removeEventListener("pointermove", drag);
+        window.removeEventListener("pointerup", stop);
+        this.saveWidths();
+      };
+
+      window.addEventListener("pointermove", drag);
+      window.addEventListener("pointerup", stop);
+    });
+
+    grip.addEventListener("dblclick", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+
+      delete this.widths[column.key];
+      this.saveWidths();
+      this.applyTracks();
+    });
+
+    return grip;
+  }
+
+  private saveWidths(): void {
+    try {
+      window.localStorage.setItem(WIDTHS_KEY, JSON.stringify(this.widths));
+    } catch {
+      // A browser that refuses storage still gets the width for this visit.
+    }
   }
 
   /**
@@ -5716,7 +5866,12 @@ class Grid {
       const startWidth = left.getBoundingClientRect().width;
 
       const drag = (move: PointerEvent) => {
-        this.paneWidth = clamp(startWidth + move.clientX - startX, 160, 1200);
+        // The chart keeps a usable strip however far the table is dragged —
+        // the same rule the automatic width follows. A flat 1200 stopped a
+        // 2560-pixel screen at about half, for a reason nobody sitting at that
+        // screen could see.
+        const cap = Math.max(320, grid.clientWidth - 480);
+        this.paneWidth = clamp(startWidth + move.clientX - startX, 160, cap);
         grid.style.setProperty("--fg-pane-width", `${this.paneWidth}px`);
         this.pinColumns();
       };

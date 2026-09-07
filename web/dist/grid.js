@@ -41,7 +41,8 @@
     { key: "waits", label: "\u5F85\u3061", kind: "text" },
     // Last on purpose: free text is the widest column and the least often read,
     // so it is the one that should run off the edge rather than push anything.
-    { key: "note", label: "\u30B3\u30E1\u30F3\u30C8", kind: "text" }
+    // Wider than its kind because it holds sentences, not a value.
+    { key: "note", label: "\u30B3\u30E1\u30F3\u30C8", kind: "text", width: "12rem" }
   ];
   var ROLLED_UP = [
     "actual_days",
@@ -370,7 +371,7 @@
     }
   }
   var TRACKS = {
-    name: "minmax(11rem, 1.6fr)",
+    name: "18rem",
     date: "6.5rem",
     // These three carry a direction button in the filter row as well as their
     // own short values, and a 3.4rem column has no room for both.
@@ -378,10 +379,10 @@
     variance: "4.8rem",
     progress: "4.6rem",
     status: "5.5rem",
-    text: "minmax(5rem, 0.8fr)",
-    suggest: "minmax(5rem, 0.8fr)",
+    text: "5.5rem",
+    suggest: "5.5rem",
     number: "4.5rem",
-    select: "minmax(5rem, 0.6fr)"
+    select: "5.5rem"
   };
   var BACKGROUNDS = [
     "#fef3c7",
@@ -395,6 +396,25 @@
   var TEXT_COLOURS = ["#0f172a", "#b91c1c", "#a16207", "#15803d", "#1d4ed8", "#7e22ce"];
   var PANE_KEY = "fugantt:pane-width";
   var SHOWS_KEY = "fugantt:chart-shows";
+  var WIDTHS_KEY = "fugantt:column-widths";
+  function loadColumnWidths() {
+    try {
+      const stored = window.localStorage.getItem(WIDTHS_KEY);
+      if (!stored) return {};
+      const read = JSON.parse(stored);
+      if (typeof read !== "object" || read === null) return {};
+      const widths = {};
+      for (const [key, value] of Object.entries(read)) {
+        if (typeof value === "number" && Number.isFinite(value) && value >= MIN_COLUMN_WIDTH) {
+          widths[key] = value;
+        }
+      }
+      return widths;
+    } catch {
+      return {};
+    }
+  }
+  var MIN_COLUMN_WIDTH = 40;
   function loadShows() {
     const stored = window.localStorage.getItem(SHOWS_KEY);
     const shows = { start: true, end: true, worked: true, targets: true };
@@ -496,6 +516,8 @@
       this.filterFocus = null;
       /** How much of the width the left pane takes, dragged by the splitter. */
       this.paneWidth = loadPaneWidth();
+      /** This browser's own column widths, over the project's. */
+      this.widths = loadColumnWidths();
       /** Whether the table pane still needs holding back to half the window. */
       this.capPaneWidth = false;
       /** The last cell pressed, for spotting a double-click ourselves. */
@@ -2753,10 +2775,7 @@ ${lines.join("\n")}` : "";
       const left = element("div", "fg-pane-left");
       const table = element("div", "fg-table");
       left.append(table);
-      const tracks = this.columns.map((column2) => {
-        const width = this.data.column_widths[column2.key];
-        return width ? `${width}px` : TRACKS[column2.kind];
-      }).join(" ");
+      const tracks = this.trackList();
       const headings = element("div", "fg-row fg-heading");
       headings.style.gridTemplateColumns = tracks;
       this.columns.forEach((column2, index) => {
@@ -2765,6 +2784,7 @@ ${lines.join("\n")}` : "";
           heading.title = t("\u571F\u65E5\u30FB\u795D\u65E5\u3092\u9664\u3044\u305F\u55B6\u696D\u65E5\u3067\u6570\u3048\u3066\u3044\u307E\u3059");
         }
         if (index < this.data.frozen_columns) heading.classList.add("is-frozen");
+        heading.append(this.renderColumnGrip(column2));
         headings.append(heading);
       });
       table.append(this.renderFilterRow(tracks), headings);
@@ -2862,6 +2882,77 @@ ${lines.join("\n")}` : "";
         requestAnimationFrame(() => this.pinColumns());
       });
       return grid;
+    }
+    /**
+     * The grid's track list, from the widest claim to the narrowest.
+     *
+     * Three of them, in order: what this browser was dragged to, what the project
+     * set, and what the column is by default. Every row in the table is laid out
+     * from this one string, so there is one answer rather than one per row.
+     */
+    trackList() {
+      return this.columns.map((column2) => {
+        const mine = this.widths[column2.key];
+        if (mine) return `${mine}px`;
+        const set = this.data.column_widths[column2.key];
+        return set ? `${set}px` : column2.width ?? TRACKS[column2.kind];
+      }).join(" ");
+    }
+    /** Lays every row out again, without rebuilding any of them. */
+    applyTracks() {
+      const tracks = this.trackList();
+      for (const row of this.root.querySelectorAll(".fg-pane-left .fg-row")) {
+        row.style.gridTemplateColumns = tracks;
+      }
+      this.pinColumns();
+    }
+    /**
+     * The handle on a column's right edge.
+     *
+     * The width it sets is this browser's, not the project's: "let me see it
+     * wider for a minute" is a different thing from "this column is 200 pixels",
+     * and the settings page already says the second one. Double-click gives the
+     * column back to whichever of those two it had.
+     */
+    renderColumnGrip(column2) {
+      const grip = element("div", "fg-column-grip");
+      grip.title = t("\u30C9\u30E9\u30C3\u30B0\u3067\u5E45\u3092\u5909\u3048\u308B\u3002\u30C0\u30D6\u30EB\u30AF\u30EA\u30C3\u30AF\u3067\u623B\u3059");
+      grip.addEventListener("pointerdown", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        const heading = grip.parentElement;
+        if (!heading) return;
+        const startX = event.clientX;
+        const startWidth = heading.getBoundingClientRect().width;
+        const drag = (move) => {
+          this.widths[column2.key] = Math.max(
+            MIN_COLUMN_WIDTH,
+            Math.round(startWidth + move.clientX - startX)
+          );
+          this.applyTracks();
+        };
+        const stop = () => {
+          window.removeEventListener("pointermove", drag);
+          window.removeEventListener("pointerup", stop);
+          this.saveWidths();
+        };
+        window.addEventListener("pointermove", drag);
+        window.addEventListener("pointerup", stop);
+      });
+      grip.addEventListener("dblclick", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        delete this.widths[column2.key];
+        this.saveWidths();
+        this.applyTracks();
+      });
+      return grip;
+    }
+    saveWidths() {
+      try {
+        window.localStorage.setItem(WIDTHS_KEY, JSON.stringify(this.widths));
+      } catch {
+      }
     }
     /**
      * Parks each frozen column where the ones before it end.
@@ -3846,7 +3937,8 @@ ${lines.join("\n")}` : "";
         const startX = event.clientX;
         const startWidth = left.getBoundingClientRect().width;
         const drag = (move) => {
-          this.paneWidth = clamp(startWidth + move.clientX - startX, 160, 1200);
+          const cap = Math.max(320, grid.clientWidth - 480);
+          this.paneWidth = clamp(startWidth + move.clientX - startX, 160, cap);
           grid.style.setProperty("--fg-pane-width", `${this.paneWidth}px`);
           this.pinColumns();
         };

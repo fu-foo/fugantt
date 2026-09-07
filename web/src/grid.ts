@@ -2209,6 +2209,8 @@ class Grid {
         return task.start ?? "";
       case "end":
         return task.end ?? "";
+      case "due":
+        return task.due ?? "";
       case "actual_start":
         return task.actual_start ?? "";
       case "actual_end":
@@ -2239,8 +2241,14 @@ class Grid {
         // them is drawn — a column that says 順調 on every quiet row is a
         // column of noise.
         return this.late(task, column.key) ? "遅れ" : "順調";
-      default:
+      case "note":
         return task.note;
+      default:
+        // Named rather than fallen into. This used to end at `task.note`, so a
+        // column nobody had added a case for read the note back instead of its
+        // own value — and then wrote the note when the cell was committed,
+        // because "what is in this cell" and "has it changed" are asked here.
+        return "";
     }
   }
 
@@ -2997,6 +3005,15 @@ class Grid {
       case "end":
         task.end = value || null;
         break;
+      case "due":
+        task.due = value || null;
+        break;
+      case "actual_start":
+        task.actual_start = value || null;
+        break;
+      case "actual_end":
+        task.actual_end = value || null;
+        break;
       case "progress": {
         const parsed = Number(value);
         if (Number.isFinite(parsed)) task.progress = clamp(Math.round(parsed), 0, 100);
@@ -3008,8 +3025,15 @@ class Grid {
       case "assignee":
         task.assignee = value;
         break;
-      default:
+      case "note":
         task.note = value;
+        break;
+      default:
+        // Anything else is worked out by the server — a day count, a variance,
+        // a lateness — and there is nothing to show early. Writing the note
+        // here, which is what this used to do, put the typed value in the wrong
+        // column until the answer came back and quietly replaced the note.
+        break;
     }
   }
 

@@ -1369,6 +1369,8 @@ ${lines.join("\n")}` : "";
           return task.start ?? "";
         case "end":
           return task.end ?? "";
+        case "due":
+          return task.due ?? "";
         case "actual_start":
           return task.actual_start ?? "";
         case "actual_end":
@@ -1394,8 +1396,10 @@ ${lines.join("\n")}` : "";
         case "late":
         case "due_late":
           return this.late(task, column2.key) ? "\u9045\u308C" : "\u9806\u8ABF";
-        default:
+        case "note":
           return task.note;
+        default:
+          return "";
       }
     }
     /** What a cell shows when it is not being edited. */
@@ -1949,6 +1953,15 @@ ${lines.join("\n")}` : "";
         case "end":
           task.end = value || null;
           break;
+        case "due":
+          task.due = value || null;
+          break;
+        case "actual_start":
+          task.actual_start = value || null;
+          break;
+        case "actual_end":
+          task.actual_end = value || null;
+          break;
         case "progress": {
           const parsed = Number(value);
           if (Number.isFinite(parsed)) task.progress = clamp(Math.round(parsed), 0, 100);
@@ -1960,8 +1973,11 @@ ${lines.join("\n")}` : "";
         case "assignee":
           task.assignee = value;
           break;
-        default:
+        case "note":
           task.note = value;
+          break;
+        default:
+          break;
       }
     }
     // --- rows ----------------------------------------------------------------

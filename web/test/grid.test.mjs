@@ -6351,6 +6351,41 @@ check(
   JSON.stringify(rulers),
 );
 
+// 打った値がその列に残る。既定の枝が「それ以外は全部コメント」だったころ、
+// 納期はコメントを読み返して自分を空だと思い、実施開始はコメントを書き潰していた。
+await selectCell((await state()).names.indexOf("実装"), COLUMN["納期"]);
+await page.keyboard.press("F2");
+await replaceEditorText("1225");
+await page.keyboard.press("Enter");
+await settle();
+await settle();
+
+const kept = await page.evaluate(async () => {
+  const named = [...document.querySelectorAll(".fg-pane-left .fg-row.fg-data .fg-cell-name")].map(
+    (c) => c.textContent.trim(),
+  );
+  const at = named.findIndex((n) => n.includes("実装"));
+  const grid = await (await fetch("/api/projects/test-project/grid")).json();
+  const task = grid.tasks.find((t) => t.name === "実装");
+
+  return {
+    画面: [...document.querySelectorAll(".fg-pane-left .fg-row.fg-data")]
+      [at].querySelector(".fg-cell-due")
+      .textContent.trim(),
+    サーバー: task.due,
+    コメント: task.note,
+    印: !!document.querySelectorAll(".fg-bar-row")[at]?.querySelector(".fg-due"),
+  };
+});
+
+check(
+  "納期は打ったあと画面に残る",
+  kept.画面.includes("12/25") && kept.サーバー === `${today().slice(0, 4)}-12-25`,
+  JSON.stringify(kept),
+);
+check("納期を打ってもコメントは壊れない", !kept.コメント.includes("12"), JSON.stringify(kept));
+check("納期を打つとチャートに印が出る", kept.印, JSON.stringify(kept));
+
 // --- 日付の速記 ---------------------------------------------------------------
 
 // 桁数だけで決まる。1〜2桁は当月の日、3〜4桁は当年の月日。

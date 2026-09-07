@@ -1,11 +1,25 @@
 use topcoat::{
     Result,
     context::Cx,
-    router::{error::redirect, page},
+    router::{error::redirect, page, parse_query_params},
     view::view,
 };
 
 use crate::{auth::current_user, users};
+
+/// Why the last attempt did not work, as the address bar carries it.
+///
+/// A code rather than the sentence itself. A message read out of the query
+/// string is a message anyone who can send a link can put on this page, and
+/// this is the page where somebody types their password.
+#[derive(Debug, Default, serde::Deserialize)]
+struct Trouble {
+    #[serde(default)]
+    e: String,
+    /// Minutes left, when the reason is too many attempts.
+    #[serde(default)]
+    m: u32,
+}
 
 /// Sign in or sign up. Both forms post to their own route in `auth`.
 #[page("/login")]
@@ -22,6 +36,19 @@ async fn login_page(cx: &Cx) -> Result {
     let l = crate::i18n::lang(cx).await;
     let rule = crate::app_settings::password_rule(cx).await.describe(l);
 
+    let trouble: Trouble = parse_query_params(cx).unwrap_or_default();
+    let note = match trouble.e.as_str() {
+        "bad" => Some(l.t("ユーザー名かパスワードが違います。").to_owned()),
+        "wait" => Some(l.about(
+            "ログインの試行が多すぎます。{}分ほど待ってからお試しください。",
+            &trouble.m.clamp(1, 999).to_string(),
+        )),
+        "name" => Some(l.t("ユーザー名を入力してください。空白は使えません。").to_owned()),
+        "rule" => Some(l.t("パスワードが決まりに合いません。").to_owned()),
+        "closed" => Some(l.t("アカウントは管理者が作ります。管理者に頼んでください。").to_owned()),
+        _ => None,
+    };
+
     view! {
         <div class=(
             if may_register {
@@ -30,6 +57,14 @@ async fn login_page(cx: &Cx) -> Result {
                 "mx-auto mt-10 grid max-w-sm gap-6"
             }
         )>
+            if let Some(note) = &note {
+                <p
+                    role="alert"
+                    class="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 sm:col-span-2"
+                >
+                    (note)
+                </p>
+            }
             <section
                 class="rounded-xl border border-slate-200 bg-white p-6 shadow-sm"
             >

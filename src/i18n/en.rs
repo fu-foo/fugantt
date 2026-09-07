@@ -483,6 +483,20 @@ pub fn of(ja: &str) -> Option<&'static str> {
         "ユーザー名を入力してください。空白は使えません。" => {
             "Give a username. Spaces are not allowed."
         }
+        "ユーザー名かパスワードが違います。" => "That username and password do not match.",
+        "その操作はできませんでした" => "That did not go through",
+        "うまく動きませんでした" => "Something went wrong",
+        "こちら側の問題です。少し待ってから、もう一度お試しください。" => {
+            "This one is on us. Wait a moment and try again."
+        }
+        "前の画面へ戻る" => "Back",
+        "ログインの試行が多すぎます。{}分ほど待ってからお試しください。" => {
+            "Too many attempts. Try again in about {} minutes."
+        }
+        "パスワードが決まりに合いません。" => "That password does not meet the rule.",
+        "アカウントは管理者が作ります。管理者に頼んでください。" => {
+            "Accounts are made by the administrator. Ask them for one."
+        }
         "管理者は1人以上必要です。" => "Keep at least one administrator.",
         "自分は削除できません。" => "You cannot delete yourself.",
         "ユーザー名（{}）とベース権限は管理者が決めます。" => {
@@ -532,7 +546,7 @@ mod tests {
     /// and two people would read the same plan in different words.
     #[test]
     fn user_data_is_not_translated() {
-        for word in ["未着手", "実施中", "完了", "保留"] {
+        for word in ["未着手", "進行中", "完了", "保留"] {
             assert!(super::of(word).is_none(), "{word} は訳してはいけない");
         }
     }

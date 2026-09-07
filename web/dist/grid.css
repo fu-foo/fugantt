@@ -158,6 +158,9 @@ html {
   justify-content: flex-end;
   font-variant-numeric: tabular-nums;
 }
+.fg-heading .fg-cell.is-answer {
+  color: color-mix(in srgb, var(--fg-muted) 62%, transparent);
+}
 .fg-heading .fg-cell-days,
 .fg-heading .fg-cell-progress,
 .fg-heading .fg-cell-start_variance,

@@ -480,6 +480,7 @@ const EN: Record<string, string> = {
   "このプロジェクトは読むだけです。": "You can read this project, not change it.",
   "日数は日付から数えます。": "The day count comes from the dates.",
   "遅延は予定進捗と実進捗から決まります。": "Late is read from the promised progress against the real one.",
+  "待ちと予定進捗は、子のタスクに入れます。": "Waits and promised progress go on the child tasks.",
   "差異は予定と実施の差です。": "A variance is the gap between the plan and what happened.",
   "集計行の日付と進捗は子タスクから決まります。":
     "A summary row's dates and progress come from its children.",
@@ -2165,15 +2166,13 @@ class Grid {
   }
 
   /**
-   * Why this cell cannot be typed into, in the words of this cell.
+   * Why nothing in this column can be typed into, whatever the row.
    *
-   * There are four reasons and there used to be one sentence, so opening 遅延
-   * on a row with no children answered with a fact about summary rows — true
-   * of something else, and no help at all with what was just clicked.
+   * These are facts about the column rather than about any row in it, which is
+   * why the heading can carry them: said once at the top, instead of drawn ten
+   * thousand times down the side.
    */
-  private refusal(task: Task, column: ColumnDef): string | null {
-    if (!this.data.can_edit) return t("このプロジェクトは読むだけです。");
-
+  private answerColumn(column: ColumnDef): string | null {
     // The day count comes from the dates; nothing writes to it.
     if (column.kind === "days") return t("日数は日付から数えます。");
 
@@ -2182,10 +2181,34 @@ class Grid {
     if (column.key === "late") return t("遅延は予定進捗と実進捗から決まります。");
     if (column.kind === "variance") return t("差異は予定と実施の差です。");
 
+    return null;
+  }
+
+  /**
+   * Why this cell cannot be typed into, in the words of this cell.
+   *
+   * There are several reasons and there used to be one sentence, so opening 遅延
+   * on a row with no children answered with a fact about summary rows — true
+   * of something else, and no help at all with what was just clicked.
+   */
+  private refusal(task: Task, column: ColumnDef): string | null {
+    if (!this.data.can_edit) return t("このプロジェクトは読むだけです。");
+
+    const answer = this.answerColumn(column);
+    if (answer !== null) return answer;
+
     // A summary row takes its schedule from its children; writing to it would
     // be discarded on the next read.
     if (task.has_children && ROLLED_UP.includes(column.key)) {
       return t("集計行の日付と進捗は子タスクから決まります。");
+    }
+
+    // Not the same reason, and deliberately not in ROLLED_UP: these are not
+    // summed from the children, they are simply not the parent's to hold. A
+    // wait is a spell the work itself stopped, and a checkpoint is a promise
+    // about work — a summary row has no work of its own to stop or to promise.
+    if (task.has_children && (column.key === "waits" || column.key === "targets")) {
+      return t("待ちと予定進捗は、子のタスクに入れます。");
     }
 
     return null;
@@ -4192,9 +4215,21 @@ class Grid {
       // is known. A project's own field names are the users' words: not in the
       // dictionary, and shown as they are.
       const heading = element("div", `fg-cell fg-cell-${column.key}`, t(column.label));
-      if (this.workdayBased && (column.kind === "days" || column.kind === "variance")) {
-        heading.title = t("土日・祝日を除いた営業日で数えています");
+
+      // A column that is an answer says so at the top rather than in every one
+      // of its cells. Hatching each cell was tried and rejected: the day count
+      // is derived on every row, so striping it stripes the whole column and
+      // the mark stops meaning anything. Paler, and the reason on hover.
+      const notes: string[] = [];
+      const answer = this.answerColumn(column);
+      if (answer) {
+        heading.classList.add("is-answer");
+        notes.push(answer);
       }
+      if (this.workdayBased && (column.kind === "days" || column.kind === "variance")) {
+        notes.push(t("土日・祝日を除いた営業日で数えています"));
+      }
+      if (notes.length > 0) heading.title = notes.join("\n");
       if (index < this.data.frozen_columns) heading.classList.add("is-frozen");
       heading.append(this.renderColumnGrip(column));
       headings.append(heading);

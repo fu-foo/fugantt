@@ -202,6 +202,7 @@
     "\u3053\u306E\u30D7\u30ED\u30B8\u30A7\u30AF\u30C8\u306F\u8AAD\u3080\u3060\u3051\u3067\u3059\u3002": "You can read this project, not change it.",
     "\u65E5\u6570\u306F\u65E5\u4ED8\u304B\u3089\u6570\u3048\u307E\u3059\u3002": "The day count comes from the dates.",
     "\u9045\u5EF6\u306F\u4E88\u5B9A\u9032\u6357\u3068\u5B9F\u9032\u6357\u304B\u3089\u6C7A\u307E\u308A\u307E\u3059\u3002": "Late is read from the promised progress against the real one.",
+    "\u5F85\u3061\u3068\u4E88\u5B9A\u9032\u6357\u306F\u3001\u5B50\u306E\u30BF\u30B9\u30AF\u306B\u5165\u308C\u307E\u3059\u3002": "Waits and promised progress go on the child tasks.",
     "\u5DEE\u7570\u306F\u4E88\u5B9A\u3068\u5B9F\u65BD\u306E\u5DEE\u3067\u3059\u3002": "A variance is the gap between the plan and what happened.",
     "\u96C6\u8A08\u884C\u306E\u65E5\u4ED8\u3068\u9032\u6357\u306F\u5B50\u30BF\u30B9\u30AF\u304B\u3089\u6C7A\u307E\u308A\u307E\u3059\u3002": "A summary row's dates and progress come from its children.",
     "\u5B50\u30BF\u30B9\u30AF\u306E\u305A\u308C\u3092\u8DB3\u3057\u305F\u3082\u306E\u3067\u3059\uFF08\u3053\u306E\u884C\u306E\u65E5\u4ED8\u306E\u5DEE\u3067\u306F\u3042\u308A\u307E\u305B\u3093\uFF09": "The sum of the children's slippage, not the difference between this row's own dates",
@@ -1332,19 +1333,34 @@ ${lines.join("\n")}` : "";
       return this.refusal(task, column2) === null;
     }
     /**
+     * Why nothing in this column can be typed into, whatever the row.
+     *
+     * These are facts about the column rather than about any row in it, which is
+     * why the heading can carry them: said once at the top, instead of drawn ten
+     * thousand times down the side.
+     */
+    answerColumn(column2) {
+      if (column2.kind === "days") return t("\u65E5\u6570\u306F\u65E5\u4ED8\u304B\u3089\u6570\u3048\u307E\u3059\u3002");
+      if (column2.key === "late") return t("\u9045\u5EF6\u306F\u4E88\u5B9A\u9032\u6357\u3068\u5B9F\u9032\u6357\u304B\u3089\u6C7A\u307E\u308A\u307E\u3059\u3002");
+      if (column2.kind === "variance") return t("\u5DEE\u7570\u306F\u4E88\u5B9A\u3068\u5B9F\u65BD\u306E\u5DEE\u3067\u3059\u3002");
+      return null;
+    }
+    /**
      * Why this cell cannot be typed into, in the words of this cell.
      *
-     * There are four reasons and there used to be one sentence, so opening 遅延
+     * There are several reasons and there used to be one sentence, so opening 遅延
      * on a row with no children answered with a fact about summary rows — true
      * of something else, and no help at all with what was just clicked.
      */
     refusal(task, column2) {
       if (!this.data.can_edit) return t("\u3053\u306E\u30D7\u30ED\u30B8\u30A7\u30AF\u30C8\u306F\u8AAD\u3080\u3060\u3051\u3067\u3059\u3002");
-      if (column2.kind === "days") return t("\u65E5\u6570\u306F\u65E5\u4ED8\u304B\u3089\u6570\u3048\u307E\u3059\u3002");
-      if (column2.key === "late") return t("\u9045\u5EF6\u306F\u4E88\u5B9A\u9032\u6357\u3068\u5B9F\u9032\u6357\u304B\u3089\u6C7A\u307E\u308A\u307E\u3059\u3002");
-      if (column2.kind === "variance") return t("\u5DEE\u7570\u306F\u4E88\u5B9A\u3068\u5B9F\u65BD\u306E\u5DEE\u3067\u3059\u3002");
+      const answer = this.answerColumn(column2);
+      if (answer !== null) return answer;
       if (task.has_children && ROLLED_UP.includes(column2.key)) {
         return t("\u96C6\u8A08\u884C\u306E\u65E5\u4ED8\u3068\u9032\u6357\u306F\u5B50\u30BF\u30B9\u30AF\u304B\u3089\u6C7A\u307E\u308A\u307E\u3059\u3002");
+      }
+      if (task.has_children && (column2.key === "waits" || column2.key === "targets")) {
+        return t("\u5F85\u3061\u3068\u4E88\u5B9A\u9032\u6357\u306F\u3001\u5B50\u306E\u30BF\u30B9\u30AF\u306B\u5165\u308C\u307E\u3059\u3002");
       }
       return null;
     }
@@ -2787,9 +2803,16 @@ ${lines.join("\n")}` : "";
       headings.style.gridTemplateColumns = tracks;
       this.columns.forEach((column2, index) => {
         const heading = element("div", `fg-cell fg-cell-${column2.key}`, t(column2.label));
-        if (this.workdayBased && (column2.kind === "days" || column2.kind === "variance")) {
-          heading.title = t("\u571F\u65E5\u30FB\u795D\u65E5\u3092\u9664\u3044\u305F\u55B6\u696D\u65E5\u3067\u6570\u3048\u3066\u3044\u307E\u3059");
+        const notes = [];
+        const answer = this.answerColumn(column2);
+        if (answer) {
+          heading.classList.add("is-answer");
+          notes.push(answer);
         }
+        if (this.workdayBased && (column2.kind === "days" || column2.kind === "variance")) {
+          notes.push(t("\u571F\u65E5\u30FB\u795D\u65E5\u3092\u9664\u3044\u305F\u55B6\u696D\u65E5\u3067\u6570\u3048\u3066\u3044\u307E\u3059"));
+        }
+        if (notes.length > 0) heading.title = notes.join("\n");
         if (index < this.data.frozen_columns) heading.classList.add("is-frozen");
         heading.append(this.renderColumnGrip(column2));
         headings.append(heading);

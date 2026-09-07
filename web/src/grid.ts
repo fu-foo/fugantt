@@ -266,6 +266,17 @@ const BASE_COLUMNS: ColumnDef[] = [
   { key: "note", label: "コメント", kind: "text", width: "12rem" },
 ];
 
+/**
+ * Columns edited in a dialog rather than in the cell.
+ *
+ * They hold more than a value — a list of ranges, a list of checkpoints, a
+ * paragraph — and a dialog never opens by itself. Landing on one of these
+ * selects it and nothing else; it takes Enter, F2, the button in the cell or
+ * the menu to open it. A box that appeared every time the cursor passed
+ * through would be the worst thing on the screen.
+ */
+const DIALOG_COLUMNS: readonly string[] = ["waits", "targets", "note"];
+
 /** Columns a summary row takes from its children rather than its own row. */
 const ROLLED_UP: readonly string[] = [
   "actual_days",
@@ -961,6 +972,15 @@ class Grid {
   private editing = false;
   /** The character that opened the editor, so typing does not lose the keystroke. */
   private seed: string | null = null;
+
+  /**
+   * Whether the editor was asked for, rather than arrived at.
+   *
+   * A menu that drops open on its own every time the cursor crosses the
+   * ステータス column is noise; one that opens when somebody presses Enter on
+   * it is an answer to a question.
+   */
+  private opened = false;
   private error: string | null = null;
   /** True while an IME conversion is open, so nothing may re-render under it. */
   private composing = false;
@@ -1033,6 +1053,58 @@ class Grid {
   private replaying = false;
   /** The column whose filter box the caret is in, across a re-render. */
   private filterFocus: { key: string; caret: number | null } | null = null;
+
+  /**
+   * The open field, which is the one inside the cell under the cursor.
+   *
+   * Scoped to that cell rather than taken as the first in the document. A
+   * redraw that touches one row can leave the field of the row before it in
+   * place, and `querySelector` would then answer with the cell somebody has
+   * already left — which reads as "there is typing in progress" and swallows
+   * every key that belongs to the plan rather than to a cell.
+   */
+  private get field(): HTMLInputElement | HTMLSelectElement | null {
+    return this.root.querySelector<HTMLInputElement | HTMLSelectElement>(
+      ".fg-cell.is-selected .fg-editor:not(.is-typist)",
+    );
+  }
+
+  /**
+   * Takes away any field left behind outside the cursor's cell.
+   *
+   * One cell is open at a time. Two fields on screen means the second one
+   * answers `querySelector` first, and blur on the stale one writes a value
+   * into a row nobody is looking at.
+   */
+  private pruneEditors(): void {
+    const stale = [...this.root.querySelectorAll<HTMLElement>(".fg-editor:not(.is-typist)")].filter(
+      (field) => !field.closest(".fg-cell.is-selected"),
+    );
+    if (stale.length === 0) return;
+
+    // Counted by where the row is on screen, never by the index written on it:
+    // that number belongs to the window the row was drawn in, and a row left
+    // over from an older one would send the repaint at whatever row is standing
+    // in that position now.
+    const rows = [...this.root.querySelectorAll<HTMLElement>(".fg-pane-left .fg-row.fg-data")];
+
+    for (const field of stale) {
+      const row = field.closest<HTMLElement>(".fg-row.fg-data");
+      const at = row ? rows.indexOf(row) : -1;
+
+      // Redrawn rather than taken away: the field is what that cell was
+      // showing, and removing it alone leaves an empty cell where a name was.
+      if (at >= 0) this.repaintRow(this.first + at);
+      else field.remove();
+    }
+  }
+
+  /** Whether the keyboard is in a filter box rather than in a cell. */
+  private get inFilterBox(): boolean {
+    const here = document.activeElement;
+
+    return here instanceof HTMLElement && here.classList.contains("fg-filter");
+  }
   /** How much of the width the left pane takes, dragged by the splitter. */
   private paneWidth = loadPaneWidth();
 
@@ -1052,6 +1124,8 @@ class Grid {
     LANG = data.language === "en" ? "en" : "ja";
     TODAY = data.today;
     this.computeVisible();
+    // The cursor starts on the first cell, and a cell under the cursor is open.
+    this.select(this.row, this.column);
     this.root.addEventListener("keydown", (event) => this.onKeyDown(event));
     // Every column moves when the window does, and a column pinned to where it
     // used to be sits on top of its neighbour.
@@ -1102,9 +1176,11 @@ class Grid {
   /** Reloads the grid after someone else changed it, keeping the cursor put. */
   /** Takes in one row somebody else changed, without reading the plan back. */
   private async follow(taskId: string, actor: string): Promise<void> {
-    // Not mid-edit: the same rule the whole-plan refresh follows. What is being
-    // typed here has not been sent yet, and redrawing over it throws it away.
-    if (this.editing || this.composing) return;
+    // Not over unsent typing: redrawing the row would throw it away. Asked of
+    // the value rather than of the mode, because the cursor now sits in an open
+    // cell all the time — and a browser left on a row all afternoon would
+    // otherwise never hear about anybody else's changes again.
+    if (this.dirty || this.composing) return;
 
     try {
       const response = await fetch(
@@ -1133,9 +1209,10 @@ class Grid {
   }
 
   private async refresh(actor: string): Promise<void> {
-    // Refetching mid-edit would throw away what is being typed — including a
-    // conversion that has not been committed yet.
-    if (this.editing || this.composing) return;
+    // Refetching over unsent typing would throw it away — including a
+    // conversion that has not been committed yet. An open cell nobody has typed
+    // in is not that, and must not stop the plan from being read again.
+    if (this.dirty || this.composing) return;
 
     const here = this.selected?.id;
 
@@ -1182,6 +1259,9 @@ class Grid {
     LANG = grid.language === "en" ? "en" : "ja";
     TODAY = grid.today;
     this.computeVisible();
+    // Whether this cell can be typed into may have just changed — a row grows
+    // children and its dates become its children's — so ask again.
+    this.select(this.row, this.column);
   }
 
   /**
@@ -2252,14 +2332,45 @@ class Grid {
 
   // --- selection -----------------------------------------------------------
 
+  /**
+   * Puts the cursor on a cell — which is the same thing as opening it.
+   *
+   * There used to be a step between arriving and typing: click, then
+   * double-click; or arrive, then press Enter. Every value in a plan is one
+   * keystroke, and that step doubled the cost of entering any of them.
+   *
+   * Silent about cells it cannot open. Landing on a day count is not asking to
+   * type into one, so there is nothing to explain; the explanation belongs to
+   * Enter, which is somebody asking.
+   */
   private select(row: number, column: number): void {
     this.row = clamp(row, 0, Math.max(0, this.tasks.length - 1));
     this.column = clamp(column, 0, this.columns.length - 1);
+    this.seed = null;
+    this.opened = false;
+    this.editing = this.opensOnArrival();
+  }
+
+  /** Whether the cell under the cursor is one that opens by being arrived at. */
+  private opensOnArrival(): boolean {
+    const task = this.selected;
+    if (!task) return false;
+
+    const column = this.selectedColumn;
+    if (DIALOG_COLUMNS.includes(column.key)) return false;
+
+    return this.editable(task, column);
   }
 
   private move(rows: number, columns: number): void {
+    const was = this.editing;
     this.select(this.row + rows, this.column + columns);
-    this.repaintSelection();
+
+    // The editor travels with the cursor, so the rows have to be built again
+    // whenever one is arriving or leaving. Between two cells that neither open
+    // — walking down the 予定日数 column — the marks are all that change.
+    if (was || this.editing) this.render();
+    else this.repaintSelection();
   }
 
   /** Tab and Shift+Tab run past the end of a row onto the next one. */
@@ -2374,6 +2485,7 @@ class Grid {
     }
 
     this.editing = true;
+    this.opened = true;
     this.seed = seed;
 
     // One cell becomes an input. Every other row on the screen is still right.
@@ -2716,15 +2828,44 @@ class Grid {
     rows.querySelector<HTMLInputElement>(".fg-dialog-date")?.focus();
   }
 
+  /**
+   * Puts the cell back to what the row holds.
+   *
+   * Escape used to close the editor and leave the cursor on a plain cell.
+   * There is no such state any more — the cell under the cursor is always
+   * open — so what Escape undoes is the typing, not the opening.
+   */
   private cancelEdit(): void {
-    this.editing = false;
     this.seed = null;
+    this.opened = false;
+    this.editing = this.opensOnArrival();
 
     if (this.repaintRow(this.row)) this.restoreFocus();
     else this.render();
   }
 
-  private async commitEdit(raw: string, after: "down" | "right" | "stay"): Promise<void> {
+  /**
+   * Whether there is typing on screen that the server has not been told about.
+   *
+   * `editing` no longer means somebody is in the middle of something: every
+   * selected cell holds an editor, so it means the cursor is somewhere. What
+   * must not be thrown away by a redraw is text that differs from what the row
+   * holds — which is a question about the value, not about the mode.
+   */
+  private get dirty(): boolean {
+    if (!this.editing) return false;
+
+    const editor = this.field;
+    const task = this.selected;
+    if (!editor || !task) return false;
+
+    return editor.value !== this.cellText(task, this.selectedColumn);
+  }
+
+  private async commitEdit(
+    raw: string,
+    after: "up" | "down" | "left" | "right" | "next" | "stay",
+  ): Promise<void> {
     const task = this.selected;
     const column = this.selectedColumn;
 
@@ -2741,11 +2882,23 @@ class Grid {
     this.editing = false;
     this.seed = null;
 
+    if (after === "up") this.select(this.row - 1, this.column);
     if (after === "down") this.select(this.row + 1, this.column);
-    if (after === "right") this.step(1);
+    // The arrows stop at the edge of the row; Tab is the one that wraps onto
+    // the next. Held down at the end of a row, an arrow that wrapped would walk
+    // the cursor away down the plan while the eye was still on one line.
+    if (after === "left") this.select(this.row, this.column - 1);
+    if (after === "right") this.select(this.row, this.column + 1);
+    if (after === "next") this.step(1);
+    if (after === "stay") this.select(this.row, this.column);
 
     if (!task || value === this.cellText(task, column)) {
-      this.render();
+      // Nothing changed, and nothing moved: leave the screen alone. A cell now
+      // commits whenever it loses the keyboard, so this is the common case —
+      // and redrawing here takes the keyboard back from wherever it just went.
+      // Clicking into a filter box was doing exactly that: the box took focus,
+      // the cell committed nothing, the redraw put the caret back in the cell.
+      if (after !== "stay") this.render();
       return;
     }
 
@@ -3654,10 +3807,10 @@ class Grid {
     // and move down" hands the rest of the conversion to the next row.
     if (event.isComposing || event.keyCode === 229) return;
 
-    if (this.editing) {
-      this.onEditKeyDown(event);
-      return;
-    }
+    // The editor answers the keys that mean something different inside a cell.
+    // Everything else — the outline moves, folding, undo — falls through and
+    // works the same whether a cell is open or not, which it now always is.
+    if (this.editing && this.onEditKeyDown(event)) return;
 
     const meta = event.ctrlKey || event.metaKey;
 
@@ -3758,8 +3911,29 @@ class Grid {
     event.preventDefault();
   }
 
-  private onEditKeyDown(event: KeyboardEvent): void {
-    const input = event.target as HTMLInputElement | HTMLSelectElement;
+  /**
+   * The keys that mean something different with a cell open.
+   *
+   * Returns whether it took the key. Anything it does not take is handled as
+   * if no cell were open, which is what keeps ⌥→ and ⌘← working now that a
+   * cell is open all the time.
+   */
+  private onEditKeyDown(event: KeyboardEvent): boolean {
+    // Looked up rather than taken from the event: the keyboard can be on the
+    // grid itself while a cell is open — after a click that landed on the cell
+    // and not on its field — and reading `.value` off the grid element gives
+    // `undefined`, which then gets committed as the cell's new contents.
+    const input = this.field;
+    if (!input) return false;
+
+    const meta = event.ctrlKey || event.metaKey;
+
+    // Undo belongs to the editor while there is typing in it to undo, and to
+    // the plan otherwise. Without this the row-level undo would be unreachable:
+    // there is no longer a moment between edits for it to run in.
+    if (meta && (event.key === "z" || event.key === "Z" || event.key === "y" || event.key === "Y")) {
+      return this.dirty;
+    }
 
     switch (event.key) {
       case "Enter":
@@ -3767,20 +3941,44 @@ class Grid {
         // half-typed name is no reason for it to mean something else: typing a
         // list is exactly when it is held down. Without this, every second
         // press only closed the editor, and the row came on the press after.
-        if (event.ctrlKey || event.metaKey) void this.commitAndInsert(input.value);
+        if (meta) void this.commitAndInsert(input.value);
         else void this.commitEdit(input.value, "down");
         break;
       case "Tab":
-        void this.commitEdit(input.value, event.shiftKey ? "stay" : "right");
+        void this.commitEdit(input.value, event.shiftKey ? "stay" : "next");
         break;
       case "Escape":
         this.cancelEdit();
         break;
+      // Plainly: the arrows move between cells, and take any change with them.
+      // Which costs the caret its left and right — a cell is opened with all
+      // of it selected, so typing replaces, and the mouse puts the caret
+      // anywhere inside that a word needs fixing. Moving is what the arrows do
+      // everywhere else on this screen, and a key that means two things
+      // depending on a mode is a key nobody trusts.
+      case "ArrowUp":
+      case "ArrowDown":
+      case "ArrowLeft":
+      case "ArrowRight": {
+        // ⌥ moves the row itself and ⌘ folds; both belong to the grid.
+        if (event.altKey || meta) return false;
+
+        const way = {
+          ArrowUp: "up",
+          ArrowDown: "down",
+          ArrowLeft: "left",
+          ArrowRight: "right",
+        } as const;
+
+        void this.commitEdit(input.value, way[event.key]);
+        break;
+      }
       default:
-        return;
+        return false;
     }
 
     event.preventDefault();
+    return true;
   }
 
   // --- rendering -----------------------------------------------------------
@@ -3982,6 +4180,13 @@ class Grid {
 
     if (editor && (this.row < view.first || this.row > view.last)) {
       void this.commitEdit(editor.value, "stay");
+
+      // Scrolling an open cell off the screen used to be drawn as part of
+      // committing it. A commit that changes nothing no longer redraws — that
+      // is what stops a click into a filter box from pulling the keyboard back
+      // — so the window has to be drawn here, or the plan stops following the
+      // scroll from the moment a cell is open. Which is now always.
+      this.render();
       return;
     }
 
@@ -4062,8 +4267,13 @@ class Grid {
       if (cell) {
         cell.querySelector(".fg-editor.is-typist")?.remove();
         cell.append(editor);
-        editor.focus({ preventScroll: true });
-        if (caret) editor.setSelectionRange(caret.from, caret.to);
+
+        // Not while a filter is being typed: narrowing the plan redraws the
+        // window, and the keyboard belongs to whoever is still typing.
+        if (!this.inFilterBox) {
+          editor.focus({ preventScroll: true });
+          if (caret) editor.setSelectionRange(caret.from, caret.to);
+        }
       }
 
       this.moving = false;
@@ -4622,6 +4832,13 @@ class Grid {
       if (column.kind === "name") {
         if (this.data.can_edit) cell.append(this.renderHandle(task, index));
         cell.append(this.renderTwisty(task));
+
+        // Beside the twisty rather than after the name: a folded row still has
+        // to say how much it is hiding when the cursor is on it, and the cursor
+        // is where the name has been replaced by a field.
+        if (task.has_children && this.collapsed.has(task.id)) {
+          cell.append(element("span", "fg-folded", `+${this.hiddenCount(task)}`));
+        }
       }
 
       if (isSelected && this.editing) {
@@ -4643,10 +4860,6 @@ class Grid {
         const text = element("span", "fg-name-text", task.name || t("（無題）"));
         if (!task.name) text.classList.add("is-placeholder");
         cell.append(text);
-
-        if (task.has_children && this.collapsed.has(task.id)) {
-          cell.append(element("span", "fg-folded", `+${this.hiddenCount(task)}`));
-        }
 
         for (const tag of task.tags) cell.append(element("span", "fg-tag", tag));
       } else if (column.kind === "status") {
@@ -4781,8 +4994,7 @@ class Grid {
       if (columnIndex < this.data.frozen_columns) cell.classList.add("is-frozen");
 
       cell.addEventListener("mousedown", (event) => {
-        if (this.editing) return;
-        event.preventDefault();
+        if (this.composing) return;
 
         // The browser never raises `dblclick` here: the first click rebuilds
         // the cell, so the two clicks land on different elements and Chrome
@@ -4795,11 +5007,29 @@ class Grid {
 
         this.lastPress = { row: index, column: columnIndex, at: now };
 
-        this.select(index, columnIndex);
-        this.repaintSelection();
+        // Already here. The press is left alone so it reaches the field the
+        // cell is holding and the caret lands where the pointer is — which is
+        // how a word gets fixed in the middle now that the arrows move between
+        // cells rather than through the text.
+        if (index === this.row && columnIndex === this.column) {
+          // A second press asks for whatever the cell keeps behind a deliberate
+          // open: a dialog, or a menu dropped down rather than merely focused.
+          if (again) {
+            event.preventDefault();
+            this.startEdit(null);
+          }
+          return;
+        }
 
-        // Same as Enter: the reason to point at a cell is usually to change it.
-        if (again) this.startEdit(null);
+        event.preventDefault();
+
+        const was = this.editing;
+        this.select(index, columnIndex);
+
+        // The editor travels with the cursor, so a cell arriving or leaving is
+        // a redraw. Two cells that neither open only change the marks.
+        if (was || this.editing) this.render();
+        else this.repaintSelection();
       });
 
       cell.addEventListener("contextmenu", (event) => {
@@ -5100,16 +5330,26 @@ class Grid {
     input.addEventListener("input", () => {
       if (!this.editing) this.beginTyping(input);
     });
-    input.addEventListener("blur", () => {
-      // Only commit if this field became the editor. F2 opens a fresh editor
-      // and re-renders, which blurs this one out of existence — committing its
-      // empty value there would wipe the cell being opened.
-      if (this.editing && !this.moving && !input.classList.contains("is-typist")) {
-        void this.commitEdit(input.value, "stay");
-      }
-    });
-
     return input;
+  }
+
+  /** Writes on an editor which cell it was built for. */
+  private stamp(field: HTMLElement, task: Task, column: ColumnDef): void {
+    field.dataset["task"] = task.id;
+    field.dataset["column"] = column.key;
+  }
+
+  /** Whether this editor is still the one the cursor is sitting in. */
+  private owns(field: HTMLElement): boolean {
+    if (!this.editing) return false;
+
+    const task = this.selected;
+
+    return (
+      !!task &&
+      field.dataset["task"] === task.id &&
+      field.dataset["column"] === this.selectedColumn.key
+    );
   }
 
   /**
@@ -5200,19 +5440,33 @@ class Grid {
       }
       select.value = this.cellText(task, column);
 
-      // Focus alone leaves the list closed, which reads as "no choices here".
-      requestAnimationFrame(() => {
-        try {
-          select.showPicker();
-        } catch {
-          // Older browsers just leave it closed; the arrow keys still work.
-        }
-      });
+      // Focus alone leaves the list closed, which reads as "no choices here" —
+      // but only when the menu was asked for. Every selected cell holds an
+      // editor now, and a list that dropped open as the cursor went past would
+      // be a screen full of flapping menus.
+      if (this.opened) {
+        requestAnimationFrame(() => {
+          try {
+            select.showPicker();
+          } catch {
+            // Older browsers just leave it closed; the arrow keys still work.
+          }
+        });
+      }
+
+      this.stamp(select, task, column);
 
       // Choosing from the menu is the whole interaction; commit on change.
       select.addEventListener("change", () => void this.commitEdit(select.value, "stay"));
       select.addEventListener("blur", () => {
-        if (this.editing) void this.commitEdit(select.value, "stay");
+        const value = select.value;
+
+        // Same as the text editor below: a menu taken off the page by a redraw
+        // blurs on its way out, and that is not a choice anybody made.
+        queueMicrotask(() => {
+          if (!select.isConnected || this.moving) return;
+          if (this.owns(select)) void this.commitEdit(value, "stay");
+        });
       });
 
       return select;
@@ -5269,6 +5523,8 @@ class Grid {
       input.inputMode = "numeric";
     }
 
+    this.stamp(input, task, column);
+
     // Clicking away is a commit, the same as leaving a cell in a spreadsheet —
     // except when what was clicked is this cell's own calendar button, which
     // exists to fill this very editor.
@@ -5276,7 +5532,19 @@ class Grid {
       const next = (event as FocusEvent).relatedTarget as HTMLElement | null;
       if (next?.classList.contains("fg-datepicker")) return;
 
-      if (this.editing) void this.commitEdit(input.value, "stay");
+      // Asked on the next microtask, once the redraw that may have caused this
+      // has finished. A field removed by a redraw blurs on its way out, and
+      // that is not somebody leaving a cell: committing there writes the value
+      // the redraw was about to draw anyway — or, right after Escape, the value
+      // Escape just discarded. A field still in the document is a real
+      // departure, and one that no longer belongs to the cursor's cell is the
+      // one somebody has already moved off.
+      const value = input.value;
+
+      queueMicrotask(() => {
+        if (!input.isConnected || this.moving) return;
+        if (this.owns(input)) void this.commitEdit(value, "stay");
+      });
     });
 
     return input;
@@ -5508,11 +5776,13 @@ class Grid {
     // the same row would have places that answer and places that do not. The
     // column stays put: the chart has no columns, so a press cannot name one.
     row.addEventListener("mousedown", () => {
-      if (this.editing) return;
+      // Not gated on `editing` any more: with every cell open that would be
+      // always, and the chart — where 0.7.0 put every way into a row — would
+      // stop answering the mouse altogether. The editor commits on blur.
+      if (this.composing) return;
 
       this.select(index, this.column);
-      // This marks both sides and hands the keyboard back to the grid.
-      this.repaintSelection();
+      this.render();
     });
 
     // The same menu the table offers, plus the ways in that only make sense
@@ -5520,7 +5790,7 @@ class Grid {
     // whole screen. Everything a row holds has to be reachable from here.
     row.addEventListener("contextmenu", (event) => {
       event.preventDefault();
-      if (this.editing) return;
+      if (this.composing) return;
 
       this.select(index, this.column);
       this.repaintSelection();
@@ -6276,6 +6546,17 @@ class Grid {
 
   /** Keeps the keyboard where the user left it across a full re-render. */
   private restoreFocus(): void {
+    // The marks first. A redraw that touched one row leaves the row before it
+    // still wearing `is-selected`, and everything below — which field is the
+    // open one, which one to take away — is asked of that class.
+    this.markSelection();
+    this.pruneEditors();
+
+    // Somebody typing a filter keeps the box. Every selected cell holds an
+    // editor now, and taking the keyboard back to it on each redraw would put
+    // the second character of a filter into a cell.
+    if (this.inFilterBox) return;
+
     if (this.editing) {
       const editor = this.root.querySelector<HTMLElement>(".fg-editor");
       if (editor instanceof HTMLInputElement) {

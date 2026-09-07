@@ -44,6 +44,7 @@
     // Wider than its kind because it holds sentences, not a value.
     { key: "note", label: "\u30B3\u30E1\u30F3\u30C8", kind: "text", width: "12rem" }
   ];
+  var DIALOG_COLUMNS = ["waits", "targets", "note"];
   var ROLLED_UP = [
     "actual_days",
     "start",
@@ -467,6 +468,14 @@
       this.editing = false;
       /** The character that opened the editor, so typing does not lose the keystroke. */
       this.seed = null;
+      /**
+       * Whether the editor was asked for, rather than arrived at.
+       *
+       * A menu that drops open on its own every time the cursor crosses the
+       * ステータス column is noise; one that opens when somebody presses Enter on
+       * it is an answer to a question.
+       */
+      this.opened = false;
       this.error = null;
       /** True while an IME conversion is open, so nothing may re-render under it. */
       this.composing = false;
@@ -537,6 +546,7 @@
       LANG = data.language === "en" ? "en" : "ja";
       TODAY = data.today;
       this.computeVisible();
+      this.select(this.row, this.column);
       this.root.addEventListener("keydown", (event) => this.onKeyDown(event));
       window.addEventListener("resize", () => this.pinColumns());
       this.listen();
@@ -545,6 +555,45 @@
     /** Width of one day column. Comes from the project's settings. */
     get dayWidth() {
       return this.data.day_width || 26;
+    }
+    /**
+     * The open field, which is the one inside the cell under the cursor.
+     *
+     * Scoped to that cell rather than taken as the first in the document. A
+     * redraw that touches one row can leave the field of the row before it in
+     * place, and `querySelector` would then answer with the cell somebody has
+     * already left — which reads as "there is typing in progress" and swallows
+     * every key that belongs to the plan rather than to a cell.
+     */
+    get field() {
+      return this.root.querySelector(
+        ".fg-cell.is-selected .fg-editor:not(.is-typist)"
+      );
+    }
+    /**
+     * Takes away any field left behind outside the cursor's cell.
+     *
+     * One cell is open at a time. Two fields on screen means the second one
+     * answers `querySelector` first, and blur on the stale one writes a value
+     * into a row nobody is looking at.
+     */
+    pruneEditors() {
+      const stale = [...this.root.querySelectorAll(".fg-editor:not(.is-typist)")].filter(
+        (field) => !field.closest(".fg-cell.is-selected")
+      );
+      if (stale.length === 0) return;
+      const rows = [...this.root.querySelectorAll(".fg-pane-left .fg-row.fg-data")];
+      for (const field of stale) {
+        const row = field.closest(".fg-row.fg-data");
+        const at = row ? rows.indexOf(row) : -1;
+        if (at >= 0) this.repaintRow(this.first + at);
+        else field.remove();
+      }
+    }
+    /** Whether the keyboard is in a filter box rather than in a cell. */
+    get inFilterBox() {
+      const here = document.activeElement;
+      return here instanceof HTMLElement && here.classList.contains("fg-filter");
     }
     /**
      * Follows other people's changes.
@@ -571,7 +620,7 @@
     /** Reloads the grid after someone else changed it, keeping the cursor put. */
     /** Takes in one row somebody else changed, without reading the plan back. */
     async follow(taskId, actor) {
-      if (this.editing || this.composing) return;
+      if (this.dirty || this.composing) return;
       try {
         const response = await fetch(
           `/api/projects/${encodeURIComponent(this.projectId)}/tasks/${encodeURIComponent(taskId)}/patch`
@@ -591,7 +640,7 @@
       }
     }
     async refresh(actor) {
-      if (this.editing || this.composing) return;
+      if (this.dirty || this.composing) return;
       const here = this.selected?.id;
       try {
         const response = await fetch(
@@ -622,6 +671,7 @@
       LANG = grid.language === "en" ? "en" : "ja";
       TODAY = grid.today;
       this.computeVisible();
+      this.select(this.row, this.column);
     }
     /**
      * Drops every row that sits under a folded one.
@@ -1393,13 +1443,37 @@ ${lines.join("\n")}` : "";
       return null;
     }
     // --- selection -----------------------------------------------------------
+    /**
+     * Puts the cursor on a cell — which is the same thing as opening it.
+     *
+     * There used to be a step between arriving and typing: click, then
+     * double-click; or arrive, then press Enter. Every value in a plan is one
+     * keystroke, and that step doubled the cost of entering any of them.
+     *
+     * Silent about cells it cannot open. Landing on a day count is not asking to
+     * type into one, so there is nothing to explain; the explanation belongs to
+     * Enter, which is somebody asking.
+     */
     select(row, column2) {
       this.row = clamp(row, 0, Math.max(0, this.tasks.length - 1));
       this.column = clamp(column2, 0, this.columns.length - 1);
+      this.seed = null;
+      this.opened = false;
+      this.editing = this.opensOnArrival();
+    }
+    /** Whether the cell under the cursor is one that opens by being arrived at. */
+    opensOnArrival() {
+      const task = this.selected;
+      if (!task) return false;
+      const column2 = this.selectedColumn;
+      if (DIALOG_COLUMNS.includes(column2.key)) return false;
+      return this.editable(task, column2);
     }
     move(rows, columns) {
+      const was = this.editing;
       this.select(this.row + rows, this.column + columns);
-      this.repaintSelection();
+      if (was || this.editing) this.render();
+      else this.repaintSelection();
     }
     /** Tab and Shift+Tab run past the end of a row onto the next one. */
     step(delta) {
@@ -1482,6 +1556,7 @@ ${lines.join("\n")}` : "";
         return;
       }
       this.editing = true;
+      this.opened = true;
       this.seed = seed;
       if (this.repaintRow(this.row)) this.restoreFocus();
       else this.render();
@@ -1746,11 +1821,34 @@ ${lines.join("\n")}` : "";
       dialog.showModal();
       rows.querySelector(".fg-dialog-date")?.focus();
     }
+    /**
+     * Puts the cell back to what the row holds.
+     *
+     * Escape used to close the editor and leave the cursor on a plain cell.
+     * There is no such state any more — the cell under the cursor is always
+     * open — so what Escape undoes is the typing, not the opening.
+     */
     cancelEdit() {
-      this.editing = false;
       this.seed = null;
+      this.opened = false;
+      this.editing = this.opensOnArrival();
       if (this.repaintRow(this.row)) this.restoreFocus();
       else this.render();
+    }
+    /**
+     * Whether there is typing on screen that the server has not been told about.
+     *
+     * `editing` no longer means somebody is in the middle of something: every
+     * selected cell holds an editor, so it means the cursor is somewhere. What
+     * must not be thrown away by a redraw is text that differs from what the row
+     * holds — which is a question about the value, not about the mode.
+     */
+    get dirty() {
+      if (!this.editing) return false;
+      const editor = this.field;
+      const task = this.selected;
+      if (!editor || !task) return false;
+      return editor.value !== this.cellText(task, this.selectedColumn);
     }
     async commitEdit(raw, after) {
       const task = this.selected;
@@ -1758,10 +1856,14 @@ ${lines.join("\n")}` : "";
       const value = column2.kind === "date" ? flexibleDate(raw) ?? normalizeWidth(raw).trim() : column2.kind === "progress" || column2.kind === "number" ? normalizeWidth(raw).trim() : raw;
       this.editing = false;
       this.seed = null;
+      if (after === "up") this.select(this.row - 1, this.column);
       if (after === "down") this.select(this.row + 1, this.column);
-      if (after === "right") this.step(1);
+      if (after === "left") this.select(this.row, this.column - 1);
+      if (after === "right") this.select(this.row, this.column + 1);
+      if (after === "next") this.step(1);
+      if (after === "stay") this.select(this.row, this.column);
       if (!task || value === this.cellText(task, column2)) {
-        this.render();
+        if (after !== "stay") this.render();
         return;
       }
       const rollback = structuredClone(this.data);
@@ -2398,10 +2500,7 @@ ${lines.join("\n")}` : "";
     // --- keyboard ------------------------------------------------------------
     onKeyDown(event) {
       if (event.isComposing || event.keyCode === 229) return;
-      if (this.editing) {
-        this.onEditKeyDown(event);
-        return;
-      }
+      if (this.editing && this.onEditKeyDown(event)) return;
       const meta = event.ctrlKey || event.metaKey;
       if (meta && (event.key === "z" || event.key === "Z")) {
         void this.replay(event.shiftKey ? "redo" : "undo");
@@ -2486,23 +2585,56 @@ ${lines.join("\n")}` : "";
       }
       event.preventDefault();
     }
+    /**
+     * The keys that mean something different with a cell open.
+     *
+     * Returns whether it took the key. Anything it does not take is handled as
+     * if no cell were open, which is what keeps ⌥→ and ⌘← working now that a
+     * cell is open all the time.
+     */
     onEditKeyDown(event) {
-      const input = event.target;
+      const input = this.field;
+      if (!input) return false;
+      const meta = event.ctrlKey || event.metaKey;
+      if (meta && (event.key === "z" || event.key === "Z" || event.key === "y" || event.key === "Y")) {
+        return this.dirty;
+      }
       switch (event.key) {
         case "Enter":
-          if (event.ctrlKey || event.metaKey) void this.commitAndInsert(input.value);
+          if (meta) void this.commitAndInsert(input.value);
           else void this.commitEdit(input.value, "down");
           break;
         case "Tab":
-          void this.commitEdit(input.value, event.shiftKey ? "stay" : "right");
+          void this.commitEdit(input.value, event.shiftKey ? "stay" : "next");
           break;
         case "Escape":
           this.cancelEdit();
           break;
+        // Plainly: the arrows move between cells, and take any change with them.
+        // Which costs the caret its left and right — a cell is opened with all
+        // of it selected, so typing replaces, and the mouse puts the caret
+        // anywhere inside that a word needs fixing. Moving is what the arrows do
+        // everywhere else on this screen, and a key that means two things
+        // depending on a mode is a key nobody trusts.
+        case "ArrowUp":
+        case "ArrowDown":
+        case "ArrowLeft":
+        case "ArrowRight": {
+          if (event.altKey || meta) return false;
+          const way = {
+            ArrowUp: "up",
+            ArrowDown: "down",
+            ArrowLeft: "left",
+            ArrowRight: "right"
+          };
+          void this.commitEdit(input.value, way[event.key]);
+          break;
+        }
         default:
-          return;
+          return false;
       }
       event.preventDefault();
+      return true;
     }
     // --- rendering -----------------------------------------------------------
     render() {
@@ -2641,6 +2773,7 @@ ${lines.join("\n")}` : "";
       const caret = editor ? { from: editor.selectionStart ?? 0, to: editor.selectionEnd ?? 0 } : null;
       if (editor && (this.row < view.first || this.row > view.last)) {
         void this.commitEdit(editor.value, "stay");
+        this.render();
         return;
       }
       if (editor) {
@@ -2691,8 +2824,10 @@ ${lines.join("\n")}` : "";
         if (cell) {
           cell.querySelector(".fg-editor.is-typist")?.remove();
           cell.append(editor);
-          editor.focus({ preventScroll: true });
-          if (caret) editor.setSelectionRange(caret.from, caret.to);
+          if (!this.inFilterBox) {
+            editor.focus({ preventScroll: true });
+            if (caret) editor.setSelectionRange(caret.from, caret.to);
+          }
         }
         this.moving = false;
       }
@@ -3073,6 +3208,9 @@ ${lines.join("\n")}` : "";
         if (column2.kind === "name") {
           if (this.data.can_edit) cell.append(this.renderHandle(task, index));
           cell.append(this.renderTwisty(task));
+          if (task.has_children && this.collapsed.has(task.id)) {
+            cell.append(element("span", "fg-folded", `+${this.hiddenCount(task)}`));
+          }
         }
         if (isSelected && this.editing) {
           cell.classList.add("is-editing");
@@ -3088,9 +3226,6 @@ ${lines.join("\n")}` : "";
           const text = element("span", "fg-name-text", task.name || t("\uFF08\u7121\u984C\uFF09"));
           if (!task.name) text.classList.add("is-placeholder");
           cell.append(text);
-          if (task.has_children && this.collapsed.has(task.id)) {
-            cell.append(element("span", "fg-folded", `+${this.hiddenCount(task)}`));
-          }
           for (const tag of task.tags) cell.append(element("span", "fg-tag", tag));
         } else if (column2.kind === "status") {
           if (task.status) {
@@ -3188,14 +3323,22 @@ ${lines.join("\n")}` : "";
         if (isSelected && !this.editing) cell.append(this.renderTypist());
         if (columnIndex < this.data.frozen_columns) cell.classList.add("is-frozen");
         cell.addEventListener("mousedown", (event) => {
-          if (this.editing) return;
-          event.preventDefault();
+          if (this.composing) return;
           const now = Date.now();
           const again = this.lastPress?.row === index && this.lastPress.column === columnIndex && now - this.lastPress.at < 400;
           this.lastPress = { row: index, column: columnIndex, at: now };
+          if (index === this.row && columnIndex === this.column) {
+            if (again) {
+              event.preventDefault();
+              this.startEdit(null);
+            }
+            return;
+          }
+          event.preventDefault();
+          const was = this.editing;
           this.select(index, columnIndex);
-          this.repaintSelection();
-          if (again) this.startEdit(null);
+          if (was || this.editing) this.render();
+          else this.repaintSelection();
         });
         cell.addEventListener("contextmenu", (event) => {
           event.preventDefault();
@@ -3417,12 +3560,18 @@ ${lines.join("\n")}` : "";
       input.addEventListener("input", () => {
         if (!this.editing) this.beginTyping(input);
       });
-      input.addEventListener("blur", () => {
-        if (this.editing && !this.moving && !input.classList.contains("is-typist")) {
-          void this.commitEdit(input.value, "stay");
-        }
-      });
       return input;
+    }
+    /** Writes on an editor which cell it was built for. */
+    stamp(field, task, column2) {
+      field.dataset["task"] = task.id;
+      field.dataset["column"] = column2.key;
+    }
+    /** Whether this editor is still the one the cursor is sitting in. */
+    owns(field) {
+      if (!this.editing) return false;
+      const task = this.selected;
+      return !!task && field.dataset["task"] === task.id && field.dataset["column"] === this.selectedColumn.key;
     }
     /**
      * Turns the typist into the editor without re-rendering.
@@ -3486,15 +3635,22 @@ ${lines.join("\n")}` : "";
           select.append(option);
         }
         select.value = this.cellText(task, column2);
-        requestAnimationFrame(() => {
-          try {
-            select.showPicker();
-          } catch {
-          }
-        });
+        if (this.opened) {
+          requestAnimationFrame(() => {
+            try {
+              select.showPicker();
+            } catch {
+            }
+          });
+        }
+        this.stamp(select, task, column2);
         select.addEventListener("change", () => void this.commitEdit(select.value, "stay"));
         select.addEventListener("blur", () => {
-          if (this.editing) void this.commitEdit(select.value, "stay");
+          const value = select.value;
+          queueMicrotask(() => {
+            if (!select.isConnected || this.moving) return;
+            if (this.owns(select)) void this.commitEdit(value, "stay");
+          });
         });
         return select;
       }
@@ -3532,10 +3688,15 @@ ${lines.join("\n")}` : "";
       } else if (column2.kind === "progress" || column2.kind === "number") {
         input.inputMode = "numeric";
       }
+      this.stamp(input, task, column2);
       input.addEventListener("blur", (event) => {
         const next = event.relatedTarget;
         if (next?.classList.contains("fg-datepicker")) return;
-        if (this.editing) void this.commitEdit(input.value, "stay");
+        const value = input.value;
+        queueMicrotask(() => {
+          if (!input.isConnected || this.moving) return;
+          if (this.owns(input)) void this.commitEdit(value, "stay");
+        });
       });
       return input;
     }
@@ -3701,13 +3862,13 @@ ${lines.join("\n")}` : "";
     renderBar(task, origin, index) {
       const row = element("div", "fg-bar-row");
       row.addEventListener("mousedown", () => {
-        if (this.editing) return;
+        if (this.composing) return;
         this.select(index, this.column);
-        this.repaintSelection();
+        this.render();
       });
       row.addEventListener("contextmenu", (event) => {
         event.preventDefault();
-        if (this.editing) return;
+        if (this.composing) return;
         this.select(index, this.column);
         this.repaintSelection();
         this.openMenu(event.clientX, event.clientY, this.dayUnder(event.clientX, origin));
@@ -4218,6 +4379,9 @@ ${lines.join("\n")}` : "";
     }
     /** Keeps the keyboard where the user left it across a full re-render. */
     restoreFocus() {
+      this.markSelection();
+      this.pruneEditors();
+      if (this.inFilterBox) return;
       if (this.editing) {
         const editor = this.root.querySelector(".fg-editor");
         if (editor instanceof HTMLInputElement) {

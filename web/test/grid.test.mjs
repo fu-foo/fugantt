@@ -31,6 +31,23 @@ const here = dirname(fileURLToPath(import.meta.url));
 
 const passed = [];
 const failed = [];
+
+/**
+ * 途中で例外が出ても、そこまでの結果は出す。
+ *
+ * 落ちた1件のせいで手前の300件が見えなくなると、直したいものが探せない。
+ */
+let reported = false;
+const report = () => {
+  if (reported) return;
+  reported = true;
+
+  for (const name of passed) console.log("  ✓", name);
+  for (const name of failed) console.log("  ✗", name);
+  console.log(`\n${passed.length} passed, ${failed.length} failed`);
+};
+
+process.on("exit", report);
 const check = (name, ok, detail = "") =>
   (ok ? passed : failed).push(detail ? `${name} — ${detail}` : name);
 
@@ -65,6 +82,19 @@ const browser = await puppeteer.launch({
 });
 
 const page = await browser.newPage();
+
+// セルは選ばれた時点で開く。開いたセルの中身は文字ではなく入力欄の値なので、
+// `textContent` だけを読むと、カーソルのある1セルだけが空に見える。
+// ページ側に1つ置いて、行や見出しを読むところは全部これを通す。
+await page.evaluateOnNewDocument(() => {
+  window.says = (node) =>
+    node
+      ? `${node.textContent} ${[...node.querySelectorAll(".fg-editor:not(.is-typist)")]
+          .map((field) => field.value)
+          .join(" ")}`.trim()
+      : "";
+});
+
 await page.setViewport({ width: 1680, height: 700 });
 page.on("dialog", (dialog) => dialog.accept());
 
@@ -133,9 +163,18 @@ const state = () =>
       editing: !!editor,
       editorValue: editor?.value ?? null,
       rowCount: rows.length,
-      names: rows.map((row) => row.querySelector(".fg-name-text")?.textContent ?? ""),
+      // セルは選ばれた時点で開くので、そのセルの中身は文字ではなく入力欄の値。
+      // 文字だけを読むと、カーソルのある行だけ空に見える。
+      names: rows.map((row) => {
+        const cell = row.querySelector(".fg-cell-name");
+        const open = cell?.querySelector(".fg-editor:not(.is-typist)");
+        return open ? open.value : (row.querySelector(".fg-name-text")?.textContent ?? "");
+      }),
       cells: rows.map((row) =>
-        [...row.querySelectorAll(".fg-cell")].map((cell) => cell.textContent.trim()),
+        [...row.querySelectorAll(".fg-cell")].map((cell) => {
+          const open = cell.querySelector(".fg-editor:not(.is-typist)");
+          return open ? open.value.trim() : cell.textContent.trim();
+        }),
       ),
       error: document.querySelector(".fg-error span")?.textContent ?? null,
     };
@@ -206,8 +245,14 @@ const refreshColumns = async () => {
 };
 
 /** Selects a cell the way a click would, without depending on its position. */
-const selectCell = (row, column) => {
-  if (row < 0) throw new Error(`選択しようとした行が見つかりません (column=${column})`);
+const selectCell = async (row, column) => {
+  // 「-1 行目を選ぼうとした」だけでは、何を探して何が見えていたのか分からない。
+  if (row < 0) {
+    const seen = (await state()).names;
+    throw new Error(
+      `選択しようとした行が見つかりません (column=${column}) 見えているのは: ${seen.join(" / ")}`,
+    );
+  }
 
   return page.evaluate(
     (row, column) => {
@@ -219,7 +264,12 @@ const selectCell = (row, column) => {
       // 作った event は選択を動かすが、フォーカスは動かさない。本物のクリックとの
       // この違いのせいで、直前に Escape などでフォーカスが表の外へ出ていると、
       // 続く F2 も打鍵もどこにも届かず、編集が「静かに起きなかった」ことになる。
-      document.querySelector(".fg-grid")?.focus({ preventScroll: true });
+      //
+      // セルは選ばれた時点で開くので、本物のクリックが落ちる先は入力欄。
+      // 表そのものに当てると、打った文字がどこにも入らない。
+      const editor = document.querySelector(".fg-editor:not(.is-typist)");
+      if (editor) editor.focus({ preventScroll: true });
+      else document.querySelector(".fg-grid")?.focus({ preventScroll: true });
     },
     row,
     column,
@@ -257,43 +307,58 @@ await page.click(".fg-pane-left .fg-row.fg-data .fg-cell");
 s = await state();
 check("クリックでセルを選択", s.row === 0 && s.column === 0, `row=${s.row} col=${s.column}`);
 
+// 開いているセルの上でも、矢印は素直に隣へ動く。動く前に、変わっていれば確定する。
 await page.keyboard.press("ArrowDown");
+await settle();
 await page.keyboard.press("ArrowRight");
+await settle();
 s = await state();
 check("矢印キーで移動", s.row === 1 && s.column === 1, `row=${s.row} col=${s.column}`);
 
-for (let i = 0; i < Object.keys(COLUMN).length; i++) await page.keyboard.press("ArrowRight");
+for (let i = 0; i < Object.keys(COLUMN).length; i++) {
+  await page.keyboard.press("ArrowRight");
+  await settle();
+}
 await page.keyboard.press("Tab");
+await settle();
 s = await state();
 check("Tab が行末から次の行の先頭へ回り込む", s.row === 2 && s.column === 0, `row=${s.row}`);
 
 // --- editing ----------------------------------------------------------------
 
+// 選んだ時点で開いている。ダブルクリックも Enter も要らない。
 await selectCell(0, 0);
+s = await state();
+check(
+  "セルは選んだ時点で開いている",
+  s.editing && s.editorValue === "要件定義",
+  `value=${s.editorValue}`,
+);
+
 await page.keyboard.type("A");
 s = await state();
-check("文字入力で編集が始まりその文字が残る", s.editing && s.editorValue === "A", `value=${s.editorValue}`);
+check("打った文字は開いている値を置き換える", s.editing && s.editorValue === "A", `value=${s.editorValue}`);
 
+// 開きっぱなしなので、Esc が取り消すのは打った文字だけ。戻る先の「選択だけ」が無い。
 await page.keyboard.press("Escape");
 await settle();
 s = await state();
-check("Esc で編集を取り消す", !s.editing && s.cells[0][0] === "要件定義", `now=${s.cells[0][0]}`);
+check(
+  "Esc は打った文字だけ取り消し、セルは開いたまま",
+  s.editing && s.editorValue === "要件定義" && s.cells[0][0] === "要件定義",
+  `value=${s.editorValue} now=${s.cells[0][0]}`,
+);
 
 await page.keyboard.press("F2");
 s = await state();
 check("F2 は既存の値を開く", s.editing && s.editorValue === "要件定義", `value=${s.editorValue}`);
 
-await page.keyboard.press("Escape");
-await settle();
-await page.keyboard.press("Enter");
-s = await state();
-check("Enter でも編集が始まる", s.editing && s.editorValue === "要件定義", `value=${s.editorValue}`);
-
 await replaceEditorText("要件定義（改）");
 await page.keyboard.press("Enter");
 await settle();
 s = await state();
-check("Enter で確定し下のセルへ移る", !s.editing && s.row === 1 && s.column === 0, `row=${s.row}`);
+check("Enter で確定し下のセルへ移る", s.row === 1 && s.column === 0, `row=${s.row}`);
+check("移った先も開いている", s.editing, `editing=${s.editing}`);
 check("編集がグリッドに反映される", s.cells[0][0] === "要件定義（改）", s.cells[0][0]);
 
 const persisted = await page.evaluate(async () => {
@@ -366,8 +431,10 @@ const outline = async () =>
   page.evaluate(() =>
     [...document.querySelectorAll(".fg-pane-left .fg-row.fg-data")].map((row) => {
       const cell = row.querySelector(".fg-cell-name");
+      // 動かした行はカーソルの行、つまり開いているセル。名前は入力欄の中にある。
+      const open = cell.querySelector(".fg-editor:not(.is-typist)");
       return [
-        cell.querySelector(".fg-name-text")?.textContent ?? "",
+        open ? open.value : (cell.querySelector(".fg-name-text")?.textContent ?? ""),
         (parseInt(cell.style.paddingLeft, 10) - 12) / 16,
       ];
     }),
@@ -693,7 +760,7 @@ await selectCell(0, 0);
 const dragRow = async (name, toRow, dx) => {
   const from = await page.evaluate((name) => {
     const rows = [...document.querySelectorAll(".fg-pane-left .fg-row.fg-data")];
-    const row = rows.find((row) => row.textContent.includes(name));
+    const row = rows.find((row) => window.says(row).includes(name));
     const box = row.querySelector(".fg-handle").getBoundingClientRect();
     return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
   }, name);
@@ -1206,7 +1273,7 @@ await settle();
 const runMenuItem = async (rowName, label) => {
   const at = await page.evaluate((rowName) => {
     const rows = [...document.querySelectorAll(".fg-pane-left .fg-row.fg-data")];
-    const row = rows.find((row) => row.textContent.includes(rowName));
+    const row = rows.find((row) => window.says(row).includes(rowName));
     const box = row.querySelector(".fg-cell-name").getBoundingClientRect();
     return { x: box.x + 40, y: box.y + box.height / 2 };
   }, rowName);
@@ -1539,7 +1606,7 @@ check(
 const drawn = await page.evaluate(() => {
   const rows = [...document.querySelectorAll(".fg-bar-row")];
   const named = [...document.querySelectorAll(".fg-pane-left .fg-row.fg-data .fg-cell-name")].map(
-    (c) => c.textContent.trim(),
+    (c) => window.says(c).trim(),
   );
   const at = (name) => rows[named.findIndex((n) => n.includes(name))];
   return {
@@ -1569,7 +1636,7 @@ check(
     await new Promise((done) => setTimeout(done, 600));
 
     const named = [...document.querySelectorAll(".fg-pane-left .fg-row.fg-data .fg-cell-name")].map(
-      (c) => c.textContent.trim(),
+      (c) => window.says(c).trim(),
     );
     const row = [...document.querySelectorAll(".fg-bar-row")][
       named.findIndex((n) => n.includes("要件定義"))
@@ -1595,7 +1662,7 @@ check(
   "差異のラベルがバーの端に付く",
   await page.evaluate(() => {
     const named = [...document.querySelectorAll(".fg-pane-left .fg-row.fg-data .fg-cell-name")].map(
-      (c) => c.textContent.trim(),
+      (c) => window.says(c).trim(),
     );
     const row = [...document.querySelectorAll(".fg-bar-row")][
       named.findIndex((n) => n.includes("要件定義"))
@@ -1660,7 +1727,7 @@ await settle();
 const daysOf = (name) =>
   page.evaluate((name) => {
     const rows = [...document.querySelectorAll(".fg-pane-left .fg-row.fg-data")];
-    const row = rows.find((r) => r.querySelector(".fg-cell-name").textContent.includes(name));
+    const row = rows.find((r) => window.says(r.querySelector(".fg-cell-name")).includes(name));
     return row?.querySelector(".fg-cell-days")?.textContent.trim();
   }, name);
 
@@ -1713,7 +1780,7 @@ check(
   "休暇は担当者の行にだけ出る",
   await page.evaluate(() => {
     const named = [...document.querySelectorAll(".fg-pane-left .fg-row.fg-data .fg-cell-name")].map(
-      (c) => c.textContent.trim(),
+      (c) => window.says(c).trim(),
     );
     const rows = [...document.querySelectorAll(".fg-bar-row")];
     const at = (name) => rows[named.findIndex((n) => n.includes(name))];
@@ -1742,7 +1809,7 @@ check(
   "実施バーがあっても塗りは予定バーに乗る",
   await page.evaluate(() => {
     const named = [...document.querySelectorAll(".fg-pane-left .fg-row.fg-data .fg-cell-name")].map(
-      (c) => c.textContent.trim(),
+      (c) => window.says(c).trim(),
     );
     const rows = [...document.querySelectorAll(".fg-bar-row")];
     const row = rows[named.findIndex((n) => n.includes("要件定義"))];
@@ -1785,7 +1852,7 @@ const dragActual = async (task, days, grab) => {
   // to the left is not an edge the mouse can grab.
   await page.evaluate((task) => {
     const named = [...document.querySelectorAll(".fg-pane-left .fg-row.fg-data .fg-cell-name")].map(
-      (c) => c.textContent.trim(),
+      (c) => window.says(c).trim(),
     );
     const rows = [...document.querySelectorAll(".fg-bar-row")];
     const bar = rows[named.findIndex((n) => n.includes(task))]?.querySelector(".fg-actual");
@@ -1796,7 +1863,7 @@ const dragActual = async (task, days, grab) => {
 
   const box = await page.evaluate((task) => {
     const named = [...document.querySelectorAll(".fg-pane-left .fg-row.fg-data .fg-cell-name")].map(
-      (c) => c.textContent.trim(),
+      (c) => window.says(c).trim(),
     );
     const rows = [...document.querySelectorAll(".fg-bar-row")];
     const bar = rows[named.findIndex((n) => n.includes(task))]?.querySelector(".fg-actual");
@@ -2080,7 +2147,7 @@ check(
   "足りない分は塗りの続きから、約束した％まで",
   await page.evaluate(() => {
     const named = [...document.querySelectorAll(".fg-pane-left .fg-row.fg-data .fg-cell-name")].map(
-      (c) => c.textContent.trim(),
+      (c) => window.says(c).trim(),
     );
     const at = named.findIndex((n) => n.includes("ドキュメント整備"));
     const bar = [...document.querySelectorAll(".fg-bar-row")][at]?.querySelector(".fg-bar.is-plan");
@@ -2111,7 +2178,7 @@ check(
   "いつまでか、は文字で出る",
   await page.evaluate((wanted) => {
     const named = [...document.querySelectorAll(".fg-pane-left .fg-row.fg-data .fg-cell-name")].map(
-      (c) => c.textContent.trim(),
+      (c) => window.says(c).trim(),
     );
     const at = named.findIndex((n) => n.includes("ドキュメント整備"));
     const row = [...document.querySelectorAll(".fg-bar-row")][at];
@@ -2185,7 +2252,7 @@ check(
   "これからの予定進捗はその％の位置に細く出る",
   await page.evaluate((wanted) => {
     const named = [...document.querySelectorAll(".fg-pane-left .fg-row.fg-data .fg-cell-name")].map(
-      (c) => c.textContent.trim(),
+      (c) => window.says(c).trim(),
     );
     const at = named.findIndex((n) => n.trim() === "設計");
     const row = [...document.querySelectorAll(".fg-bar-row")][at];
@@ -2222,7 +2289,7 @@ check(
     const met = design.targets.filter((target) => target.due && !target.missed);
 
     const named = [...document.querySelectorAll(".fg-pane-left .fg-row.fg-data .fg-cell-name")].map(
-      (c) => c.textContent.trim(),
+      (c) => window.says(c).trim(),
     );
     const at = named.findIndex((n) => n.trim() === "設計");
     const row = [...document.querySelectorAll(".fg-bar-row")][at];
@@ -2281,7 +2348,7 @@ check(
     if (!over) return false;
 
     const named = [...document.querySelectorAll(".fg-pane-left .fg-row.fg-data .fg-cell-name")].map(
-      (c) => c.textContent.trim(),
+      (c) => window.says(c).trim(),
     );
     const at = named.findIndex((n) => n.includes(over.name));
     const row = [...document.querySelectorAll(".fg-pane-left .fg-row.fg-data")][at];
@@ -2885,7 +2952,7 @@ check(
   "予定進捗はセルに一覧で出る",
   await page.evaluate(() => {
     const named = [...document.querySelectorAll(".fg-pane-left .fg-row.fg-data .fg-cell-name")].map(
-      (c) => c.textContent.trim(),
+      (c) => window.says(c).trim(),
     );
     const at = named.findIndex((n) => n.includes("実装"));
     const cell = [...document.querySelectorAll(".fg-pane-left .fg-row.fg-data")][at]
@@ -3032,7 +3099,7 @@ const outside = await page.evaluate(async () => {
   await new Promise((done) => setTimeout(done, 700));
 
   const named = [...document.querySelectorAll(".fg-pane-left .fg-row.fg-data .fg-cell-name")].map(
-    (c) => c.textContent.trim(),
+    (c) => window.says(c).trim(),
   );
   const at = named.findIndex((n) => n.includes("設計"));
   const cell = [...document.querySelectorAll(".fg-pane-left .fg-row.fg-data")][at];
@@ -3064,7 +3131,7 @@ check(
   "待ちはチャートにも出る",
   await page.evaluate(() => {
     const named = [...document.querySelectorAll(".fg-pane-left .fg-row.fg-data .fg-cell-name")].map(
-      (c) => c.textContent.trim(),
+      (c) => window.says(c).trim(),
     );
     const at = named.findIndex((n) => n.includes("設計"));
     const cell = [...document.querySelectorAll(".fg-pane-left .fg-row.fg-data")][at];
@@ -4109,7 +4176,7 @@ check(
 // 行に色。名前に ★ や【重要】を書いて代用していたものを、その場所から外す。
 const painted = await page.evaluate(async () => {
   const named = [...document.querySelectorAll(".fg-pane-left .fg-row.fg-data .fg-cell-name")].map(
-    (c) => c.textContent.trim(),
+    (c) => window.says(c).trim(),
   );
   const at = named.findIndex((n) => n.includes("テスト"));
   const cell = [...document.querySelectorAll(".fg-pane-left .fg-row.fg-data")][at].querySelector(
@@ -5084,11 +5151,17 @@ const added = await (async () => {
   await settle();
 
   const spot = await page.evaluate(() => {
+    const pane = document.querySelector(".fg-pane-left");
     const rows = [...document.querySelectorAll(".fg-pane-left .fg-row.fg-data")];
     const seen = rows.filter((row) => {
       const box = row.getBoundingClientRect();
       return box.top > 260 && box.bottom < window.innerHeight - 100;
     });
+    if (seen.length === 0) {
+      throw new Error(
+        `画面の真ん中に行がない: 描かれている ${rows.length} 行 / scrollTop ${pane?.scrollTop} / 高さ ${pane?.clientHeight} / 最初の行 ${JSON.stringify(rows[0]?.getBoundingClientRect())}`,
+      );
+    }
     const cell = seen[Math.floor(seen.length / 2)].querySelector(".fg-cell");
     const box = cell.getBoundingClientRect();
     return { x: Math.round(box.x + box.width / 2), y: Math.round(box.y + box.height / 2) };
@@ -5893,7 +5966,7 @@ const fromChart = await (async () => {
   // 左端は画面の外にいることがある。
   const spot = await page.evaluate(() => {
     const names = [...document.querySelectorAll(".fg-pane-left .fg-row.fg-data .fg-cell-name")];
-    const index = names.findIndex((cell) => cell.textContent.includes("チャートから"));
+    const index = names.findIndex((cell) => window.says(cell).includes("チャートから"));
     const row = [...document.querySelectorAll(".fg-bar-row")][index];
     const chart = document.querySelector(".fg-pane-chart").getBoundingClientRect();
     const box = row.getBoundingClientRect();
@@ -6175,8 +6248,6 @@ check("JavaScript エラーが出ていない", pageErrors.length === 0, pageErr
 
 await browser.close();
 
-for (const name of passed) console.log("  ✓", name);
-for (const name of failed) console.log("  ✗", name);
-console.log(`\n${passed.length} passed, ${failed.length} failed`);
+report();
 
 process.exit(failed.length ? 1 : 0);

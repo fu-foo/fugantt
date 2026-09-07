@@ -480,6 +480,11 @@ const EN: Record<string, string> = {
   "このプロジェクトは読むだけです。": "You can read this project, not change it.",
   "日数は日付から数えます。": "The day count comes from the dates.",
   "遅延は予定進捗と実進捗から決まります。": "Late is read from the promised progress against the real one.",
+  "コメントを書く": "Write a note",
+  "全部開く": "Open all",
+  "全部閉じる": "Close all",
+  "すべての親タスクを開きます": "Opens every summary row.",
+  "すべての親タスクを閉じます": "Closes every summary row.",
   "待ちと予定進捗は、子のタスクに入れます。": "Waits and promised progress go on the child tasks.",
   "差異は予定と実施の差です。": "A variance is the gap between the plan and what happened.",
   "集計行の日付と進捗は子タスクから決まります。":
@@ -1892,6 +1897,37 @@ class Grid {
   }
 
   /**
+   * Folds or unfolds every summary row at once.
+   *
+   * The cursor is kept on a row that is still drawn: folding everything hides
+   * most of the plan, and a selection left on a hidden row answers no keys.
+   */
+  private foldAll(close: boolean): void {
+    const before = this.collapsed.size;
+    const here = this.selected?.id;
+
+    if (close) {
+      for (const task of this.data.tasks) {
+        if (task.has_children) this.collapsed.add(task.id);
+      }
+    } else {
+      this.collapsed.clear();
+    }
+
+    if (this.collapsed.size === before) return;
+
+    saveCollapsed(this.projectId, this.collapsed);
+    this.computeVisible();
+
+    // The row the cursor was on may be inside something that just closed. Its
+    // nearest visible ancestor is where the eye ends up, so put the cursor
+    // there rather than at whatever index the old number now points at.
+    const still = here ? this.tasks.findIndex((task) => task.id === here) : -1;
+    this.select(still >= 0 ? still : this.row, this.column);
+    this.render();
+  }
+
+  /**
    * Folds or unfolds the current row.
    *
    * Folding a leaf jumps to its parent instead, which is what pressing "close
@@ -2325,6 +2361,15 @@ class Grid {
     // Same reason: 予定進捗 is a list of dates and percentages.
     if (this.selectedColumn.key === "targets") {
       this.openTargets(task);
+      return;
+    }
+
+    // And the same again for コメント, which turned out to be where people
+    // write several lines. A cell holds one, and an `<input>` cannot hold a
+    // newline at all — put a note with newlines through one and they are gone
+    // on the way out.
+    if (this.selectedColumn.key === "note") {
+      this.openField(task, this.selectedColumn);
       return;
     }
 
@@ -2769,11 +2814,18 @@ class Grid {
     const current = this.cellText(task, target);
 
     const choices = this.choicesFor(target);
-    const input = choices
-      ? (element("select", "fg-dialog-field") as HTMLSelectElement)
-      : (element("input", "fg-dialog-field") as HTMLInputElement);
+    // A note is prose. The others are a value, and a value is one line.
+    const prose = target.key === "note";
+    const input = prose
+      ? (element("textarea", "fg-dialog-field fg-dialog-prose") as HTMLTextAreaElement)
+      : choices
+        ? (element("select", "fg-dialog-field") as HTMLSelectElement)
+        : (element("input", "fg-dialog-field") as HTMLInputElement);
 
-    if (choices && input instanceof HTMLSelectElement) {
+    if (input instanceof HTMLTextAreaElement) {
+      input.rows = 8;
+      input.value = current;
+    } else if (choices && input instanceof HTMLSelectElement) {
       // A blank first, so a value can be taken off again.
       for (const value of ["", ...choices]) {
         const option = element("option", undefined, value || t("（なし）")) as HTMLOptionElement;
@@ -4166,6 +4218,22 @@ class Grid {
   private renderToolbar(): HTMLElement {
     const bar = element("div", "fg-toolbar");
 
+    // Before the read-only gate: opening and closing the outline is looking at
+    // the plan, not changing it, and somebody who can only look needs it most.
+    const summaries = this.data.tasks.some((task) => task.has_children);
+    if (summaries) {
+      const openAll = element("button", "fg-button fg-button-quiet", t("全部開く"));
+      openAll.type = "button";
+      openAll.title = t("すべての親タスクを開きます");
+      openAll.addEventListener("click", () => this.foldAll(false));
+
+      const closeAll = element("button", "fg-button fg-button-quiet", t("全部閉じる"));
+      closeAll.type = "button";
+      closeAll.title = t("すべての親タスクを閉じます");
+      closeAll.addEventListener("click", () => this.foldAll(true));
+
+      bar.append(openAll, closeAll);
+    }
 
     if (!this.data.can_edit) {
       bar.append(element("span", "fg-hint", t("閲覧のみ")));
@@ -4629,6 +4697,27 @@ class Grid {
               ? t("達成")
               : t("これから");
           cell.append(pill);
+        }
+      } else if (column.key === "note") {
+        // Written in a dialog, read on one line. The text keeps its newlines in
+        // the database; HTML collapses them here, so several lines read as one
+        // and run into the ellipsis the cell already draws.
+        if (this.editable(task, column)) {
+          const open = element("button", "fg-wait-edit", task.note ? "✎" : "＋");
+          open.type = "button";
+          open.title = t("コメントを書く");
+          open.addEventListener("mousedown", (event) => event.stopPropagation());
+          open.addEventListener("click", () => {
+            this.select(index, columnIndex);
+            this.openField(task, column);
+          });
+          cell.append(open);
+        }
+
+        if (task.note) {
+          const text = element("span", undefined, task.note);
+          text.title = task.note;
+          cell.append(text);
         }
       } else if (column.key === "waits") {
         // The button comes first: the cell clips what runs past its width, and
@@ -5095,8 +5184,14 @@ class Grid {
 
     if (choices) {
       const select = element("select", "fg-editor");
-      // A blank entry is how a select value gets cleared.
-      if (column.kind !== "status") select.append(element("option", undefined, ""));
+
+      // A blank entry is how a select value gets cleared, and ステータス needs
+      // one as much as anything else: a summary row is not 未着手 — it is the
+      // sum of what is under it, and saying nothing about it is the honest
+      // answer. Named rather than empty, so the choice reads as a choice.
+      const blank = element("option", undefined, t("（なし）"));
+      blank.value = "";
+      select.append(blank);
 
       for (const choice of choices) {
         const option = element("option", undefined, choice);

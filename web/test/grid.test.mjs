@@ -2667,11 +2667,17 @@ const chord = async (key, shift = false) => {
 };
 
 /** 「実装」のコメント欄に打ち込む。 */
+// コメント opens a dialog rather than an editor in the cell: it is prose, and
+// several lines of it do not fit on one.
 const typeNote = async (text) => {
   await selectCell((await state()).names.indexOf("実装"), COLUMN["コメント"]);
   await page.keyboard.press("F2");
-  await replaceEditorText(text);
-  await page.keyboard.press("Enter");
+  await settle();
+  await page.evaluate((value) => {
+    const box = document.querySelector(".fg-dialog-prose");
+    box.value = value;
+    document.querySelector(".fg-dialog-save").click();
+  }, text);
   await settle();
   await settle();
 };

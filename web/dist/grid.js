@@ -202,6 +202,11 @@
     "\u3053\u306E\u30D7\u30ED\u30B8\u30A7\u30AF\u30C8\u306F\u8AAD\u3080\u3060\u3051\u3067\u3059\u3002": "You can read this project, not change it.",
     "\u65E5\u6570\u306F\u65E5\u4ED8\u304B\u3089\u6570\u3048\u307E\u3059\u3002": "The day count comes from the dates.",
     "\u9045\u5EF6\u306F\u4E88\u5B9A\u9032\u6357\u3068\u5B9F\u9032\u6357\u304B\u3089\u6C7A\u307E\u308A\u307E\u3059\u3002": "Late is read from the promised progress against the real one.",
+    "\u30B3\u30E1\u30F3\u30C8\u3092\u66F8\u304F": "Write a note",
+    "\u5168\u90E8\u958B\u304F": "Open all",
+    "\u5168\u90E8\u9589\u3058\u308B": "Close all",
+    "\u3059\u3079\u3066\u306E\u89AA\u30BF\u30B9\u30AF\u3092\u958B\u304D\u307E\u3059": "Opens every summary row.",
+    "\u3059\u3079\u3066\u306E\u89AA\u30BF\u30B9\u30AF\u3092\u9589\u3058\u307E\u3059": "Closes every summary row.",
     "\u5F85\u3061\u3068\u4E88\u5B9A\u9032\u6357\u306F\u3001\u5B50\u306E\u30BF\u30B9\u30AF\u306B\u5165\u308C\u307E\u3059\u3002": "Waits and promised progress go on the child tasks.",
     "\u5DEE\u7570\u306F\u4E88\u5B9A\u3068\u5B9F\u65BD\u306E\u5DEE\u3067\u3059\u3002": "A variance is the gap between the plan and what happened.",
     "\u96C6\u8A08\u884C\u306E\u65E5\u4ED8\u3068\u9032\u6357\u306F\u5B50\u30BF\u30B9\u30AF\u304B\u3089\u6C7A\u307E\u308A\u307E\u3059\u3002": "A summary row's dates and progress come from its children.",
@@ -1132,6 +1137,29 @@
       this.render();
     }
     /**
+     * Folds or unfolds every summary row at once.
+     *
+     * The cursor is kept on a row that is still drawn: folding everything hides
+     * most of the plan, and a selection left on a hidden row answers no keys.
+     */
+    foldAll(close) {
+      const before = this.collapsed.size;
+      const here = this.selected?.id;
+      if (close) {
+        for (const task of this.data.tasks) {
+          if (task.has_children) this.collapsed.add(task.id);
+        }
+      } else {
+        this.collapsed.clear();
+      }
+      if (this.collapsed.size === before) return;
+      saveCollapsed(this.projectId, this.collapsed);
+      this.computeVisible();
+      const still = here ? this.tasks.findIndex((task) => task.id === here) : -1;
+      this.select(still >= 0 ? still : this.row, this.column);
+      this.render();
+    }
+    /**
      * Folds or unfolds the current row.
      *
      * Folding a leaf jumps to its parent instead, which is what pressing "close
@@ -1447,6 +1475,10 @@ ${lines.join("\n")}` : "";
       }
       if (this.selectedColumn.key === "targets") {
         this.openTargets(task);
+        return;
+      }
+      if (this.selectedColumn.key === "note") {
+        this.openField(task, this.selectedColumn);
         return;
       }
       this.editing = true;
@@ -1779,8 +1811,12 @@ ${lines.join("\n")}` : "";
       const dialog = element("dialog", "fg-dialog");
       const current = this.cellText(task, target);
       const choices = this.choicesFor(target);
-      const input = choices ? element("select", "fg-dialog-field") : element("input", "fg-dialog-field");
-      if (choices && input instanceof HTMLSelectElement) {
+      const prose = target.key === "note";
+      const input = prose ? element("textarea", "fg-dialog-field fg-dialog-prose") : choices ? element("select", "fg-dialog-field") : element("input", "fg-dialog-field");
+      if (input instanceof HTMLTextAreaElement) {
+        input.rows = 8;
+        input.value = current;
+      } else if (choices && input instanceof HTMLSelectElement) {
         for (const value of ["", ...choices]) {
           const option = element("option", void 0, value || t("\uFF08\u306A\u3057\uFF09"));
           option.value = value;
@@ -2773,6 +2809,18 @@ ${lines.join("\n")}` : "";
     }
     renderToolbar() {
       const bar = element("div", "fg-toolbar");
+      const summaries = this.data.tasks.some((task) => task.has_children);
+      if (summaries) {
+        const openAll = element("button", "fg-button fg-button-quiet", t("\u5168\u90E8\u958B\u304F"));
+        openAll.type = "button";
+        openAll.title = t("\u3059\u3079\u3066\u306E\u89AA\u30BF\u30B9\u30AF\u3092\u958B\u304D\u307E\u3059");
+        openAll.addEventListener("click", () => this.foldAll(false));
+        const closeAll = element("button", "fg-button fg-button-quiet", t("\u5168\u90E8\u9589\u3058\u308B"));
+        closeAll.type = "button";
+        closeAll.title = t("\u3059\u3079\u3066\u306E\u89AA\u30BF\u30B9\u30AF\u3092\u9589\u3058\u307E\u3059");
+        closeAll.addEventListener("click", () => this.foldAll(true));
+        bar.append(openAll, closeAll);
+      }
       if (!this.data.can_edit) {
         bar.append(element("span", "fg-hint", t("\u95B2\u89A7\u306E\u307F")));
         return bar;
@@ -3080,6 +3128,23 @@ ${lines.join("\n")}` : "";
             else if (target.due) pill.classList.add("is-met");
             pill.title = target.missed ? t("\u3053\u306E\u65E5\u307E\u3067\u306B\u5C4A\u3044\u3066\u3044\u307E\u305B\u3093") : target.due ? t("\u9054\u6210") : t("\u3053\u308C\u304B\u3089");
             cell.append(pill);
+          }
+        } else if (column2.key === "note") {
+          if (this.editable(task, column2)) {
+            const open = element("button", "fg-wait-edit", task.note ? "\u270E" : "\uFF0B");
+            open.type = "button";
+            open.title = t("\u30B3\u30E1\u30F3\u30C8\u3092\u66F8\u304F");
+            open.addEventListener("mousedown", (event) => event.stopPropagation());
+            open.addEventListener("click", () => {
+              this.select(index, columnIndex);
+              this.openField(task, column2);
+            });
+            cell.append(open);
+          }
+          if (task.note) {
+            const text = element("span", void 0, task.note);
+            text.title = task.note;
+            cell.append(text);
           }
         } else if (column2.key === "waits") {
           if (this.editable(task, column2)) {
@@ -3412,7 +3477,9 @@ ${lines.join("\n")}` : "";
       const choices = this.choicesFor(column2);
       if (choices) {
         const select = element("select", "fg-editor");
-        if (column2.kind !== "status") select.append(element("option", void 0, ""));
+        const blank = element("option", void 0, t("\uFF08\u306A\u3057\uFF09"));
+        blank.value = "";
+        select.append(blank);
         for (const choice of choices) {
           const option = element("option", void 0, choice);
           option.value = choice;

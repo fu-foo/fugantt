@@ -1811,3 +1811,27 @@ input.fg-filter {
 }
 
 /* --- project memo -------------------------------------------------------- */
+
+/* A pane being pulled sideways by the mouse. */
+.fg-pane-left.is-panning,
+.fg-pane-chart.is-panning {
+  cursor: grabbing;
+  user-select: none;
+}
+.fg-pane-left.is-panning *,
+.fg-pane-chart.is-panning * {
+  cursor: grabbing;
+}
+
+/* Finished after its 納期: late on the record, not late now. Said, but not in
+   red — the red is for the rows somebody can still do something about. */
+.fg-late-mark.is-done {
+  font-weight: 600;
+  color: var(--fg-muted);
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--fg-rule-strong);
+}
+
+.fg-due.is-late-done::before {
+  border-top-color: var(--fg-muted);
+}

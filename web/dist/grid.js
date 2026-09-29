@@ -25,12 +25,18 @@
         { value: "\u9806\u8ABF", color: "", background: "" }
       ]
     },
+    //
+    // 納期遅れ has a third word. A row finished after its 納期 was late, and
+    // stays so on the record — but it is done, and a red mark on it competes
+    // with the rows somebody can still do something about. 遅れた is that
+    // record: quiet on the screen, still there to be filtered for afterwards.
     {
       key: "due_late",
       label: "\u7D0D\u671F\u9045\u308C",
       kind: "select",
       options: [
         { value: "\u9045\u308C", color: "", background: "" },
+        { value: "\u9045\u308C\u305F", color: "", background: "" },
         { value: "\u9806\u8ABF", color: "", background: "" }
       ]
     },
@@ -148,6 +154,7 @@
     "\u8D85\u904E": "more than",
     "\u672A\u6E80": "less than",
     "\u9045\u308C": "behind",
+    "\u9045\u308C\u305F": "was late",
     "\u9806\u8ABF": "on track",
     "\u89E3\u9664": "Clear",
     "\u691C\u7D22\u6761\u4EF6": "Saved filters",
@@ -229,6 +236,7 @@
     "\u4E88\u5B9A\u9045\u308C\u306F\u4E88\u5B9A\u9032\u6357\u3068\u4E88\u5B9A\u7D42\u4E86\u304B\u3089\u6C7A\u307E\u308A\u307E\u3059\u3002": "Behind plan is read from the promised progress and the planned end.",
     "\u7D0D\u671F\u9045\u308C\u306F\u7D0D\u671F\u3068\u5B9F\u65BD\u7D42\u4E86\u304B\u3089\u6C7A\u307E\u308A\u307E\u3059\u3002": "Past due is read from the due date and the real end.",
     "\u7D0D\u671F\u3092\u904E\u304E\u3066\u3044\u307E\u3059": "Past the day this was promised for",
+    "\u7D0D\u671F\u3088\u308A\u5F8C\u306B\u7D42\u308F\u308A\u307E\u3057\u305F": "Finished after the day it was promised for",
     "\u30B3\u30E1\u30F3\u30C8\u3092\u66F8\u304F": "Write a note",
     "\u2318Enter \u3067\u3082\u4FDD\u5B58\u3067\u304D\u307E\u3059": "\u2318Enter saves too",
     "\u5168\u90E8\u958B\u304F": "Open all",
@@ -265,6 +273,7 @@
   var DAY_MS = 864e5;
   var PAGE_ROWS = 10;
   var GRIP_WIDTH = 7;
+  var PAN_SLOP = 5;
   function parseDate(text) {
     const [year, month, day] = text.split("-").map(Number);
     return Date.UTC(year ?? 1970, (month ?? 1) - 1, day ?? 1);
@@ -505,6 +514,16 @@
       this.noticeTimer = 0;
       this.busy = false;
       /**
+       * Rows asked for with ⌘Enter that the server has not answered yet.
+       *
+       * People type the new row's name straight after the keystroke that makes it,
+       * and the row only exists one round trip later. What they type in between is
+       * meant for it, not for the row they pressed ⌘Enter on.
+       */
+      this.inserting = 0;
+      /** What was typed while `inserting`, for the new row's editor. */
+      this.held = "";
+      /**
        * Where the chart is scrolled to sideways, or null before it has been drawn.
        *
        * Null rather than zero: a plan that starts in April is *at* zero when
@@ -566,6 +585,7 @@
       TODAY = data.today;
       this.computeVisible();
       this.root.addEventListener("keydown", (event) => this.onKeyDown(event));
+      this.root.addEventListener("pointerdown", (event) => this.beginPan(event));
       window.addEventListener("resize", () => this.pinColumns());
       this.listen();
       this.render();
@@ -1325,9 +1345,12 @@ ${lines.join("\n")}` : "";
     judged(task, key) {
       return key === "due_late" ? task.due !== null : task.targets.length > 0 || task.end !== null;
     }
-    /** The row is late by either ruler, which is what a bar is painted for. */
+    /**
+     * The row is late now by either ruler, which is what a bar is painted for.
+     * Finished after its 納期 does not count: that is history, not a problem.
+     */
     lateEither(task) {
-      return this.behind(task) || task.due_late;
+      return this.behind(task) || task.due_late_open;
     }
     /** Whether one cell satisfies one filter box. */
     matches(task, column2, needle) {
@@ -1395,6 +1418,7 @@ ${lines.join("\n")}` : "";
           return task.targets.map((target) => `${short(target.date)} ${target.percent}%`).join(", ");
         case "late":
         case "due_late":
+          if (column2.key === "due_late" && task.due_late && !task.due_late_open) return "\u9045\u308C\u305F";
           return this.late(task, column2.key) ? "\u9045\u308C" : "\u9806\u8ABF";
         case "note":
           return task.note;
@@ -1459,11 +1483,24 @@ ${lines.join("\n")}` : "";
       this.select(this.row + rows, this.column + columns);
       this.repaintSelection();
     }
-    /** Tab and Shift+Tab run past the end of a row onto the next one. */
+    /**
+     * Tab and Shift+Tab run past the end of a row onto the next one.
+     *
+     * Columns nothing can be typed into — a day count, a variance — are stepped
+     * over: after 予定終了 comes the next thing to enter, not the number it made.
+     * Only columns that are computed on every row; one that happens to be locked
+     * on this row still stops the cursor, so Tab lands in the same place on
+     * every row.
+     */
     step(delta) {
       const width = this.columns.length;
-      let index = this.row * width + this.column + delta;
-      index = clamp(index, 0, this.tasks.length * width - 1);
+      const last = this.tasks.length * width - 1;
+      const from = this.row * width + this.column;
+      let index = clamp(from + delta, 0, last);
+      while (index > 0 && index < last && this.answerColumn(this.columns[index % width]) !== null) {
+        index += delta;
+      }
+      if (this.answerColumn(this.columns[index % width]) !== null) index = from;
       this.row = Math.floor(index / width);
       this.column = index % width;
       this.repaintSelection();
@@ -1541,6 +1578,12 @@ ${lines.join("\n")}` : "";
       }
       this.editing = true;
       this.seed = seed;
+      for (const stale of this.root.querySelectorAll(".fg-grid .is-selected, .fg-grid .is-current")) {
+        stale.classList.remove("is-selected", "is-current");
+      }
+      for (const typist of this.root.querySelectorAll(".fg-grid .fg-editor.is-typist")) {
+        typist.remove();
+      }
       if (this.repaintRow(this.row)) this.restoreFocus();
       else this.render();
     }
@@ -1983,22 +2026,45 @@ ${lines.join("\n")}` : "";
     // --- rows ----------------------------------------------------------------
     /** Keeps what was typed, then opens a fresh row under it. */
     async commitAndInsert(raw) {
-      await this.commitEdit(raw, "stay");
+      this.inserting++;
+      try {
+        await this.commitEdit(raw, "stay");
+      } finally {
+        this.inserting--;
+      }
       await this.insertRow();
     }
     async insertRow() {
       if (!this.data.can_edit) return;
       const after = this.selected?.id ?? null;
-      const result = await this.send(
-        `/api/projects/${encodeURIComponent(this.projectId)}/tasks`,
-        { method: "POST", body: { after } }
-      );
+      this.inserting++;
+      let result;
+      try {
+        result = await this.send(`/api/projects/${encodeURIComponent(this.projectId)}/tasks`, {
+          method: "POST",
+          body: { after }
+        });
+        await this.untilComposed();
+      } finally {
+        this.inserting--;
+      }
+      if (this.inserting > 0) return;
+      const held = this.held;
+      this.held = "";
       if (!result?.task_id) return;
       const index = this.tasks.findIndex((task) => task.id === result.task_id);
       if (index >= 0) {
         this.select(index, 0);
-        this.startEdit(null);
+        this.startEdit(held === "" ? null : held);
       }
+    }
+    /** Resolves when no IME conversion is open. */
+    untilComposed() {
+      if (!this.composing) return Promise.resolve();
+      return new Promise((done) => {
+        const check = () => this.composing ? requestAnimationFrame(check) : done();
+        check();
+      });
     }
     /**
      * Moves the row through the outline.
@@ -2480,6 +2546,15 @@ ${lines.join("\n")}` : "";
         return;
       }
       const meta = event.ctrlKey || event.metaKey;
+      if (this.inserting > 0 && !(meta && event.key === "Enter")) {
+        if (event.key === "Backspace" && this.held !== "") {
+          this.held = this.held.slice(0, -1);
+          event.preventDefault();
+        } else if (event.key.length > 1 || meta || event.altKey) {
+          event.preventDefault();
+        }
+        return;
+      }
       if (meta && (event.key === "z" || event.key === "Z")) {
         void this.replay(event.shiftKey ? "redo" : "undo");
         event.preventDefault();
@@ -2568,7 +2643,10 @@ ${lines.join("\n")}` : "";
       switch (event.key) {
         case "Enter":
           if (event.ctrlKey || event.metaKey) void this.commitAndInsert(input.value);
-          else void this.commitEdit(input.value, "down");
+          else {
+            const along = input instanceof HTMLSelectElement || this.selectedColumn.kind === "date";
+            void this.commitEdit(input.value, along ? "right" : "down");
+          }
           break;
         case "Tab":
           void this.commitEdit(input.value, event.shiftKey ? "stay" : "right");
@@ -2812,6 +2890,48 @@ ${lines.join("\n")}` : "";
       wasBar.replaceWith(this.renderBar(task, parseDate(this.data.range_start), index));
       this.pinRow(row);
       return true;
+    }
+    /**
+     * Grabbing either pane and pulling it sideways scrolls it.
+     *
+     * A mouse on Windows has no sideways wheel, and a scrollbar at the bottom of
+     * a tall plan is a long way from the row being read. Only past a few pixels
+     * does a press become a pull, so a click still selects the cell it lands on.
+     * Bars, the column grips and the row handles stop the press before it gets
+     * here: grabbing a bar still moves the bar.
+     */
+    beginPan(event) {
+      if (event.pointerType !== "mouse" || event.button !== 0) return;
+      const target = event.target;
+      if (target.closest("input, select, textarea, button, a")) return;
+      const pane = target.closest(".fg-pane-left, .fg-pane-chart");
+      if (!pane || pane.scrollWidth <= pane.clientWidth) return;
+      const startX = event.clientX;
+      const startLeft = pane.scrollLeft;
+      let pulling = false;
+      const move = (moved) => {
+        const dx = moved.clientX - startX;
+        if (!pulling) {
+          if (Math.abs(dx) < PAN_SLOP) return;
+          pulling = true;
+          pane.classList.add("is-panning");
+          window.getSelection()?.removeAllRanges();
+        }
+        pane.scrollLeft = startLeft - dx;
+      };
+      const end = () => {
+        window.removeEventListener("pointermove", move);
+        window.removeEventListener("pointerup", end);
+        window.removeEventListener("pointercancel", end);
+        if (!pulling) return;
+        pane.classList.remove("is-panning");
+        const swallow = (click) => click.stopPropagation();
+        window.addEventListener("click", swallow, { capture: true, once: true });
+        setTimeout(() => window.removeEventListener("click", swallow, { capture: true }), 0);
+      };
+      window.addEventListener("pointermove", move);
+      window.addEventListener("pointerup", end);
+      window.addEventListener("pointercancel", end);
     }
     /** Parks one row's frozen cells where the columns before them end. */
     pinRow(row) {
@@ -3156,7 +3276,11 @@ ${lines.join("\n")}` : "";
           cell.append(this.renderEditor(task, column2));
           if (column2.kind === "date") cell.append(this.renderDatePicker());
         } else if (column2.key === "late" || column2.key === "due_late") {
-          if (this.late(task, column2.key)) {
+          if (column2.key === "due_late" && task.due_late && !task.due_late_open) {
+            const mark = element("span", "fg-late-mark is-done", t("\u9045\u308C\u305F"));
+            mark.title = t("\u7D0D\u671F\u3088\u308A\u5F8C\u306B\u7D42\u308F\u308A\u307E\u3057\u305F");
+            cell.append(mark);
+          } else if (this.late(task, column2.key)) {
             const mark = element("span", "fg-late-mark", t("\u9045\u308C"));
             mark.title = column2.key === "due_late" ? t("\u7D0D\u671F\u3092\u904E\u304E\u3066\u3044\u307E\u3059") : task.delayed ? t("\u4E88\u5B9A\u9032\u6357\u306B\u5C4A\u3044\u3066\u3044\u307E\u305B\u3093") : t("\u4E88\u5B9A\u7D42\u4E86\u3092\u904E\u304E\u3066\u3001\u5B9F\u65BD\u7D42\u4E86\u304C\u5165\u3063\u3066\u3044\u307E\u305B\u3093");
             cell.append(mark);
@@ -3486,13 +3610,15 @@ ${lines.join("\n")}` : "";
       input.setAttribute("aria-label", t("\u30BB\u30EB\u306E\u5165\u529B"));
       input.addEventListener("compositionstart", () => {
         this.composing = true;
-        this.beginTyping(input);
+        if (!this.inserting) this.beginTyping(input);
       });
       input.addEventListener("compositionend", () => {
         this.composing = false;
+        if (this.inserting) this.hold(input);
       });
       input.addEventListener("input", () => {
-        if (!this.editing) this.beginTyping(input);
+        if (this.inserting) this.hold(input);
+        else if (!this.editing) this.beginTyping(input);
       });
       input.addEventListener("blur", () => {
         if (this.editing && !this.moving && !input.classList.contains("is-typist")) {
@@ -3500,6 +3626,12 @@ ${lines.join("\n")}` : "";
         }
       });
       return input;
+    }
+    /** Keeps what was typed for the row being added, once it is confirmed text. */
+    hold(input) {
+      if (this.composing) return;
+      this.held += input.value;
+      input.value = "";
     }
     /**
      * Turns the typist into the editor without re-rendering.
@@ -3569,7 +3701,7 @@ ${lines.join("\n")}` : "";
           } catch {
           }
         });
-        select.addEventListener("change", () => void this.commitEdit(select.value, "stay"));
+        select.addEventListener("change", () => void this.commitEdit(select.value, "right"));
         select.addEventListener("blur", () => {
           if (this.editing) void this.commitEdit(select.value, "stay");
         });
@@ -3829,10 +3961,12 @@ ${lines.join("\n")}` : "";
       const promised = task.due ? span(task.due, task.due) : null;
       if (promised) {
         const mark = element("div", "fg-due");
-        if (task.due_late) mark.classList.add("is-late");
+        if (task.due_late_open) mark.classList.add("is-late");
+        else if (task.due_late) mark.classList.add("is-late-done");
         mark.style.left = `${promised.start * this.dayWidth}px`;
         mark.style.width = `${this.dayWidth}px`;
-        mark.title = `${t("\u7D0D\u671F")} ${task.due}${task.due_late ? `\uFF08${t("\u9045\u308C")}\uFF09` : ""}`;
+        const word = task.due_late_open ? t("\u9045\u308C") : task.due_late ? t("\u9045\u308C\u305F") : "";
+        mark.title = `${t("\u7D0D\u671F")} ${task.due}${word ? `\uFF08${word}\uFF09` : ""}`;
         row.append(mark);
       }
       if (!planned && !actual && !promised) return row;

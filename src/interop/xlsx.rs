@@ -101,9 +101,12 @@ fn cell_text(task: &crate::domain::TaskView, key: &str) -> String {
             true => "遅れ".to_owned(),
             false => String::new(),
         },
-        "due_late" => match task.due_late {
-            true => "遅れ".to_owned(),
-            false => String::new(),
+        // The same words as the screen: finished after the day is on the
+        // record, and not the same thing as late now.
+        "due_late" => match (task.due_late, task.due_late_open) {
+            (true, true) => "遅れ".to_owned(),
+            (true, false) => "遅れた".to_owned(),
+            (false, _) => String::new(),
         },
         "due" => task.due.clone().unwrap_or_default(),
         "progress" => format!("{}%", task.progress),
@@ -501,6 +504,7 @@ mod tests {
                 end: Some("2026-08-14".to_owned()),
                 due: Some("2026-08-20".to_owned()),
                 due_late: false,
+                due_late_open: false,
                 progress: 50,
                 days: Some(12),
                 actual_start: None,

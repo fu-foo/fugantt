@@ -1349,3 +1349,21 @@ input.fg-filter {
   font-size: 12px;
   border-bottom: 1px solid #bfdbfe;
 }
+.fg-pane-left.is-panning,
+.fg-pane-chart.is-panning {
+  cursor: grabbing;
+  user-select: none;
+}
+.fg-pane-left.is-panning *,
+.fg-pane-chart.is-panning * {
+  cursor: grabbing;
+}
+.fg-late-mark.is-done {
+  font-weight: 600;
+  color: var(--fg-muted);
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--fg-rule-strong);
+}
+.fg-due.is-late-done::before {
+  border-top-color: var(--fg-muted);
+}

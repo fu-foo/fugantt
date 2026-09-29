@@ -1327,6 +1327,15 @@ await settle();
 s = await state();
 check("⌘Enter で行を追加する", s.rowCount === rowsBefore + 1, `${rowsBefore} → ${s.rowCount}`);
 check("追加した行はすぐ編集状態になる", s.editing);
+// 編集欄が開いていても、キーボードが元の行の見えない入力欄に残っていたら、
+// 打った字は元の行に入る。開いているかではなく、どこにキーボードがあるかを見る。
+check(
+  "追加した行の編集欄にキーボードがある",
+  await page.evaluate(() => {
+    const editor = document.querySelector(".fg-editor:not(.is-typist)");
+    return !!editor && document.activeElement === editor;
+  }),
+);
 
 await page.keyboard.type("追加されたタスク");
 await page.keyboard.press("Enter");
@@ -1704,8 +1713,71 @@ check(
     [...(document.querySelector("select.fg-editor")?.options ?? [])].some((o) => o.value === "完了"),
   ),
 );
-await page.keyboard.press("Escape");
-await settle();
+
+// 選択肢はその行を横に埋めていく（ステータス、担当者…）。確定したら下ではなく右へ。
+// 値は変えずに確定する：ここで書き換えると、あとのテストの前提が動く。
+{
+  const statusAt = await state();
+  await page.keyboard.press("Enter");
+  await settle();
+  const byEnter = await state();
+
+  // ステータスへ戻って開き直し、今度は一覧から選ぶ。
+  await page.keyboard.press("ArrowLeft");
+  await page.keyboard.press("F2");
+  await settle();
+  await page.evaluate(() => {
+    document.querySelector("select.fg-editor")?.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+  await settle();
+  const byPick = await state();
+
+  const moved = (s) => !s.editing && s.row === statusAt.row && s.column === statusAt.column + 1;
+  check(
+    "選択肢を Enter で確定すると右へ進む",
+    moved(byEnter),
+    JSON.stringify({ from: [statusAt.row, statusAt.column], to: [byEnter.row, byEnter.column] }),
+  );
+  check(
+    "選択肢を選んで確定すると右へ進む",
+    moved(byPick),
+    JSON.stringify({ from: [statusAt.row, statusAt.column], to: [byPick.row, byPick.column] }),
+  );
+}
+
+// 日付も行に沿って埋めていく。そして計算で決まる列（予定日数・実作業日数）は
+// 打てないので飛ばす。予定終了の次に入れるのは、それが出した日数ではない。
+{
+  const heads = await page.evaluate(() =>
+    [...document.querySelectorAll(".fg-heading .fg-cell")].map((c) => c.textContent.trim()),
+  );
+  const after = async (label) => {
+    await selectCell(2, heads.indexOf(label));
+    await page.keyboard.press("F2");
+    await settle();
+    // 値は変えずに確定する。
+    await page.keyboard.press("Enter");
+    await settle();
+    const s = await state();
+    return { row: s.row, column: heads[s.column] };
+  };
+
+  const fromEnd = await after("予定終了");
+  const fromActualEnd = await after("実施終了");
+  const next = (label) => heads[heads.indexOf(label) + 1];
+  const typable = (label) => {
+    let at = heads.indexOf(label) + 1;
+    while (["予定日数", "実作業日数", "開始差異", "終了差異"].includes(heads[at])) at++;
+    return heads[at];
+  };
+
+  check(
+    "日付を Enter で確定すると右へ、計算で決まる列は飛ばす",
+    fromEnd.row === 2 && next("予定終了") === "予定日数" && fromEnd.column === typable("予定終了") &&
+      fromActualEnd.row === 2 && fromActualEnd.column === typable("実施終了"),
+    JSON.stringify({ fromEnd, fromActualEnd }),
+  );
+}
 
 // --- 担当者の休暇 ---------------------------------------------------------------
 
@@ -5113,6 +5185,55 @@ check(
 );
 check("連打しても表は描かれたまま", hammer.drawn > 0, JSON.stringify(hammer));
 
+// ⌘Enter のすぐあとに名前を打つ。行ができるのは往復の後なので、その間に打った字は
+// 元の行に入っていた。往復を遅くして、人が待たずに打つ順序をそのままなぞる。
+const typedAhead = await (async () => {
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await page.waitForSelector(".fg-grid");
+  await settle();
+  await page.click(".fg-pane-left .fg-row.fg-data .fg-cell");
+  await settle();
+
+  await page.evaluate(() => {
+    const original = window.fetch;
+    window.fetch = async (...args) => {
+      if (args[1]?.method === "POST") await new Promise((done) => setTimeout(done, 400));
+      return original(...args);
+    };
+  });
+
+  await page.keyboard.down("Control");
+  await page.keyboard.press("Enter");
+  await page.keyboard.up("Control");
+  await page.keyboard.type("ab");
+  await cdp.send("Input.imeSetComposition", { text: "やま", selectionStart: 2, selectionEnd: 2 });
+  await cdp.send("Input.insertText", { text: "山" });
+  await new Promise((done) => setTimeout(done, 1200));
+
+  const seen = await page.evaluate(() => {
+    const rows = [...document.querySelectorAll(".fg-pane-left .fg-row.fg-data")];
+    const editor = document.querySelector(".fg-editor:not(.is-typist)");
+    return {
+      value: editor?.value ?? null,
+      focused: !!editor && document.activeElement === editor,
+      selected: document.querySelectorAll(".fg-pane-left .fg-cell.is-selected").length,
+      named: rows.filter((row) => (row.querySelector(".fg-name-text")?.textContent ?? "").includes("ab")).length,
+    };
+  });
+
+  await page.keyboard.press("Escape");
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await page.waitForSelector(".fg-grid");
+  await settle();
+  return seen;
+})();
+
+check(
+  "⌘Enter の直後に打った字は、足した行に入る",
+  typedAhead.value === "ab山" && typedAhead.focused && typedAhead.selected === 1 && typedAhead.named === 0,
+  JSON.stringify(typedAhead),
+);
+
 // ID は名前から作るので、たいていのプロジェクトの ID は日本語。住所はそれを
 // 符号化して運ぶ——引き出しは住所からプロジェクトを引き当てているので、
 // 符号を戻さないかぎり、日本語の名前の計画では左のメニューが半分消えていた。
@@ -5151,9 +5272,15 @@ const added = await (async () => {
   await page.mouse.click(spot.x, spot.y);
   await settle();
 
+  // 押した行は番号で追う。印（is-current）は足した行へ移るのが正しい動きなので、
+  // 印で探すと、足したあとは足した行を測ってしまう。
+  const pressed = await page.evaluate(
+    () => document.querySelector(".fg-pane-left .fg-row.fg-data.is-current")?.dataset.index,
+  );
+
   const read = () =>
-    page.evaluate(() => {
-      const current = document.querySelector(".fg-row.fg-data.is-current");
+    page.evaluate((pressed) => {
+      const current = document.querySelector(`.fg-pane-left .fg-row.fg-data[data-index="${pressed}"]`);
       const editing = document.querySelector(".fg-editor:not(.is-typist)")?.closest(".fg-row.fg-data");
       const top = (el) => (el ? Math.round(el.getBoundingClientRect().y) : null);
       return {
@@ -5161,7 +5288,7 @@ const added = await (async () => {
         押した行のy: top(current),
         足した行のy: top(editing),
       };
-    });
+    }, pressed);
 
   const before = await read();
   await page.keyboard.down("Control");
@@ -6351,6 +6478,68 @@ check(
   JSON.stringify(rulers),
 );
 
+// 納期を過ぎてから終わった行。遅れは遅れとして残るが、もう手の打ちようがない。
+// 赤い印は、いま手を打てる行のために取っておく。
+const finishedLate = await (async () => {
+  await page.evaluate(async () => {
+    await fetch("/api/projects/test-project/tasks/t-doc", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ field: "actual_end", value: "2020-01-10" }),
+    });
+  });
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await page.waitForSelector(".fg-grid");
+  await settle();
+
+  const seen = await page.evaluate(() => {
+    const named = [...document.querySelectorAll(".fg-pane-left .fg-row.fg-data .fg-cell-name")].map(
+      (c) => c.textContent.trim(),
+    );
+    const index = named.findIndex((n) => n.includes("ドキュメント整備"));
+    const row = document.querySelectorAll(".fg-pane-left .fg-row.fg-data")[index];
+    const mark = row?.querySelector(".fg-cell-due_late .fg-late-mark");
+    const bar = document.querySelectorAll(".fg-bar-row")[index];
+    const style = mark ? getComputedStyle(mark) : null;
+    return {
+      word: mark?.textContent ?? null,
+      quiet: mark?.classList.contains("is-done") ?? false,
+      background: style?.backgroundColor ?? null,
+      rowRed: row?.classList.contains("is-delayed") ?? null,
+      dueMark: bar?.querySelector(".fg-due")?.className ?? null,
+    };
+  });
+
+  await filterBy("納期遅れ", "遅れ");
+  const lateNow = (await state()).names;
+  await clearFilters();
+  await filterBy("納期遅れ", "遅れた");
+  const wasLate = (await state()).names;
+  await page.keyboard.press("Escape");
+  await clearFilters();
+
+  return { ...seen, lateNow, wasLate };
+})();
+
+check(
+  "納期より後に終わった行は「遅れた」と淡く出る",
+  finishedLate.word === "遅れた" && finishedLate.quiet && finishedLate.background === "rgba(0, 0, 0, 0)",
+  JSON.stringify(finishedLate),
+);
+check(
+  "終わった遅れでは行もチャートの印も赤くならない",
+  finishedLate.rowRed === false &&
+    finishedLate.dueMark.includes("is-late-done") &&
+    !finishedLate.dueMark.split(" ").includes("is-late"),
+  JSON.stringify(finishedLate),
+);
+check(
+  "絞り込みの「遅れ」はいまの遅れ、「遅れた」は終わった遅れ",
+  !finishedLate.lateNow.some((n) => n.includes("ドキュメント整備")) &&
+    finishedLate.wasLate.some((n) => n.includes("ドキュメント整備")),
+  JSON.stringify({ lateNow: finishedLate.lateNow, wasLate: finishedLate.wasLate }),
+);
+
 // 打った値がその列に残る。既定の枝が「それ以外は全部コメント」だったころ、
 // 納期はコメントを読み返して自分を空だと思い、実施開始はコメントを書き潰していた。
 await selectCell((await state()).names.indexOf("実装"), COLUMN["納期"]);
@@ -6559,6 +6748,156 @@ check(
   "⌘Enter で保存して閉じ、改行が残る",
   savedProse.閉じた && savedProse.note === "一行目\n二行目",
   JSON.stringify(savedProse),
+);
+
+// --- つまんで横に動かす -------------------------------------------------------
+
+// 横のホイールが無いマウスでは、横に動かす手段が画面の下の端のスクロールバーしか
+// なかった。表もチャートも、つまんで左右に引けば動く。
+await page.reload({ waitUntil: "domcontentloaded" });
+await page.waitForSelector(".fg-grid");
+await settle();
+
+/** マウスで押して、横に引いて、離す。 */
+const pull = async (x, y, dx) => {
+  await page.mouse.move(x, y);
+  await page.mouse.down();
+  for (let step = 1; step <= 10; step++) await page.mouse.move(x + (dx * step) / 10, y);
+  await page.mouse.up();
+  await settle();
+};
+
+const chartPull = await (async () => {
+  // バーの無いところ。バーをつまめばバーが動く、は変えない。
+  const spot = await page.evaluate(() => {
+    const pane = document.querySelector(".fg-pane-chart");
+    const box = pane.getBoundingClientRect();
+    for (const row of document.querySelectorAll(".fg-bar-row")) {
+      const r = row.getBoundingClientRect();
+      if (r.top < box.top + 60 || r.bottom > box.bottom) continue;
+      for (let x = box.left + 40; x < box.right - 40; x += 20) {
+        const hit = document.elementFromPoint(x, r.top + r.height / 2);
+        if (hit && pane.contains(hit) && !hit.closest(".fg-bar, button, a, [class*='fg-due'], [class*='fg-target']")) {
+          return { x, y: r.top + r.height / 2, left: pane.scrollLeft, max: pane.scrollWidth - pane.clientWidth };
+        }
+      }
+    }
+    return null;
+  });
+  if (!spot) return { spot };
+
+  // 動ける向きへ引く。右へ引けば、見ているところは左（前の日付）へ戻る。
+  const dx = spot.left > 250 ? 200 : -200;
+  await pull(spot.x, spot.y, dx);
+  const after = await page.evaluate(() => document.querySelector(".fg-pane-chart").scrollLeft);
+  return { before: spot.left, after, dx };
+})();
+
+check(
+  "チャートの何も無いところをつまんで横に引くと動く",
+  chartPull.before !== undefined && Math.abs(chartPull.before - chartPull.after - chartPull.dx) <= 2,
+  JSON.stringify(chartPull),
+);
+
+// 開いたときのチャートは今日のあたりなので、バーのあるところまで寄せておく。
+await page.evaluate(() => {
+  const pane = document.querySelector(".fg-pane-chart");
+  const bar = [...document.querySelectorAll(".fg-bar.is-draggable")].find((b) => b.offsetWidth > 40);
+  if (bar) pane.scrollLeft += bar.getBoundingClientRect().left - pane.getBoundingClientRect().left - 200;
+});
+await settle();
+
+const barPull = await page.evaluate(() => {
+  const pane = document.querySelector(".fg-pane-chart");
+  const box = pane.getBoundingClientRect();
+  const bar = [...document.querySelectorAll(".fg-bar.is-draggable")].find((b) => {
+    const r = b.getBoundingClientRect();
+    return r.width > 40 && r.left > box.left + 40 && r.right < box.right - 120 && r.top > box.top + 60 && r.bottom < box.bottom;
+  });
+  if (!bar) return null;
+  const r = bar.getBoundingClientRect();
+  const row = bar.closest(".fg-bar-row");
+  const rowIndex = [...document.querySelectorAll(".fg-bar-row")].indexOf(row);
+  return {
+    x: r.left + r.width / 2,
+    y: r.top + r.height / 2,
+    name: document.querySelectorAll(".fg-pane-left .fg-row.fg-data")[rowIndex]?.querySelector(".fg-name-text")?.textContent,
+    rowIndex,
+    barLeft: r.left,
+    scroll: pane.scrollLeft,
+  };
+});
+
+const startOf = (name) =>
+  page.evaluate(
+    async (name) =>
+      (await (await fetch("/api/projects/test-project/grid")).json()).tasks.find((task) => task.name === name)?.start ?? null,
+    name,
+  );
+const barBefore = barPull ? await startOf(barPull.name) : null;
+if (barPull) {
+  await pull(barPull.x, barPull.y, 80);
+  await settle();
+}
+const barAfter = {
+  start: barPull ? await startOf(barPull.name) : null,
+  scroll: await page.evaluate(() => document.querySelector(".fg-pane-chart").scrollLeft),
+};
+
+check(
+  "バーをつまめば、チャートではなくバーが動く",
+  !!barPull && barAfter.scroll === barPull.scroll && !!barBefore && barAfter.start > barBefore,
+  JSON.stringify({ name: barPull?.name, barBefore, barAfter }),
+);
+// 動かしたバーを戻す。
+await page.keyboard.down("Meta");
+await page.keyboard.press("z");
+await page.keyboard.up("Meta");
+await settle();
+
+const tablePull = await (async () => {
+  await page.evaluate(() => {
+    document.querySelector(".fg-grid").style.setProperty("--fg-pane-width", "260px");
+  });
+  await settle();
+
+  const spot = await page.evaluate(() => {
+    const pane = document.querySelector(".fg-pane-left");
+    pane.scrollLeft = 0;
+    const cell = document.querySelectorAll(".fg-pane-left .fg-row.fg-data")[1].querySelector(".fg-cell");
+    const r = cell.getBoundingClientRect();
+    return { x: r.left + Math.min(r.width, 200) / 2, y: r.top + r.height / 2, room: pane.scrollWidth - pane.clientWidth };
+  });
+
+  await pull(spot.x + 100, spot.y, -120);
+  const after = await page.evaluate(() => document.querySelector(".fg-pane-left").scrollLeft);
+
+  // 引かずに押すだけなら、これまでどおりセルを選ぶ。
+  await page.evaluate(() => {
+    document.querySelector(".fg-pane-left").scrollLeft = 0;
+  });
+  await settle();
+  await page.mouse.click(spot.x, spot.y);
+  await settle();
+  const clicked = await state();
+
+  await page.evaluate(() => {
+    document.querySelector(".fg-grid").style.removeProperty("--fg-pane-width");
+  });
+  await settle();
+
+  return { room: spot.room, after, clicked: [clicked.row, clicked.column] };
+})();
+
+check(
+  "表をつまんで横に引くと動く",
+  tablePull.room > 120 && Math.abs(tablePull.after - 120) <= 2,
+  JSON.stringify(tablePull),
+);
+check(
+  "引かずに押せば、これまでどおりセルを選ぶ",
+  tablePull.clicked[0] === 1 && tablePull.clicked[1] === 0,
+  JSON.stringify(tablePull),
 );
 
 check("JavaScript エラーが出ていない", pageErrors.length === 0, pageErrors.join(" / "));

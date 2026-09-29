@@ -91,6 +91,11 @@ pub struct TaskView {
     /// measured against what was promised, and a row can easily be one without
     /// being the other.
     pub due_late: bool,
+    /// `due_late`, and not finished yet: the lateness somebody can still act
+    /// on. A row that finished after its 納期 was late and stays so on the
+    /// record, but it is history — the screen shows it quietly, and only this
+    /// one in red.
+    pub due_late_open: bool,
     /// The colours this row was given. Empty means the row looks like a row.
     pub color: String,
     pub background: String,
@@ -1044,6 +1049,7 @@ fn visit<'rows>(
         expected: None,
         delayed: false,
         due_late: false,
+        due_late_open: false,
         color: row.color.clone(),
         background: row.background.clone(),
         has_children,
@@ -1109,6 +1115,7 @@ fn visit<'rows>(
                 (Some(due), Some(actual_end)) => actual_end > due,
                 (None, _) => false,
             },
+            due_late_open: matches!((due, actual_end), (Some(due), None) if today > due),
             // Filled in below, once this row's own checkpoints are read.
             delayed: false,
         }
@@ -1144,6 +1151,7 @@ fn visit<'rows>(
     view.end_variance = resolved.end_variance;
     view.overdue = resolved.overdue;
     view.due_late = resolved.due_late;
+    view.due_late_open = resolved.due_late_open;
 
     // Days the waits took out: the difference from counting as if they were not
     // there at all.
@@ -1205,6 +1213,8 @@ struct Resolved {
     overdue: i64,
     /// Past a promised day, its own or one inside its subtree.
     due_late: bool,
+    /// Of those, one not finished yet.
+    due_late_open: bool,
     /// Behind a checkpoint — its own, or one inside its subtree. A parent that
     /// is collapsed still has to say that something under it is behind.
     delayed: bool,
@@ -1274,6 +1284,9 @@ fn rollup(children: &[(Resolved, i64)]) -> Resolved {
         // asking that date would say nothing at all until December about the
         // child that blew its date in October.
         due_late: children.iter().any(|(child, _)| child.due_late),
+        // A parent whose late child has since finished is not late now, even
+        // though it has a lateness on its record.
+        due_late_open: children.iter().any(|(child, _)| child.due_late_open),
         delayed: children.iter().any(|(child, _)| child.delayed),
     }
 }
@@ -1852,6 +1865,56 @@ mod tests {
         // Worked out from 11/30 this would say nothing until December, and the
         // child that went past 9/1 would go unseen on the row people read.
         assert!(summary.due_late);
+    }
+
+    /// Finished after the 納期 is late on the record, and no longer late now.
+    #[test]
+    fn a_broken_promise_that_is_finished_is_history() {
+        let today = date("2026-09-07");
+
+        let open = |due: &str, actual_end: Option<&str>| {
+            let mut task = row("t", None, "", "", 0);
+            task.due = Some(due.to_owned());
+            task.actual_end = actual_end.map(ToOwned::to_owned);
+
+            let data = build_for_test("p", 1, today, vec![task]);
+            (data.tasks[0].due_late, data.tasks[0].due_late_open)
+        };
+
+        assert_eq!(open("2026-09-01", None), (true, true), "過ぎて終わっていない");
+        assert_eq!(open("2026-09-01", Some("2026-09-05")), (true, false), "遅れて終わった");
+        assert_eq!(open("2026-09-30", None), (false, false), "まだ来ていない");
+    }
+
+    /// A parent is late now only if something under it is late now.
+    #[test]
+    fn a_summary_is_late_now_only_through_a_child_late_now() {
+        let today = date("2026-09-07");
+
+        let parent = || row("p", None, "", "", 0);
+        let child = |id: &str, due: &str, actual_end: Option<&str>| {
+            let mut task = row(id, Some("p"), "", "", 0);
+            task.due = Some(due.to_owned());
+            task.actual_end = actual_end.map(ToOwned::to_owned);
+            task
+        };
+
+        let finished = build_for_test(
+            "p",
+            1,
+            today,
+            vec![parent(), child("a", "2026-09-01", Some("2026-09-05")), child("b", "2026-11-30", None)],
+        );
+        assert!(finished.tasks[0].due_late, "記録としては遅れがある");
+        assert!(!finished.tasks[0].due_late_open, "いま遅れている子はいない");
+
+        let running = build_for_test(
+            "p",
+            1,
+            today,
+            vec![parent(), child("a", "2026-09-01", None), child("b", "2026-11-30", None)],
+        );
+        assert!(running.tasks[0].due_late_open);
     }
 
     /// The chart has to be able to draw a day nothing else reaches.

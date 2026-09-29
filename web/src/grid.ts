@@ -25,6 +25,8 @@ interface Task {
   due: string | null;
   /** Past that day and unfinished, or finished after it. */
   due_late: boolean;
+  /** Of `due_late`, the unfinished half: late now, not late on the record. */
+  due_late_open: boolean;
   /** 予定進捗: the checkpoints this plan named, in date order. */
   targets: { date: string; percent: number; due: boolean; missed: boolean }[];
   /** The last checkpoint that has come round. `null` when the plan named none. */
@@ -250,12 +252,18 @@ const BASE_COLUMNS: ColumnDef[] = [
       { value: "順調", color: "", background: "" },
     ],
   },
+  //
+  // 納期遅れ has a third word. A row finished after its 納期 was late, and
+  // stays so on the record — but it is done, and a red mark on it competes
+  // with the rows somebody can still do something about. 遅れた is that
+  // record: quiet on the screen, still there to be filtered for afterwards.
   {
     key: "due_late",
     label: "納期遅れ",
     kind: "select",
     options: [
       { value: "遅れ", color: "", background: "" },
+      { value: "遅れた", color: "", background: "" },
       { value: "順調", color: "", background: "" },
     ],
   },
@@ -419,6 +427,7 @@ const EN: Record<string, string> = {
   "超過": "more than",
   "未満": "less than",
   "遅れ": "behind",
+  "遅れた": "was late",
   "順調": "on track",
   "解除": "Clear",
   "検索条件": "Saved filters",
@@ -512,6 +521,7 @@ const EN: Record<string, string> = {
     "Behind plan is read from the promised progress and the planned end.",
   "納期遅れは納期と実施終了から決まります。": "Past due is read from the due date and the real end.",
   "納期を過ぎています": "Past the day this was promised for",
+  "納期より後に終わりました": "Finished after the day it was promised for",
   "コメントを書く": "Write a note",
   "⌘Enter でも保存できます": "⌘Enter saves too",
   "全部開く": "Open all",
@@ -569,6 +579,8 @@ const DAY_MS = 86_400_000;
 const PAGE_ROWS = 10;
 /** How close to an end counts as grabbing it rather than the whole bar. */
 const GRIP_WIDTH = 7;
+/** How far a press has to travel sideways before it is a pull, not a click. */
+const PAN_SLOP = 5;
 
 /**
  * Parses `YYYY-MM-DD` at UTC midnight.
@@ -1004,6 +1016,16 @@ class Grid {
   private noticeTimer = 0;
   private busy = false;
   /**
+   * Rows asked for with ⌘Enter that the server has not answered yet.
+   *
+   * People type the new row's name straight after the keystroke that makes it,
+   * and the row only exists one round trip later. What they type in between is
+   * meant for it, not for the row they pressed ⌘Enter on.
+   */
+  private inserting = 0;
+  /** What was typed while `inserting`, for the new row's editor. */
+  private held = "";
+  /**
    * Where the chart is scrolled to sideways, or null before it has been drawn.
    *
    * Null rather than zero: a plan that starts in April is *at* zero when
@@ -1086,6 +1108,7 @@ class Grid {
     TODAY = data.today;
     this.computeVisible();
     this.root.addEventListener("keydown", (event) => this.onKeyDown(event));
+    this.root.addEventListener("pointerdown", (event) => this.beginPan(event));
     // Every column moves when the window does, and a column pinned to where it
     // used to be sits on top of its neighbour.
     window.addEventListener("resize", () => this.pinColumns());
@@ -2133,9 +2156,12 @@ class Grid {
       : task.targets.length > 0 || task.end !== null;
   }
 
-  /** The row is late by either ruler, which is what a bar is painted for. */
+  /**
+   * The row is late now by either ruler, which is what a bar is painted for.
+   * Finished after its 納期 does not count: that is history, not a problem.
+   */
   private lateEither(task: Task): boolean {
-    return this.behind(task) || task.due_late;
+    return this.behind(task) || task.due_late_open;
   }
 
   /** Whether one cell satisfies one filter box. */
@@ -2240,6 +2266,7 @@ class Grid {
         // Both words, always, so the filter can ask for either. Only one of
         // them is drawn — a column that says 順調 on every quiet row is a
         // column of noise.
+        if (column.key === "due_late" && task.due_late && !task.due_late_open) return "遅れた";
         return this.late(task, column.key) ? "遅れ" : "順調";
       case "note":
         return task.note;
@@ -2336,11 +2363,26 @@ class Grid {
     this.repaintSelection();
   }
 
-  /** Tab and Shift+Tab run past the end of a row onto the next one. */
+  /**
+   * Tab and Shift+Tab run past the end of a row onto the next one.
+   *
+   * Columns nothing can be typed into — a day count, a variance — are stepped
+   * over: after 予定終了 comes the next thing to enter, not the number it made.
+   * Only columns that are computed on every row; one that happens to be locked
+   * on this row still stops the cursor, so Tab lands in the same place on
+   * every row.
+   */
   private step(delta: number): void {
     const width = this.columns.length;
-    let index = this.row * width + this.column + delta;
-    index = clamp(index, 0, this.tasks.length * width - 1);
+    const last = this.tasks.length * width - 1;
+    const from = this.row * width + this.column;
+    let index = clamp(from + delta, 0, last);
+
+    while (index > 0 && index < last && this.answerColumn(this.columns[index % width]!) !== null) {
+      index += delta;
+    }
+    // Only computed columns from here to the edge: stay where the cursor was.
+    if (this.answerColumn(this.columns[index % width]!) !== null) index = from;
 
     this.row = Math.floor(index / width);
     this.column = index % width;
@@ -2449,6 +2491,17 @@ class Grid {
 
     this.editing = true;
     this.seed = seed;
+
+    // The cursor can arrive here without the cell it left being drawn again —
+    // a row added with ⌘Enter is selected and opened in one go. That cell
+    // still has the marks and the keyboard's field, and the focus went back
+    // into it: the new row was open, and typing went to the old one.
+    for (const stale of this.root.querySelectorAll(".fg-grid .is-selected, .fg-grid .is-current")) {
+      stale.classList.remove("is-selected", "is-current");
+    }
+    for (const typist of this.root.querySelectorAll(".fg-grid .fg-editor.is-typist")) {
+      typist.remove();
+    }
 
     // One cell becomes an input. Every other row on the screen is still right.
     if (this.repaintRow(this.row)) this.restoreFocus();
@@ -3041,7 +3094,12 @@ class Grid {
 
   /** Keeps what was typed, then opens a fresh row under it. */
   private async commitAndInsert(raw: string): Promise<void> {
-    await this.commitEdit(raw, "stay");
+    this.inserting++;
+    try {
+      await this.commitEdit(raw, "stay");
+    } finally {
+      this.inserting--;
+    }
     await this.insertRow();
   }
 
@@ -3050,18 +3108,44 @@ class Grid {
 
     const after = this.selected?.id ?? null;
 
-    const result = await this.send(
-      `/api/projects/${encodeURIComponent(this.projectId)}/tasks`,
-      { method: "POST", body: { after } },
-    );
+    this.inserting++;
+    let result: Mutation | null;
+    try {
+      result = await this.send(`/api/projects/${encodeURIComponent(this.projectId)}/tasks`, {
+        method: "POST",
+        body: { after },
+      });
+
+      // A conversion still open in the typist is part of what was typed; the
+      // row takes it once it is confirmed, not half-way through.
+      await this.untilComposed();
+    } finally {
+      this.inserting--;
+    }
+
+    // Another ⌘Enter is already on its way; what was typed belongs to that row.
+    if (this.inserting > 0) return;
+
+    const held = this.held;
+    this.held = "";
 
     if (!result?.task_id) return;
 
     const index = this.tasks.findIndex((task) => task.id === result.task_id);
     if (index >= 0) {
       this.select(index, 0);
-      this.startEdit(null);
+      this.startEdit(held === "" ? null : held);
     }
+  }
+
+  /** Resolves when no IME conversion is open. */
+  private untilComposed(): Promise<void> {
+    if (!this.composing) return Promise.resolve();
+
+    return new Promise((done) => {
+      const check = () => (this.composing ? requestAnimationFrame(check) : done());
+      check();
+    });
   }
 
   /**
@@ -3765,6 +3849,19 @@ class Grid {
 
     const meta = event.ctrlKey || event.metaKey;
 
+    // A row is on its way and the keyboard already belongs to it. Moving, or
+    // opening the cell, would be done to the row ⌘Enter was pressed on.
+    if (this.inserting > 0 && !(meta && event.key === "Enter")) {
+      if (event.key === "Backspace" && this.held !== "") {
+        this.held = this.held.slice(0, -1);
+        event.preventDefault();
+      } else if (event.key.length > 1 || meta || event.altKey) {
+        event.preventDefault();
+      }
+      // A printable key lands in the typist, which holds it for the new row.
+      return;
+    }
+
     // Undo and redo, in both spellings: Ctrl+Y is what Windows presses and
     // ⌘⇧Z is what the Mac does, and neither person should have to learn the
     // other's. The editor keeps its own undo — this only runs between edits.
@@ -3872,7 +3969,12 @@ class Grid {
         // list is exactly when it is held down. Without this, every second
         // press only closed the editor, and the row came on the press after.
         if (event.ctrlKey || event.metaKey) void this.commitAndInsert(input.value);
-        else void this.commitEdit(input.value, "down");
+        // A menu and a date step right: both are filled in along the row —
+        // status then who, start then end — where a name is typed down a list.
+        else {
+          const along = input instanceof HTMLSelectElement || this.selectedColumn.kind === "date";
+          void this.commitEdit(input.value, along ? "right" : "down");
+        }
         break;
       case "Tab":
         void this.commitEdit(input.value, event.shiftKey ? "stay" : "right");
@@ -4230,6 +4332,60 @@ class Grid {
     this.pinRow(row);
 
     return true;
+  }
+
+  /**
+   * Grabbing either pane and pulling it sideways scrolls it.
+   *
+   * A mouse on Windows has no sideways wheel, and a scrollbar at the bottom of
+   * a tall plan is a long way from the row being read. Only past a few pixels
+   * does a press become a pull, so a click still selects the cell it lands on.
+   * Bars, the column grips and the row handles stop the press before it gets
+   * here: grabbing a bar still moves the bar.
+   */
+  private beginPan(event: PointerEvent): void {
+    // A finger or a pen already scrolls the pane by itself.
+    if (event.pointerType !== "mouse" || event.button !== 0) return;
+
+    const target = event.target as HTMLElement;
+    if (target.closest("input, select, textarea, button, a")) return;
+
+    const pane = target.closest<HTMLElement>(".fg-pane-left, .fg-pane-chart");
+    if (!pane || pane.scrollWidth <= pane.clientWidth) return;
+
+    const startX = event.clientX;
+    const startLeft = pane.scrollLeft;
+    let pulling = false;
+
+    const move = (moved: PointerEvent) => {
+      const dx = moved.clientX - startX;
+      if (!pulling) {
+        if (Math.abs(dx) < PAN_SLOP) return;
+        pulling = true;
+        pane.classList.add("is-panning");
+        window.getSelection()?.removeAllRanges();
+      }
+      pane.scrollLeft = startLeft - dx;
+    };
+
+    const end = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", end);
+      window.removeEventListener("pointercancel", end);
+      if (!pulling) return;
+
+      pane.classList.remove("is-panning");
+      // The release is the end of a pull, not a click on whatever it ended over.
+      // Only that click: released outside the window there is none, and the
+      // next real click must not be the one swallowed.
+      const swallow = (click: MouseEvent) => click.stopPropagation();
+      window.addEventListener("click", swallow, { capture: true, once: true });
+      setTimeout(() => window.removeEventListener("click", swallow, { capture: true }), 0);
+    };
+
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", end);
+    window.addEventListener("pointercancel", end);
   }
 
   /** Parks one row's frozen cells where the columns before them end. */
@@ -4737,7 +4893,11 @@ class Grid {
         // Before the kind-based branches: these columns are selects so that
         // their filters offer 遅れ and 順調, and the select branch would
         // otherwise print 順調 on every quiet row — a column of noise.
-        if (this.late(task, column.key)) {
+        if (column.key === "due_late" && task.due_late && !task.due_late_open) {
+          const mark = element("span", "fg-late-mark is-done", t("遅れた"));
+          mark.title = t("納期より後に終わりました");
+          cell.append(mark);
+        } else if (this.late(task, column.key)) {
           const mark = element("span", "fg-late-mark", t("遅れ"));
           mark.title =
             column.key === "due_late"
@@ -5200,13 +5360,15 @@ class Grid {
 
     input.addEventListener("compositionstart", () => {
       this.composing = true;
-      this.beginTyping(input);
+      if (!this.inserting) this.beginTyping(input);
     });
     input.addEventListener("compositionend", () => {
       this.composing = false;
+      if (this.inserting) this.hold(input);
     });
     input.addEventListener("input", () => {
-      if (!this.editing) this.beginTyping(input);
+      if (this.inserting) this.hold(input);
+      else if (!this.editing) this.beginTyping(input);
     });
     input.addEventListener("blur", () => {
       // Only commit if this field became the editor. F2 opens a fresh editor
@@ -5218,6 +5380,14 @@ class Grid {
     });
 
     return input;
+  }
+
+  /** Keeps what was typed for the row being added, once it is confirmed text. */
+  private hold(input: HTMLInputElement): void {
+    if (this.composing) return;
+
+    this.held += input.value;
+    input.value = "";
   }
 
   /**
@@ -5317,8 +5487,10 @@ class Grid {
         }
       });
 
-      // Choosing from the menu is the whole interaction; commit on change.
-      select.addEventListener("change", () => void this.commitEdit(select.value, "stay"));
+      // Choosing from the menu is the whole interaction; commit on change. And
+      // step right: a choice is filled in along its row — status, then who —
+      // where a typed column is filled in down the list.
+      select.addEventListener("change", () => void this.commitEdit(select.value, "right"));
       select.addEventListener("blur", () => {
         if (this.editing) void this.commitEdit(select.value, "stay");
       });
@@ -5702,10 +5874,12 @@ class Grid {
 
     if (promised) {
       const mark = element("div", "fg-due");
-      if (task.due_late) mark.classList.add("is-late");
+      if (task.due_late_open) mark.classList.add("is-late");
+      else if (task.due_late) mark.classList.add("is-late-done");
       mark.style.left = `${promised.start * this.dayWidth}px`;
       mark.style.width = `${this.dayWidth}px`;
-      mark.title = `${t("納期")} ${task.due}${task.due_late ? `（${t("遅れ")}）` : ""}`;
+      const word = task.due_late_open ? t("遅れ") : task.due_late ? t("遅れた") : "";
+      mark.title = `${t("納期")} ${task.due}${word ? `（${word}）` : ""}`;
       row.append(mark);
     }
 

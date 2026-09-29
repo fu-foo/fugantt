@@ -30,6 +30,10 @@ planned, and what happened.
   plan nobody agreed to.
 - **Late is a column, not a colour.** Second from the left, filterable, so
   "show me only the late ones" is a question the table can answer.
+- **Finished late is history, not an alarm.** A row that finished after its due
+  date says "was late" in a quiet mark, and nothing about it turns red. Red is
+  kept for the rows you can still do something about; filter for "was late"
+  when looking back. The statistics still count it as late.
 - **Waiting is recorded**, with dates and a reason. Those days count towards
   neither the duration nor the lateness.
 - **Two thousand rows type as fast as ten.** Only the rows on screen are in the

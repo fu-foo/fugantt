@@ -483,7 +483,9 @@ pub fn of(ja: &str) -> Option<&'static str> {
         "ユーザー名を入力してください。空白は使えません。" => {
             "Give a username. Spaces are not allowed."
         }
-        "ユーザー名かパスワードが違います。" => "That username and password do not match.",
+        "ユーザー名かパスワードが違います。" => {
+            "That username and password do not match."
+        }
         "その操作はできませんでした" => "That did not go through",
         "うまく動きませんでした" => "Something went wrong",
         "こちら側の問題です。少し待ってから、もう一度お試しください。" => {
@@ -493,7 +495,9 @@ pub fn of(ja: &str) -> Option<&'static str> {
         "ログインの試行が多すぎます。{}分ほど待ってからお試しください。" => {
             "Too many attempts. Try again in about {} minutes."
         }
-        "パスワードが決まりに合いません。" => "That password does not meet the rule.",
+        "パスワードが決まりに合いません。" => {
+            "That password does not meet the rule."
+        }
         "アカウントは管理者が作ります。管理者に頼んでください。" => {
             "Accounts are made by the administrator. Ask them for one."
         }

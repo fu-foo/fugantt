@@ -95,7 +95,9 @@ impl Layer for NotFound {
                     .t("こちら側の問題です。少し待ってから、もう一度お試しください。")
                     .to_owned()
             } else {
-                said.strip_prefix("bad request: ").unwrap_or(&said).to_owned()
+                said.strip_prefix("bad request: ")
+                    .unwrap_or(&said)
+                    .to_owned()
             };
 
             let title = if status.is_server_error() {

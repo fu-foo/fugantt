@@ -43,9 +43,15 @@ async fn login_page(cx: &Cx) -> Result {
             "ログインの試行が多すぎます。{}分ほど待ってからお試しください。",
             &trouble.m.clamp(1, 999).to_string(),
         )),
-        "name" => Some(l.t("ユーザー名を入力してください。空白は使えません。").to_owned()),
+        "name" => Some(
+            l.t("ユーザー名を入力してください。空白は使えません。")
+                .to_owned(),
+        ),
         "rule" => Some(l.t("パスワードが決まりに合いません。").to_owned()),
-        "closed" => Some(l.t("アカウントは管理者が作ります。管理者に頼んでください。").to_owned()),
+        "closed" => Some(
+            l.t("アカウントは管理者が作ります。管理者に頼んでください。")
+                .to_owned(),
+        ),
         _ => None,
     };
 

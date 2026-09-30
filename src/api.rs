@@ -3151,7 +3151,9 @@ fn parse_date(value: &str, l: crate::i18n::Lang) -> Result<Option<String>> {
     }
 
     let date = flexible_date(value).ok_or_else(|| {
-        bad_request(l.t("日付は 5・805・0805・20260805・8/5・2026-08-05 のように入力してください。"))
+        bad_request(
+            l.t("日付は 5・805・0805・20260805・8/5・2026-08-05 のように入力してください。"),
+        )
     })?;
 
     Ok(Some(date.to_string()))

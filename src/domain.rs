@@ -815,9 +815,7 @@ pub fn load(data: &GridData, from: Date, to: Date, today: Date) -> Vec<Load> {
                 let stopped: Vec<(Date, Date)> = task
                     .waits
                     .iter()
-                    .filter_map(|wait| {
-                        Some((parse_date(&wait.start)?, parse_date(&wait.end)?))
-                    })
+                    .filter_map(|wait| Some((parse_date(&wait.start)?, parse_date(&wait.end)?)))
                     .collect();
 
                 let mut day = start.max(ahead);
@@ -1881,8 +1879,16 @@ mod tests {
             (data.tasks[0].due_late, data.tasks[0].due_late_open)
         };
 
-        assert_eq!(open("2026-09-01", None), (true, true), "過ぎて終わっていない");
-        assert_eq!(open("2026-09-01", Some("2026-09-05")), (true, false), "遅れて終わった");
+        assert_eq!(
+            open("2026-09-01", None),
+            (true, true),
+            "過ぎて終わっていない"
+        );
+        assert_eq!(
+            open("2026-09-01", Some("2026-09-05")),
+            (true, false),
+            "遅れて終わった"
+        );
         assert_eq!(open("2026-09-30", None), (false, false), "まだ来ていない");
     }
 
@@ -1903,7 +1909,11 @@ mod tests {
             "p",
             1,
             today,
-            vec![parent(), child("a", "2026-09-01", Some("2026-09-05")), child("b", "2026-11-30", None)],
+            vec![
+                parent(),
+                child("a", "2026-09-01", Some("2026-09-05")),
+                child("b", "2026-11-30", None),
+            ],
         );
         assert!(finished.tasks[0].due_late, "記録としては遅れがある");
         assert!(!finished.tasks[0].due_late_open, "いま遅れている子はいない");
@@ -1912,7 +1922,11 @@ mod tests {
             "p",
             1,
             today,
-            vec![parent(), child("a", "2026-09-01", None), child("b", "2026-11-30", None)],
+            vec![
+                parent(),
+                child("a", "2026-09-01", None),
+                child("b", "2026-11-30", None),
+            ],
         );
         assert!(running.tasks[0].due_late_open);
     }

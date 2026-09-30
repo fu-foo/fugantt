@@ -2436,7 +2436,7 @@ class Grid {
 
     // `inline` as well as `block`: a narrowed pane clips the right-hand columns,
     // and moving to one that stays off-screen looks exactly like a dead cell.
-    if (scroll) cell?.scrollIntoView({ block: "nearest", inline: "nearest" });
+    if (scroll && cell) this.revealCell(cell);
 
     // Only if the keyboard was here to begin with: this also runs on every
     // scroll, and taking focus from somebody who is reading is rude.
@@ -6593,9 +6593,43 @@ class Grid {
     if (typist) typist.focus({ preventScroll: true });
     else this.root.querySelector<HTMLElement>(".fg-grid")?.focus({ preventScroll: true });
 
-    this.root
-      .querySelector(".fg-cell.is-selected")
-      ?.scrollIntoView({ block: "nearest", inline: "nearest" });
+    const selected = this.root.querySelector(".fg-cell.is-selected");
+    if (selected) this.revealCell(selected);
+  }
+
+  /**
+   * Scrolls a cell into view — clear of what is pinned over it.
+   *
+   * The frozen columns and the headings stay put while the pane scrolls under
+   * them, and `scrollIntoView` does not know that: a cell sitting just behind
+   * the task names counts as on screen, so ← walked the cursor in under them
+   * and out of sight.
+   */
+  private revealCell(cell: Element): void {
+    cell.scrollIntoView({ block: "nearest", inline: "nearest" });
+
+    const pane = cell.closest<HTMLElement>(".fg-pane-left");
+    if (!pane) return;
+
+    const box = cell.getBoundingClientRect();
+
+    if (!cell.classList.contains("is-frozen")) {
+      const frozen = cell.parentElement?.querySelectorAll(".is-frozen") ?? [];
+      const edge = Math.max(0, ...[...frozen].map((pinned) => pinned.getBoundingClientRect().right));
+      // A pane dragged narrower than the frozen columns has no room beside
+      // them; scrolling for one would only throw the cell off the other side.
+      // Asked of the widths, not the edges: the frozen cells are sticky, and
+      // at the far end of the scroll they are pushed out of place themselves.
+      const pinned = [...frozen].reduce((sum, cell) => sum + cell.getBoundingClientRect().width, 0);
+      const room = pinned < pane.clientWidth - 1;
+      if (edge > 0 && room && box.left < edge - 1) pane.scrollLeft -= edge - box.left;
+    }
+
+    const heads = pane.querySelectorAll(".fg-heading, .fg-filters");
+    const floor = Math.max(0, ...[...heads].map((head) => head.getBoundingClientRect().bottom));
+    // A pixel of slack: the first row sits flush against the headings, and a
+    // fraction of one is not worth a scroll — each one redraws the rows.
+    if (floor > 0 && box.top < floor - 1) pane.scrollTop -= floor - box.top;
   }
 }
 

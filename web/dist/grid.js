@@ -1542,7 +1542,7 @@ ${lines.join("\n")}` : "";
       barRows[this.row - this.first]?.classList.add("is-current");
       const cell = row?.children[this.column];
       cell?.classList.add("is-selected");
-      if (scroll) cell?.scrollIntoView({ block: "nearest", inline: "nearest" });
+      if (scroll && cell) this.revealCell(cell);
       if (!grid.contains(document.activeElement) && document.activeElement !== document.body) {
         return;
       }
@@ -4452,7 +4452,32 @@ ${lines.join("\n")}` : "";
       const typist = this.root.querySelector(".fg-editor.is-typist");
       if (typist) typist.focus({ preventScroll: true });
       else this.root.querySelector(".fg-grid")?.focus({ preventScroll: true });
-      this.root.querySelector(".fg-cell.is-selected")?.scrollIntoView({ block: "nearest", inline: "nearest" });
+      const selected = this.root.querySelector(".fg-cell.is-selected");
+      if (selected) this.revealCell(selected);
+    }
+    /**
+     * Scrolls a cell into view — clear of what is pinned over it.
+     *
+     * The frozen columns and the headings stay put while the pane scrolls under
+     * them, and `scrollIntoView` does not know that: a cell sitting just behind
+     * the task names counts as on screen, so ← walked the cursor in under them
+     * and out of sight.
+     */
+    revealCell(cell) {
+      cell.scrollIntoView({ block: "nearest", inline: "nearest" });
+      const pane = cell.closest(".fg-pane-left");
+      if (!pane) return;
+      const box = cell.getBoundingClientRect();
+      if (!cell.classList.contains("is-frozen")) {
+        const frozen = cell.parentElement?.querySelectorAll(".is-frozen") ?? [];
+        const edge = Math.max(0, ...[...frozen].map((pinned2) => pinned2.getBoundingClientRect().right));
+        const pinned = [...frozen].reduce((sum, cell2) => sum + cell2.getBoundingClientRect().width, 0);
+        const room = pinned < pane.clientWidth - 1;
+        if (edge > 0 && room && box.left < edge - 1) pane.scrollLeft -= edge - box.left;
+      }
+      const heads = pane.querySelectorAll(".fg-heading, .fg-filters");
+      const floor = Math.max(0, ...[...heads].map((head) => head.getBoundingClientRect().bottom));
+      if (floor > 0 && box.top < floor - 1) pane.scrollTop -= floor - box.top;
     }
   };
   /** Rows kept beyond each edge, so a small scroll redraws nothing. */

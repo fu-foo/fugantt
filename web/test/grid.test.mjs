@@ -6894,6 +6894,54 @@ check(
   tablePull.room > 120 && Math.abs(tablePull.after - 120) <= 2,
   JSON.stringify(tablePull),
 );
+// 表を横に送った状態で ← を押すと、選んだセルがタスク名（固定列）の下に潜って
+// 見えなくなっていた。scrollIntoView は固定列の後ろも「見えている」と数える。
+const underFrozen = await (async () => {
+  await page.evaluate(() => {
+    document.querySelector(".fg-grid").style.setProperty("--fg-pane-width", "420px");
+  });
+  await settle();
+
+  const heads = await page.evaluate(() =>
+    [...document.querySelectorAll(".fg-heading .fg-cell")].map((c) => c.textContent.trim()),
+  );
+  await selectCell(3, heads.indexOf("予定開始"));
+  // 予定開始が固定列のすぐ右に来るところまで送る。左隣の列は固定列の下にある。
+  await page.evaluate(() => {
+    const pane = document.querySelector(".fg-pane-left");
+    const cell = document.querySelector(".fg-pane-left .fg-cell.is-selected");
+    const pinned = cell.parentElement.querySelector(".is-frozen").getBoundingClientRect().right;
+    pane.scrollLeft += cell.getBoundingClientRect().left - pinned;
+  });
+  await settle();
+
+  const seen = [];
+  for (let press = 0; press < 3; press++) {
+    await page.keyboard.press("ArrowLeft");
+    await settle();
+    seen.push(
+      await page.evaluate(() => {
+        const cell = document.querySelector(".fg-pane-left .fg-cell.is-selected");
+        const box = cell.getBoundingClientRect();
+        const hit = document.elementFromPoint(box.left + 4, box.top + box.height / 2);
+        return { column: document.querySelectorAll(".fg-heading .fg-cell")[[...cell.parentElement.children].indexOf(cell)].textContent.trim(), visible: cell.contains(hit) };
+      }),
+    );
+  }
+
+  await page.evaluate(() => {
+    document.querySelector(".fg-grid").style.removeProperty("--fg-pane-width");
+  });
+  await settle();
+  return seen;
+})();
+
+check(
+  "表を横に送っていても、← で選んだセルは固定列の下に潜らない",
+  underFrozen.length === 3 && underFrozen.every((step) => step.visible),
+  JSON.stringify(underFrozen),
+);
+
 check(
   "引かずに押せば、これまでどおりセルを選ぶ",
   tablePull.clicked[0] === 1 && tablePull.clicked[1] === 0,

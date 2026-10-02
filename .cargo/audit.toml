@@ -1,0 +1,9 @@
+# Advisories `cargo audit` is told to pass over, each with the reason.
+[advisories]
+ignore = [
+    # rsa (Marvin attack). Listed in Cargo.lock because sqlx's MySQL driver
+    # depends on it, but sqlx is built with the SQLite driver only and nothing
+    # compiles it: `cargo tree -i rsa -e all --target all` prints nothing.
+    # No fixed version exists to move to.
+    "RUSTSEC-2023-0071",
+]

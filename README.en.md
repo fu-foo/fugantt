@@ -33,7 +33,8 @@ planned, and what happened.
 - **Finished late is history, not an alarm.** A row that finished after its due
   date says "was late" in a quiet mark, and nothing about it turns red. Red is
   kept for the rows you can still do something about; filter for "was late"
-  when looking back. The statistics still count it as late.
+  when looking back. Counts agree: the statistics page's "late" and
+  `/api/summary`'s `delayed` are rows late now, not rows that were.
 - **Waiting is recorded**, with dates and a reason. Those days count towards
   neither the duration nor the lateness.
 - **Two thousand rows type as fast as ten.** Only the rows on screen are in the
@@ -52,12 +53,18 @@ The grid is keyboard-first. Whatever people are keeping their plans in now,
 they are typing into it without reaching for the mouse, and anything slower than
 that gets abandoned within a week.
 
-Arrows move, Enter opens a cell, Tab goes right, Escape puts it back.
-`⌘Enter` / `Ctrl+Enter` adds a row, `⌥→` / `Alt+→` makes it a child, `⌥↑` / `Alt+↑`
+Arrows move, Enter opens a cell, Tab goes right, Escape puts it back. Enter
+confirms and moves down — or right, in a menu or a date, which are filled in
+along the row; Tab and Enter step over the computed columns.
+`⌘Enter` / `Ctrl+Enter` adds a row you can type straight into, `⌥→` / `Alt+→` makes it a child, `⌥↑` / `Alt+↑`
 moves it within its siblings. Either modifier works on either platform; only the
 label on the screen changes.
 **Today** sits at the top left of the chart. Reading last year means scrolling
 away from now, and dragging back is nobody's idea of navigation.
+
+Both the table and the chart can be grabbed and pulled sideways, for mice with
+no sideways wheel. Until it moves a few pixels a press is still a click: cells
+select as before, and grabbing a bar still moves the bar.
 
 Bars drag: the body moves the dates, the ends stretch them, and the handle
 inside the plan bar sets the progress.
@@ -92,6 +99,9 @@ status, due date, planned start and end, actual start and end, and comment. Day
 counts, variances, progress, waits and checkpoints start hidden — each is on the
 chart already, or entered through a dialog — and come back one tick at a time in
 the project's settings. Existing plans keep their columns.
+The same settings put the plan's people in order (↑↓); the assignee menu and the
+capacity table follow it. Rarely touched things — the eleven bar colours, the
+era table — start folded.
 
 Right-click gives the outline moves by name, and the row's own colours —
 background and text, from a short palette. People were already marking rows by
@@ -100,8 +110,9 @@ sort, export and stay there for ever.
 
 Filters sit above the columns, one per column, ANDed together. Dates and numbers
 compare rather than match: pick **at least / at most / equals / more than / less
-than** from the button beside the box. The 遅延 column is picked from a list:
-late, or on time.
+than** from the button beside the box. The two lateness columns are picked
+from a list: late, or on time — and, for the due date, "was late", a row that
+finished after it.
 
 ## Who has room
 
@@ -395,6 +406,8 @@ From 1.0, these are the things that will not be broken:
 - **The API.** `/api/projects/{id}/document` (read and write), `/api/projects`,
   `/api/summary`.
 - **The settings.** The `fugantt.ini` format and the environment variable names.
+- **The commands.** `fugantt`, `fugantt start` / `stop` / `status` / `log`,
+  `--config`, `--make-admin`.
 - **Port 1861**, as the default.
 
 **The endpoints the grid itself uses are not covered.** They change with it.
@@ -417,7 +430,7 @@ From 1.0, these are the things that will not be broken:
   thousand (release build).
 - A plan of **1,000–3,000 rows** is the working range. Ten thousand still types
   at the same speed.
-- The browser tests drive a real Chrome (328 of them).
+- The browser tests drive a real Chrome (384 of them).
 - One process, one SQLite file. No limit is set on how many people use it.
 
 ## Supporting

@@ -993,8 +993,10 @@ async fn settings(cx: &Cx) -> Result {
 
             // --- colours ----------------------------------------------------
 
-            <section id="colours" class="mt-6 rounded-xl border border-slate-200 bg-white p-6">
-                <h2 class="text-lg font-semibold">(l.t("バーの色"))</h2>
+            // Folded: eleven colours that almost nobody changes, and a page that
+            // opens on them reads as more to set up than there is.
+            <details id="colours" open=((open == "colours").then_some("open")) class="mt-6 rounded-xl border border-slate-200 bg-white p-6">
+                <summary class="cursor-pointer text-lg font-semibold">(l.t("バーの色"))</summary>
 
                 if !project.can_edit() {
                     <div class="mt-4 flex flex-wrap gap-5">
@@ -1087,7 +1089,7 @@ async fn settings(cx: &Cx) -> Result {
                     </button>
                 </form>
                 }
-            </section>
+            </details>
 
             // --- access tokens ----------------------------------------------
 

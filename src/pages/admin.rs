@@ -109,8 +109,11 @@ async fn index(cx: &Cx) -> Result {
                     </p>
                 </div>
 
-                <div class="flex flex-col gap-1">
-                    <label for="eras" class="text-xs font-medium text-slate-500">(l.t("元号"))</label>
+                // Folded: it changes once a generation. Still sent with the form
+                // while closed, so saving the name does not wipe it.
+                <details class="flex flex-col gap-1">
+                    <summary class="cursor-pointer text-xs font-medium text-slate-500">(l.t("元号"))</summary>
+                    <label for="eras" class="sr-only">(l.t("元号"))</label>
                     <textarea
                         id="eras"
                         name="eras"
@@ -120,7 +123,7 @@ async fn index(cx: &Cx) -> Result {
                     <p class="text-xs text-slate-500">
                         (l.t("1行に「開始日 名称」。新しい元号が決まったら、ここに設定します。"))
                     </p>
-                </div>
+                </details>
 
                 <button
                     class="self-start rounded-lg bg-blue-600 px-4 py-2 font-medium text-white hover:bg-blue-500"

@@ -176,6 +176,17 @@ async fn create(cx: &Cx, Form(form): Form<NewProject>) -> Result<SeeOther> {
     .execute(&mut *tx)
     .await?;
 
+    // And what a bar says when pointed at, besides its dates: who, what state,
+    // how far — so a chart read with the table dragged shut still answers.
+    // 実進捗 above all, now that it is not a column.
+    sqlx::query(
+        "INSERT INTO project_settings (project_id, key, value) VALUES (?1, 'tooltip_columns', ?2)",
+    )
+    .bind(&id)
+    .bind("assignee status progress")
+    .execute(&mut *tx)
+    .await?;
+
     // One empty row to start on. A plan that opens as a blank page reads as
     // something that failed to load, and the first thing anybody does here is
     // type a task name anyway.

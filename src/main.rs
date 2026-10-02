@@ -128,6 +128,27 @@ async fn serve(settings: config::Loaded) -> Result<(), Box<dyn Error>> {
             .display()
     );
 
+    // The Japanese holidays for last year, this year and next, kept filled in
+    // without anybody having to remember: at start, and then through the day so
+    // a server left running over New Year picks up the new year by itself.
+    let calendar = pool.clone();
+    tokio::spawn(async move {
+        loop {
+            match holidays::keep_filled(&calendar, jiff::Zoned::now().date()).await {
+                Ok(true) => {
+                    let _ =
+                        sqlx::query("UPDATE projects SET revision = revision + 1, updated_at = ?1")
+                            .bind(db::now())
+                            .execute(&calendar)
+                            .await;
+                }
+                Ok(false) => {}
+                Err(error) => eprintln!("祝日を入れられませんでした: {error}"),
+            }
+            tokio::time::sleep(std::time::Duration::from_secs(6 * 60 * 60)).await;
+        }
+    });
+
     match open_access::check() {
         Ok(Some(warning)) => {
             eprintln!("警告: {warning}");

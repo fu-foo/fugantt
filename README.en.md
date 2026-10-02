@@ -145,7 +145,9 @@ architecture.
 
 - **Public holidays are computed, not pasted.** `src/holidays.rs` implements the
   rules, including substitute holidays and the "citizens' holiday" that appears
-  between two others.
+  between two others. Last year's, this year's and next year's are filled in by
+  themselves — at start, and again as the date moves on. Each year is filled
+  once, so a holiday you delete stays deleted.
 - **The business year sits above the months**, starting in whichever month you
   say (April by default, which is the Japanese norm; October and January are a
   setting away).

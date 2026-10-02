@@ -6806,8 +6806,63 @@ const startsLinked = await page.evaluate(async () => {
     body: JSON.stringify({ field: "status", value: "完了" }),
   });
   const after = (await (await fetch(`/api/projects/${encodeURIComponent(id)}/grid`)).json()).tasks[0];
-  return { id, progress: after.progress, actualEnd: after.actual_end, hidden: grid.hidden_columns };
+  return {
+    id,
+    progress: after.progress,
+    actualEnd: after.actual_end,
+    hidden: grid.hidden_columns,
+    tooltip: grid.tooltip_columns,
+  };
 });
+
+// 列を絞ったぶん、バーに合わせれば誰が・どの状態で・どこまで、が出る。
+check(
+  "新しいプロジェクトは、バーの吹き出しに担当者・ステータス・実進捗を出す",
+  ["assignee", "status", "progress"].every((key) => startsLinked.tooltip?.includes(key)),
+  JSON.stringify(startsLinked.tooltip),
+);
+
+// めったに触らない設定はたたんで始まる。たたんだまま保存しても中身は消えない。
+const folded = await (async () => {
+  await page.goto(`${BASE}/projects/${encodeURIComponent(startsLinked.id)}/settings`, { waitUntil: "domcontentloaded" });
+  const colours = await page.evaluate(() => {
+    const box = document.querySelector("details#colours");
+    return box ? { folded: !box.open } : null;
+  });
+
+  // 全体の設定は管理者の画面。この時点の grid-test は権限のテストで管理者ではないので、
+  // ここでだけ戻して、終わったら元の権限にする。
+  const role = execFileSync("sqlite3", [DB, `SELECT base_role FROM users WHERE email = '${EMAIL}'`])
+    .toString()
+    .trim();
+  execFileSync("sqlite3", [DB, `UPDATE users SET base_role = 'admin' WHERE email = '${EMAIL}'`]);
+
+  await page.goto(`${BASE}/admin`, { waitUntil: "domcontentloaded" });
+  const before = await page.evaluate(() => {
+    const eras = document.querySelector("#eras");
+    return { folded: !eras?.closest("details")?.open, eras: eras?.value ?? null };
+  });
+  await page.evaluate(() => {
+    const name = document.querySelector('input[name="app_name"]');
+    name.value = name.value;
+    name.form.requestSubmit();
+  });
+  await page.waitForNavigation({ waitUntil: "domcontentloaded" }).catch(() => {});
+  const after = await page.evaluate(() => document.querySelector("#eras")?.value ?? null);
+  execFileSync("sqlite3", [DB, `UPDATE users SET base_role = '${role}' WHERE email = '${EMAIL}'`]);
+
+  await page.goto(`${BASE}/projects/test-project`, { waitUntil: "domcontentloaded" });
+  await page.waitForSelector(".fg-grid");
+  await settle();
+  return { colours, eras: { folded: before.folded, kept: !!before.eras && before.eras === after } };
+})();
+
+check("バーの色はたたんで始まる", folded.colours?.folded === true, JSON.stringify(folded));
+check(
+  "元号はたたんであり、たたんだまま保存しても消えない",
+  folded.eras.folded && folded.eras.kept,
+  JSON.stringify(folded),
+);
 
 // 新しい計画の列は芯だけ：誰が・どの状態で・遅れているか・予定と実施。
 // 隠した列はチャートか吹き出しに出るものと、ダイアログで入れるもの。

@@ -45,6 +45,18 @@ FUGANTT_DB = D:\plans\fugantt.db
 `fugantt --config` でどの値がどこから来ているか、`fugantt --help` で書ける項目が出る。
 `fugantt.conf` と `.env` も読む。
 
+**裏で動かすこともできる。** `fugantt` だけなら前面で動き、閉じるか Ctrl+C で止まる。
+画面を開いたままにしたくなければ:
+
+```sh
+fugantt start     # 裏で起動して、すぐ戻る（画面はいつもどおり開く）
+fugantt status    # 動いているか、URL・データ・ログの場所
+fugantt log       # ログの最後
+fugantt stop      # 止める
+```
+
+ログとプロセス番号はデータの既定の場所に、ポートの番号つきで置く（`fugantt-1861.log`）。
+
 > **ポートは 1861。** ヘンリー・ガントの生年。
 
 | 環境変数 / `fugantt.ini` | 既定 | |
@@ -101,6 +113,7 @@ Fly.io の設定も入っている（`fly.toml`）。
 - 初回だけ「**WindowsによってPCが保護されました**」と出る。署名を買っていないため。
   「詳細情報」→「実行」で進む
 - 黒いコンソールが1つ残る。**それがサーバー本体**なので、閉じると止まる（Ctrl+C でも止まる）
+  ——残したくなければ、PowerShell で `fugantt start`（止めるときは `fugantt stop`）
 - 設定を変えたいときは、`fugantt.exe` の隣に `fugantt.ini` を置く
 - データは `%LOCALAPPDATA%\fugantt\fugantt.db`。バックアップは全体の設定から取れる
 

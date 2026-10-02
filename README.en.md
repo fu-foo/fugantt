@@ -210,6 +210,19 @@ Docker and Fly pass in. `fugantt --help` lists what can be set and
 Started on loopback, it opens the page itself — an Edge application window on
 Windows, a tab elsewhere. `FUGANTT_OPEN=0` if you would rather it did not.
 
+Plain `fugantt` runs in the foreground: close it or press Ctrl+C to stop. To run
+it in the background instead:
+
+```sh
+fugantt start     # starts it and returns (the page still opens)
+fugantt status    # whether it is running, and where: URL, data, log
+fugantt log       # the end of its log
+fugantt stop      # stops it
+```
+
+The log and the process number are kept in the data's default place, named by
+port (`fugantt-1861.log`).
+
 The database is `FUGANTT_DB`, or a `fugantt.db` already in the working
 directory, or the platform's own place for user data — `%LOCALAPPDATA%`,
 `~/Library/Application Support`, `~/.local/share`. Whichever it is, the absolute

@@ -30,6 +30,10 @@ jobs:
 
   build:
     needs: announce
+    # A skipped `announce` would skip this too, by default — and a run started
+    # by hand has no tag, so `announce` is always skipped there. That made the
+    # manual run, which exists to prove the build, build nothing.
+    if: ${{ !failure() && !cancelled() }}
     strategy:
       fail-fast: false
       matrix:
@@ -87,6 +91,7 @@ jobs:
       # three releases in a row on a service nobody here can fix, and it was
       # never carrying the files anywhere they needed to go.
       - uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/')
         with:
           files: |
             *.tar.gz

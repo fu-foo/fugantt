@@ -4,6 +4,7 @@ mod auth;
 mod backup;
 mod browser;
 mod config;
+mod daemon;
 mod db;
 mod domain;
 mod guard;
@@ -51,6 +52,11 @@ fn main() -> Result<(), Box<dyn Error>> {
             println!("fugantt {}", env!("CARGO_PKG_VERSION"));
             return Ok(());
         }
+        // In the background, for whoever would rather not keep a console open.
+        Some("start") => std::process::exit(daemon::start()),
+        Some("stop") => std::process::exit(daemon::stop()),
+        Some("status") => std::process::exit(daemon::status()),
+        Some("log") => std::process::exit(daemon::log()),
         Some("--make-admin") => {
             let who = std::env::args().nth(2);
 
@@ -177,6 +183,11 @@ async fn serve(settings: config::Loaded) -> Result<(), Box<dyn Error>> {
         // raw "Address already in use" reads as a crash to whoever just
         // double-clicked this.
         if error.kind() == std::io::ErrorKind::AddrInUse {
+            if let Some(pid) = daemon::background_pid() {
+                eprintln!("fugantt が裏で動いています（プロセス {pid}）。");
+                eprintln!("画面はそのまま開けます。止めるには: fugantt stop");
+                std::process::exit(1);
+            }
             eprintln!("{port} は他のプログラムが使っています。");
             eprintln!("別の番号にするには、fugantt.ini に PORT = 1862 のように書くか、");
             eprintln!("PORT=1862 を渡してください。");

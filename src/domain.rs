@@ -106,6 +106,19 @@ pub struct TaskView {
     pub values: HashMap<String, String>,
 }
 
+impl TaskView {
+    /// Late now, by either ruler: behind a checkpoint, past the planned end
+    /// unfinished, or past the 納期 unfinished. A row that finished after its
+    /// 納期 was late — that is on the record, as 遅れた — but it is not late
+    /// now, and nothing counted here can still be acted on otherwise.
+    ///
+    /// The one definition every count uses: the statistics page and
+    /// `/api/summary` said different things until this was written down.
+    pub fn late_now(&self) -> bool {
+        self.delayed || self.overdue > 0 || self.due_late_open
+    }
+}
+
 /// The whole payload the project page hands to the grid.
 #[derive(Debug, Clone, Serialize)]
 pub struct GridData {
@@ -1904,6 +1917,38 @@ mod tests {
             "遅れて終わった"
         );
         assert_eq!(open("2026-09-30", None), (false, false), "まだ来ていない");
+    }
+
+    /// One definition of "late now", for every count that is made of it.
+    #[test]
+    fn late_now_is_what_can_still_be_acted_on() {
+        let today = date("2026-09-07");
+
+        let late = |due: Option<&str>, end: Option<&str>, actual_end: Option<&str>| {
+            let mut task = row("t", None, "", "", 0);
+            task.due = due.map(ToOwned::to_owned);
+            task.start_date = end.map(|_| "2026-08-03".to_owned());
+            task.end_date = end.map(ToOwned::to_owned);
+            task.actual_end = actual_end.map(ToOwned::to_owned);
+            build_for_test("p", 1, today, vec![task]).tasks[0].late_now()
+        };
+
+        assert!(
+            late(Some("2026-09-01"), None, None),
+            "納期を過ぎて終わっていない"
+        );
+        assert!(
+            !late(Some("2026-09-01"), None, Some("2026-09-05")),
+            "遅れて終わった（遅れた）"
+        );
+        assert!(
+            late(None, Some("2026-09-01"), None),
+            "予定終了を過ぎて終わっていない"
+        );
+        assert!(
+            !late(Some("2026-09-30"), Some("2026-09-30"), None),
+            "まだ来ていない"
+        );
     }
 
     /// A parent is late now only if something under it is late now.

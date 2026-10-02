@@ -311,12 +311,11 @@ pub async fn numbers(cx: &Cx, project: &Project) -> Result<Numbers> {
         .collect();
 
     let tasks = leaves.len();
-    // Both rulers. Counting only the plan's would empty this number out as
-    // soon as a project holds mostly rows that carry a 納期 and no span.
-    let delayed = leaves
-        .iter()
-        .filter(|task| task.delayed || task.overdue > 0 || task.due_late)
-        .count();
+    // Late now, by both rulers — the same count the statistics page shows.
+    // Counting only the plan's would empty this out as soon as a project holds
+    // mostly rows with a 納期 and no span; counting a finished 遅れた would keep
+    // a plan "late" for ever over work nobody can do anything about any more.
+    let delayed = leaves.iter().filter(|task| task.late_now()).count();
 
     let progress = if tasks == 0 {
         0

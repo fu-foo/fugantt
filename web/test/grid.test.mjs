@@ -6806,8 +6806,18 @@ const startsLinked = await page.evaluate(async () => {
     body: JSON.stringify({ field: "status", value: "完了" }),
   });
   const after = (await (await fetch(`/api/projects/${encodeURIComponent(id)}/grid`)).json()).tasks[0];
-  return { id, progress: after.progress, actualEnd: after.actual_end };
+  return { id, progress: after.progress, actualEnd: after.actual_end, hidden: grid.hidden_columns };
 });
+
+// 新しい計画の列は芯だけ：誰が・どの状態で・遅れているか・予定と実施。
+// 隠した列はチャートか吹き出しに出るものと、ダイアログで入れるもの。
+check(
+  "新しいプロジェクトは、計算で出る列と実進捗・待ち・予定進捗を隠して始まる",
+  ["days", "targets", "actual_days", "progress", "start_variance", "end_variance", "waits"].every((key) =>
+    startsLinked.hidden?.includes(key),
+  ) && !startsLinked.hidden?.includes("note") && !startsLinked.hidden?.includes("due_late"),
+  JSON.stringify(startsLinked.hidden),
+);
 check(
   "新しいプロジェクトでは、完了にすると進捗が 100% になる",
   startsLinked.progress === 100 && !!startsLinked.actualEnd,

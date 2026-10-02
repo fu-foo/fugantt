@@ -162,6 +162,20 @@ async fn create(cx: &Cx, Form(form): Form<NewProject>) -> Result<SeeOther> {
     .execute(&mut *tx)
     .await?;
 
+    // The columns a new plan starts with: who, what state, late or not, and
+    // the plan beside what happened — the whole point, and nothing more. What
+    // is hidden here is all still on the chart (a bar's length, its variance
+    // label, the hatched waits, the checkpoint marks) or in the bar's tooltip,
+    // and one tick in the settings away. 実進捗 included: with progress taken
+    // from the status, the number mostly writes itself, and the bar shows it.
+    sqlx::query(
+        "INSERT INTO project_settings (project_id, key, value) VALUES (?1, 'hidden_columns', ?2)",
+    )
+    .bind(&id)
+    .bind("days targets actual_days progress start_variance end_variance waits")
+    .execute(&mut *tx)
+    .await?;
+
     // One empty row to start on. A plan that opens as a blank page reads as
     // something that failed to load, and the first thing anybody does here is
     // type a task name anyway.

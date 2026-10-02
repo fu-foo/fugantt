@@ -87,6 +87,12 @@ Pointing at a bar shows its dates, and whatever else the project asked for —
 including columns taken off the table, and including its own fields. A column
 worth a glance now and then does not have to sit on the screen all day.
 
+A new plan starts with eleven columns: task, the two lateness columns, assignee,
+status, due date, planned start and end, actual start and end, and comment. Day
+counts, variances, progress, waits and checkpoints start hidden — each is on the
+chart already, or entered through a dialog — and come back one tick at a time in
+the project's settings. Existing plans keep their columns.
+
 Right-click gives the outline moves by name, and the row's own colours —
 background and text, from a short palette. People were already marking rows by
 writing ★ into the task name; this is the same intent with a tool that does not

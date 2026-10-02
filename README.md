@@ -5,7 +5,7 @@
 
 [English](README.en.md)
 
-![スケジュール画面](docs/images/schedule.png)
+![行を足して打つ、バーを引く、遅れで絞り込む](docs/images/demo.gif)
 
 ## できること
 
@@ -20,6 +20,8 @@
 - **Excel と JSON に書き出す。** JSON は取り込みもできる
 - **既定は日本語。** ブラウザが英語なら英語で出る
 - **行数で重くならない。** 見えている行だけを描くので、2000行でも打鍵は15ms
+
+![スケジュール画面](docs/images/schedule.png)
 
 | | |
 | --- | --- |

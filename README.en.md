@@ -8,7 +8,7 @@ SQLite, one binary. The grid is plain TypeScript; everything else is HTML.
 
 [日本語の README](README.md)
 
-![The schedule](docs/images/schedule.png)
+![Add a row and type, drag a bar, filter to what is late](docs/images/demo.gif)
 
 ## The problem it solves
 
@@ -41,6 +41,8 @@ planned, and what happened.
   document; the rest are a spacer of the right height.
 - **Who has room is a page.** Per person, per month: the days they could work,
   the days already taken, what is left, and which days those are.
+
+![The schedule](docs/images/schedule.png)
 
 | | |
 | --- | --- |

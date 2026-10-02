@@ -74,7 +74,7 @@ html {
   z-index: 3;
   background: var(--fg-row-bg);
 }
-.fg-row .fg-cell.is-frozen:not(:has(~ .is-frozen)) {
+.fg-row .fg-cell.is-frozen:not(.is-selected):not(:has(~ .is-frozen)) {
   box-shadow: inset -1px 0 0 var(--fg-rule);
 }
 .fg-column-grip {

@@ -773,8 +773,10 @@ pub fn load(data: &GridData, from: Date, to: Date, today: Date) -> Vec<Load> {
         }
     }
 
-    names.sort();
-    names.dedup();
+    // In the order the list came in: a project's own order for its people, or
+    // by name across projects. Sorting here threw the project's order away.
+    let mut seen = std::collections::HashSet::new();
+    names.retain(|name| seen.insert(name.clone()));
     // The unassigned row last: it is work, not a person.
     names.retain(|name| !name.is_empty());
     names.push(String::new());

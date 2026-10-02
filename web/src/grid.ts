@@ -401,6 +401,7 @@ const EN: Record<string, string> = {
   "予定日数": "Planned days",
   "実作業日数": "Actual days",
   "表示": "Show",
+  "集計行のバー": "Summary bars",
   "チャートに出すものを選びます": "Choose what to draw on the chart",
   "実際に動いた日数。終わっていなければ今日まで数えます":
     "Days actually worked; counted up to today while it is still running",
@@ -930,11 +931,13 @@ function loadColumnWidths(): Record<string, number> {
 const MIN_COLUMN_WIDTH = 40;
 
 /** What gets drawn over the chart. More of it says more, and reads worse. */
-type Shows = { start: boolean; end: boolean; worked: boolean; targets: boolean };
+type Shows = { start: boolean; end: boolean; worked: boolean; targets: boolean; summary: boolean };
 
 function loadShows(): Shows {
   const stored = window.localStorage.getItem(SHOWS_KEY);
-  const shows: Shows = { start: true, end: true, worked: true, targets: true };
+  // Summary bars start hidden: with the children open underneath, the parent's
+  // bar repeats their span as one long slab across the rows people are reading.
+  const shows: Shows = { start: true, end: true, worked: true, targets: true, summary: false };
 
   if (!stored) return shows;
 
@@ -2009,6 +2012,31 @@ class Grid {
         return;
       }
     }
+  }
+
+  /**
+   * Whose leave is shaded on this row.
+   *
+   * The row's own assignee — and, on a folded summary row, everyone on the
+   * rows folded away under it. Folding hides the rows, not the fact that
+   * somebody on them is away; a plan read folded is exactly when nobody is
+   * looking at the rows underneath.
+   */
+  private peopleOn(task: Task): Set<string> {
+    const people = new Set<string>();
+    const own = task.assignee.trim();
+    if (own) people.add(own);
+
+    if (!task.has_children || !this.collapsed.has(task.id)) return people;
+
+    const all = this.data.tasks;
+    const from = all.findIndex((row) => row.id === task.id);
+    for (let at = from + 1; from >= 0 && at < all.length && all[at]!.depth > task.depth; at++) {
+      const name = all[at]!.assignee.trim();
+      if (name) people.add(name);
+    }
+
+    return people;
   }
 
   /** Unfolds whatever is hiding `taskId`, so a moved row does not vanish. */
@@ -5611,9 +5639,14 @@ class Grid {
       ["end", "終了差異"],
       ["worked", "実作業日数"],
       ["targets", "予定進捗"],
+      ["summary", "集計行のバー"],
     ];
 
-    if (choices.some(([key]) => !this.shows[key])) button.classList.add("is-on");
+    // Lit when something is hidden that is drawn by default. The summary bars
+    // are hidden by default, so for them it is the other way round.
+    if (choices.some(([key]) => (key === "summary" ? this.shows[key] : !this.shows[key]))) {
+      button.classList.add("is-on");
+    }
 
     button.addEventListener("mousedown", (event) => event.preventDefault());
     button.addEventListener("click", () => {
@@ -5820,9 +5853,9 @@ class Grid {
     // Leave. Whoever is on this row, the days they are away are shaded in this
     // row alone — a weekend is everyone's, a holiday is the project's, and this
     // is one person's. Drawn first so the bars keep their own colours on top.
-    const away = task.assignee.trim();
-    for (const leave of away ? this.data.leaves : []) {
-      if (leave.assignee.trim() !== away || leave.kind === "on") continue;
+    const away = this.peopleOn(task);
+    for (const leave of away.size > 0 ? this.data.leaves : []) {
+      if (!away.has(leave.assignee.trim()) || leave.kind === "on") continue;
 
       const slice = span(leave.start, leave.end);
       if (!slice) continue;
@@ -5860,10 +5893,14 @@ class Grid {
       row.append(gap);
     }
 
-    const planned = span(task.start, task.end);
+    // A summary row's bars are left out unless asked for — but only while its
+    // children are showing. Folded, the parent's bar is all there is of that
+    // work on the chart, and taking it away would leave a blank row.
+    const quiet = task.has_children && !this.collapsed.has(task.id) && !this.shows.summary;
+    const planned = quiet ? null : span(task.start, task.end);
     // Work that has started and not finished is drawn up to today: it is a
     // length, not a dot.
-    const actual = span(task.actual_start, task.actual_end ?? this.data.today);
+    const actual = quiet ? null : span(task.actual_start, task.actual_end ?? this.data.today);
 
     // 納期 is a day, not a length: a mark at the top edge of the row, pointing
     // down at the column it belongs to. Above the bars rather than on them, so

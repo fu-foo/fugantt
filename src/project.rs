@@ -1214,13 +1214,28 @@ pub async fn import_project(
             .bind(project_id)
             .execute(&mut *tx)
             .await?;
+        // The file lists people in the plan's order, so that order comes back
+        // with them.
+        sqlx::query("DELETE FROM project_assignee_order WHERE project_id = ?1")
+            .bind(project_id)
+            .execute(&mut *tx)
+            .await?;
 
-        for person in assignees {
+        for (position, person) in assignees.iter().enumerate() {
             sqlx::query("INSERT INTO project_assignees (project_id, name) VALUES (?1, ?2)")
                 .bind(project_id)
                 .bind(&person.name)
                 .execute(&mut *tx)
                 .await?;
+            sqlx::query(
+                "INSERT INTO project_assignee_order (project_id, name, position) VALUES (?1, ?2, ?3)
+                 ON CONFLICT (project_id, name) DO UPDATE SET position = excluded.position",
+            )
+            .bind(project_id)
+            .bind(&person.name)
+            .bind(i64::try_from(position).unwrap_or(i64::MAX))
+            .execute(&mut *tx)
+            .await?;
 
             // Colour belongs to the shared list. A colour from an imported file
             // is applied only to someone who has none yet, so one import cannot
@@ -1496,8 +1511,10 @@ pub async fn export_extras(cx: &Cx, project_id: &str) -> Result<crate::interop::
                 COALESCE(assignees.background, '')
            FROM project_assignees
            LEFT JOIN assignees ON assignees.name = project_assignees.name
+           LEFT JOIN project_assignee_order AS ordered
+                  ON ordered.project_id = ?1 AND ordered.name = project_assignees.name
           WHERE project_assignees.project_id = ?1
-          ORDER BY project_assignees.name",
+          ORDER BY ordered.position IS NULL, ordered.position, project_assignees.name",
     )
     .bind(project_id)
     .fetch_all(db::pool(cx))
@@ -1714,7 +1731,10 @@ pub async fn assignees(cx: &Cx, project_id: &str) -> Result<Vec<domain::Assignee
              SELECT name FROM project_assignees WHERE project_id = ?1
            ) AS names
            LEFT JOIN assignees ON assignees.name = names.name
-          ORDER BY names.name",
+           LEFT JOIN project_assignee_order AS ordered
+                  ON ordered.project_id = ?1 AND ordered.name = names.name
+          -- The order the plan was given, then anyone it has not placed yet.
+          ORDER BY ordered.position IS NULL, ordered.position, names.name",
     )
     .bind(project_id)
     .fetch_all(db::pool(cx))

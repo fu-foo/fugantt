@@ -2425,6 +2425,67 @@ async fn remove_assignee(cx: &Cx, Form(form): Form<RemoveAssignee>) -> Result<Se
 }
 
 #[derive(Deserialize)]
+struct MoveAssignee {
+    name: String,
+    direction: String,
+}
+
+/// Swaps a person with their neighbour in this plan's list.
+///
+/// The whole list is written down at its new positions, not just the two that
+/// swapped: until someone first moves a name, nobody has a position at all, and
+/// the order on screen is only alphabetical.
+#[route(POST "/projects/{project_id}/assignees/move")]
+async fn move_assignee(cx: &Cx, Form(form): Form<MoveAssignee>) -> Result<SeeOther> {
+    let user = require_user(cx).await?;
+    let project_id = project::id_from_path(cx)?.to_owned();
+    authorize_edit(cx, &user.id, &project_id).await?;
+
+    let back = format!("/projects/{project_id}/settings?open=assignees#assignees");
+
+    let mut names: Vec<String> = project::assignees(cx, &project_id)
+        .await?
+        .into_iter()
+        .map(|person| person.name)
+        .collect();
+
+    let Some(at) = names.iter().position(|name| name == form.name.trim()) else {
+        return Ok(see_other(&back));
+    };
+    let to = if form.direction == "up" {
+        at.checked_sub(1)
+    } else {
+        (at + 1 < names.len()).then_some(at + 1)
+    };
+    let Some(to) = to else {
+        return Ok(see_other(&back));
+    };
+
+    names.swap(at, to);
+
+    let mut tx = db::pool(cx).begin().await?;
+    sqlx::query("DELETE FROM project_assignee_order WHERE project_id = ?1")
+        .bind(&project_id)
+        .execute(&mut *tx)
+        .await?;
+    for (position, name) in names.iter().enumerate() {
+        sqlx::query(
+            "INSERT INTO project_assignee_order (project_id, name, position) VALUES (?1, ?2, ?3)",
+        )
+        .bind(&project_id)
+        .bind(name)
+        .bind(i64::try_from(position).unwrap_or(i64::MAX))
+        .execute(&mut *tx)
+        .await?;
+    }
+    tx.commit().await?;
+
+    bump_and_announce(cx, &project_id, user.display()).await?;
+
+    Ok(see_other(&back))
+}
+
+#[derive(Deserialize)]
 struct OptionForm {
     field_id: String,
     value: String,

@@ -62,6 +62,15 @@ away from now, and dragging back is nobody's idea of navigation.
 Bars drag: the body moves the dates, the ends stretch them, and the handle
 inside the plan bar sets the progress.
 
+Summary rows draw no bar while their children are open — the children already
+show that span. A folded summary row draws its bar, and the leave of everyone
+folded away under it. **Show** at the top left of the chart brings summary bars
+back, for your own screen only.
+
+A new project takes its progress from the status: 完了 sets 100%, 未着手 0%, and
+a status with no percentage leaves the number to be typed. Teams that would
+rather type every number switch it to manual in the project's settings.
+
 `⌘Z` / `Ctrl+Z` takes back the last change this tab made, `⌘Y` / `⌘⇧Z` puts it
 back — values, a row that was added, and a row that was moved, which goes back
 to the parent and the sibling it sat after. Only your own changes, and only

@@ -108,8 +108,12 @@ html {
   background: var(--fg-row-bg);
 }
 
-/* The last pinned column carries the seam. */
-.fg-row .fg-cell.is-frozen:not(:has(~ .is-frozen)) {
+/* The last pinned column carries the seam — except under the cursor. The seam
+   is a box-shadow too, and being the more specific rule it took the selection's
+   outline away: on the task name, the cell people land on most, the cursor
+   showed only on a late row, whose red outline happened to be stronger still.
+   The outline runs along the same edge, so nothing is lost. */
+.fg-row .fg-cell.is-frozen:not(.is-selected):not(:has(~ .is-frozen)) {
   box-shadow: inset -1px 0 0 var(--fg-rule);
 }
 

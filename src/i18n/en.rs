@@ -18,6 +18,8 @@ pub fn of(ja: &str) -> Option<&'static str> {
         "追加・更新" => "Add or update",
         "削除" => "Delete",
         "外す" => "Remove",
+        "上へ" => "Move up",
+        "下へ" => "Move down",
         "変更" => "Change",
         "取り込む" => "Import",
         "戻す" => "Undo",

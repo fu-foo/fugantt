@@ -130,6 +130,7 @@
     "\u4E88\u5B9A\u65E5\u6570": "Planned days",
     "\u5B9F\u4F5C\u696D\u65E5\u6570": "Actual days",
     "\u8868\u793A": "Show",
+    "\u96C6\u8A08\u884C\u306E\u30D0\u30FC": "Summary bars",
     "\u30C1\u30E3\u30FC\u30C8\u306B\u51FA\u3059\u3082\u306E\u3092\u9078\u3073\u307E\u3059": "Choose what to draw on the chart",
     "\u5B9F\u969B\u306B\u52D5\u3044\u305F\u65E5\u6570\u3002\u7D42\u308F\u3063\u3066\u3044\u306A\u3051\u308C\u3070\u4ECA\u65E5\u307E\u3067\u6570\u3048\u307E\u3059": "Days actually worked; counted up to today while it is still running",
     "\u958B\u59CB\u5DEE\u7570": "Start variance",
@@ -465,7 +466,7 @@
   var MIN_COLUMN_WIDTH = 40;
   function loadShows() {
     const stored = window.localStorage.getItem(SHOWS_KEY);
-    const shows = { start: true, end: true, worked: true, targets: true };
+    const shows = { start: true, end: true, worked: true, targets: true, summary: false };
     if (!stored) return shows;
     try {
       return { ...shows, ...JSON.parse(stored) };
@@ -1229,6 +1230,27 @@
           return;
         }
       }
+    }
+    /**
+     * Whose leave is shaded on this row.
+     *
+     * The row's own assignee — and, on a folded summary row, everyone on the
+     * rows folded away under it. Folding hides the rows, not the fact that
+     * somebody on them is away; a plan read folded is exactly when nobody is
+     * looking at the rows underneath.
+     */
+    peopleOn(task) {
+      const people = /* @__PURE__ */ new Set();
+      const own = task.assignee.trim();
+      if (own) people.add(own);
+      if (!task.has_children || !this.collapsed.has(task.id)) return people;
+      const all = this.data.tasks;
+      const from = all.findIndex((row) => row.id === task.id);
+      for (let at = from + 1; from >= 0 && at < all.length && all[at].depth > task.depth; at++) {
+        const name = all[at].assignee.trim();
+        if (name) people.add(name);
+      }
+      return people;
     }
     /** Unfolds whatever is hiding `taskId`, so a moved row does not vanish. */
     reveal(taskId) {
@@ -3788,9 +3810,12 @@ ${lines.join("\n")}` : "";
         ["start", "\u958B\u59CB\u5DEE\u7570"],
         ["end", "\u7D42\u4E86\u5DEE\u7570"],
         ["worked", "\u5B9F\u4F5C\u696D\u65E5\u6570"],
-        ["targets", "\u4E88\u5B9A\u9032\u6357"]
+        ["targets", "\u4E88\u5B9A\u9032\u6357"],
+        ["summary", "\u96C6\u8A08\u884C\u306E\u30D0\u30FC"]
       ];
-      if (choices.some(([key]) => !this.shows[key])) button.classList.add("is-on");
+      if (choices.some(([key]) => key === "summary" ? this.shows[key] : !this.shows[key])) {
+        button.classList.add("is-on");
+      }
       button.addEventListener("mousedown", (event) => event.preventDefault());
       button.addEventListener("click", () => {
         const anchor = button.getBoundingClientRect();
@@ -3928,9 +3953,9 @@ ${lines.join("\n")}` : "";
         const length = Math.max(1, dayIndex(to, origin) - start2 + 1);
         return { start: start2, length };
       };
-      const away = task.assignee.trim();
-      for (const leave of away ? this.data.leaves : []) {
-        if (leave.assignee.trim() !== away || leave.kind === "on") continue;
+      const away = this.peopleOn(task);
+      for (const leave of away.size > 0 ? this.data.leaves : []) {
+        if (!away.has(leave.assignee.trim()) || leave.kind === "on") continue;
         const slice = span(leave.start, leave.end);
         if (!slice) continue;
         const cells = element("div", "fg-leave");
@@ -3956,8 +3981,9 @@ ${lines.join("\n")}` : "";
         ].filter(Boolean).join(" ");
         row.append(gap);
       }
-      const planned = span(task.start, task.end);
-      const actual = span(task.actual_start, task.actual_end ?? this.data.today);
+      const quiet = task.has_children && !this.collapsed.has(task.id) && !this.shows.summary;
+      const planned = quiet ? null : span(task.start, task.end);
+      const actual = quiet ? null : span(task.actual_start, task.actual_end ?? this.data.today);
       const promised = task.due ? span(task.due, task.due) : null;
       if (promised) {
         const mark = element("div", "fg-due");

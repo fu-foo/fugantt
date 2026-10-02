@@ -150,6 +150,18 @@ async fn create(cx: &Cx, Form(form): Form<NewProject>) -> Result<SeeOther> {
         .await?;
     }
 
+    // 進捗 follows ステータス from the start: 完了 that leaves the bar at 0% is
+    // the first thing anybody trips over, and the statuses above already say
+    // what each one means. A team that would rather type percentages switches
+    // it off in the settings — which is also why only a new project gets this,
+    // and one that never chose keeps entering them by hand.
+    sqlx::query(
+        "INSERT INTO project_settings (project_id, key, value) VALUES (?1, 'progress_mode', 'status')",
+    )
+    .bind(&id)
+    .execute(&mut *tx)
+    .await?;
+
     // One empty row to start on. A plan that opens as a blank page reads as
     // something that failed to load, and the first thing anybody does here is
     // type a task name anyway.

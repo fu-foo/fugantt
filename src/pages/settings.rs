@@ -809,7 +809,7 @@ async fn settings(cx: &Cx) -> Result {
                     <p class="mt-6 text-sm text-slate-400">(l.t("まだ誰も出てきていません。"))</p>
                 } else {
                     <ul class="mt-6 divide-y divide-slate-100 border-t border-slate-100">
-                        for person in &data.assignees {
+                        for (at, person) in data.assignees.iter().enumerate() {
                             <li class="flex items-center gap-4 py-2.5">
                                 <span
                                     class="rounded-full border border-slate-200 px-2.5 py-0.5 text-xs"
@@ -832,10 +832,34 @@ async fn settings(cx: &Cx) -> Result {
                                 }
 
                                 if project.can_edit() {
+                                    // The order the plan lists its people in: the
+                                    // menu in the grid and 空き検索 follow it.
+                                    <form
+                                        method="POST"
+                                        action=(("/projects/", &project.id, "/assignees/move"))
+                                        class="ml-auto flex gap-1"
+                                    >
+                                        <input type="hidden" name="name" value=(&person.name)>
+                                        if at > 0 {
+                                            <button
+                                                name="direction"
+                                                value="up"
+                                                title=(l.t("上へ"))
+                                                class="rounded border border-slate-300 px-2 text-xs hover:bg-slate-100"
+                                            >"↑"</button>
+                                        }
+                                        if at + 1 < data.assignees.len() {
+                                            <button
+                                                name="direction"
+                                                value="down"
+                                                title=(l.t("下へ"))
+                                                class="rounded border border-slate-300 px-2 text-xs hover:bg-slate-100"
+                                            >"↓"</button>
+                                        }
+                                    </form>
                                     <form
                                         method="POST"
                                         action=(("/projects/", &project.id, "/assignees/remove"))
-                                        class="ml-auto"
                                     >
                                         <input type="hidden" name="name" value=(&person.name)>
                                         <button class="text-sm text-slate-400 hover:text-red-600">

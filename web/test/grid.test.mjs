@@ -1485,14 +1485,49 @@ check(
   `${progressTask.progress}% → ${afterProgress}%`,
 );
 
-const summaryBarDraggable = await page.evaluate(async () => {
-  const grid = await (await fetch("/api/projects/test-project/grid")).json();
-  const dev = grid.tasks.find((task) => task.name === "開発");
-  return document
-    .querySelector(`.fg-bar[data-task="${dev.id}"]`)
-    ?.classList.contains("is-draggable");
-});
-check("集計行のバーはドラッグできない", summaryBarDraggable === false, String(summaryBarDraggable));
+// 集計行のバーは既定では出ていない（子が開いているあいだは）。「表示」で出す。
+const summaryShown = async (on) => {
+  await page.click(".fg-shows:not(.fg-today-button)");
+  await settle();
+  await page.evaluate((on) => {
+    const box = document.querySelector('.fg-shows-menu input[data-shows="summary"]');
+    if (box && box.checked !== on) box.click();
+    document.querySelector(".fg-shows-menu")?.remove();
+  }, on);
+  await settle();
+};
+const devBar = () =>
+  page.evaluate(async () => {
+    const grid = await (await fetch("/api/projects/test-project/grid")).json();
+    const dev = grid.tasks.find((task) => task.name === "開発");
+    const bar = document.querySelector(`.fg-bar[data-task="${dev.id}"]`);
+    return bar ? { draggable: bar.classList.contains("is-draggable") } : null;
+  });
+
+const summaryHidden = await devBar();
+await summaryShown(true);
+const summaryBar = await devBar();
+await summaryShown(false);
+const summaryHiddenAgain = await devBar();
+
+// 畳めば子の行は消える。親のバーまで消すと、その仕事はチャートから無くなる。
+const twistDev = () =>
+  page.evaluate(() => {
+    const row = [...document.querySelectorAll(".fg-pane-left .fg-row.fg-data")].find((r) =>
+      r.querySelector(".fg-name-text")?.textContent.includes("開発"),
+    );
+    row?.querySelector(".fg-twisty:not(.is-leaf)")?.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+  });
+await twistDev();
+await settle();
+const foldedDevBar = await devBar();
+await twistDev();
+await settle();
+check("畳んだ集計行のバーは、既定でも出る", foldedDevBar !== null, JSON.stringify(foldedDevBar));
+
+check("集計行のバーは、子が開いていれば既定で出ない", summaryHidden === null, JSON.stringify(summaryHidden));
+check("「表示」で集計行のバーを出し入れできる", summaryBar !== null && summaryHiddenAgain === null, JSON.stringify({ summaryBar, summaryHiddenAgain }));
+check("集計行のバーはドラッグできない", summaryBar?.draggable === false, JSON.stringify(summaryBar));
 
 await page.evaluate(() => {
   document.querySelector(".fg-grid").style.removeProperty("--fg-pane-width");
@@ -1905,17 +1940,23 @@ await settle();
 
 /** Drags the actual bar of `task`, the way a hand would. */
 const dragActual = async (task, days, grab) => {
-  // Bring the bar fully into the chart's viewport first: an edge scrolled off
-  // to the left is not an edge the mouse can grab.
-  await page.evaluate((task) => {
+  // Bring the edge being grabbed into the chart's viewport first: an edge
+  // scrolled off is not an edge the mouse can grab. The right one has to be
+  // asked for by itself — a bar still in progress runs up to today, so it
+  // grows by a day every day, and soon reaches past the window.
+  await page.evaluate((task, grab) => {
     const named = [...document.querySelectorAll(".fg-pane-left .fg-row.fg-data .fg-cell-name")].map(
       (c) => c.textContent.trim(),
     );
     const rows = [...document.querySelectorAll(".fg-bar-row")];
     const bar = rows[named.findIndex((n) => n.includes(task))]?.querySelector(".fg-actual");
     const pane = document.querySelector(".fg-pane-chart");
-    if (bar && pane) pane.scrollLeft = Math.max(0, bar.offsetLeft - 80);
-  }, task);
+    if (!bar || !pane) return;
+    pane.scrollLeft =
+      grab === "end"
+        ? Math.max(0, bar.offsetLeft + bar.offsetWidth - pane.clientWidth + 200)
+        : Math.max(0, bar.offsetLeft - 80);
+  }, task, grab);
   await settle();
 
   const box = await page.evaluate((task) => {
@@ -6627,6 +6668,108 @@ check(
   "全部閉じると子が隠れ、全部開くと戻る",
   folding.closed < folding.opened,
   JSON.stringify(folding),
+);
+
+// 畳んだ親の行に、畳まれた子の担当者の休みが出る。畳んで読むときこそ、
+// 下の行は誰も見ていない。
+const foldedLeave = await (async () => {
+  const id = await page.evaluate(async () => {
+    const at = (offset) => {
+      const day = new Date();
+      day.setDate(day.getDate() + offset);
+      return day.toLocaleDateString("sv-SE");
+    };
+    await fetch("/projects/test-project/leaves", {
+      method: "POST",
+      body: new URLSearchParams({ assignee: "佐藤", start: at(1), end: at(3), note: "畳んだ親" }),
+    });
+    const grid = await (await fetch("/api/projects/test-project/grid")).json();
+    return grid.leaves.find((leave) => leave.note === "畳んだ親")?.id ?? null;
+  });
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await page.waitForSelector(".fg-grid");
+  await settle();
+
+  const leavesOn = (name) =>
+    page.evaluate((name) => {
+      const named = [...document.querySelectorAll(".fg-pane-left .fg-row.fg-data .fg-cell-name")].map(
+        (c) => c.textContent.trim(),
+      );
+      const index = named.findIndex((n) => n.includes(name));
+      const row = document.querySelectorAll(".fg-bar-row")[index];
+      return index < 0 ? null : [...(row?.querySelectorAll(".fg-leave") ?? [])].map((l) => l.title);
+    }, name);
+  const button = (label) =>
+    page.evaluate((label) => {
+      [...document.querySelectorAll(".fg-toolbar .fg-button")].find((b) => b.textContent.trim() === label)?.click();
+    }, label);
+
+  const open = await leavesOn("開発");
+  await button("全部閉じる");
+  await settle();
+  const folded = await leavesOn("開発");
+  await button("全部開く");
+  await settle();
+  const child = await leavesOn("設計");
+
+  if (id) {
+    await page.evaluate(async (id) => {
+      await fetch("/projects/test-project/leaves/remove", { method: "POST", body: new URLSearchParams({ id }) });
+    }, id);
+  }
+  return { id, open, folded, child };
+})();
+
+check(
+  "畳んだ親の行に、子の担当者の休みが出る",
+  !!foldedLeave.id &&
+    foldedLeave.open?.length === 0 &&
+    foldedLeave.folded?.some((title) => title.includes("佐藤")) &&
+    foldedLeave.child?.some((title) => title.includes("佐藤")),
+  JSON.stringify(foldedLeave),
+);
+
+// 選んだセルは枠で分かる。タスク名の列は固定列で、その右端の線が同じ
+// box-shadow を使っていて、遅れていない行では選択の枠を消していた。
+const nameOutline = await page.evaluate(() => {
+  const rows = [...document.querySelectorAll(".fg-pane-left .fg-row.fg-data")];
+  const quiet = rows.findIndex((row) => !row.classList.contains("is-delayed"));
+  return { quiet };
+});
+if (nameOutline.quiet >= 0) {
+  await selectCell(nameOutline.quiet, 0);
+  nameOutline.shadow = await page.evaluate(
+    () => getComputedStyle(document.querySelector(".fg-pane-left .fg-cell.is-selected")).boxShadow,
+  );
+}
+check(
+  "遅れていない行でも、タスク名のセルに選択の枠が出る",
+  /0px 0px 0px 2px inset/.test(nameOutline.shadow ?? ""),
+  JSON.stringify(nameOutline),
+);
+
+// 新しいプロジェクトは進捗がステータスに連動して始まる。完了にしたら 100%。
+const startsLinked = await page.evaluate(async () => {
+  const name = `連動テスト ${Date.now()}`;
+  await fetch("/projects", { method: "POST", body: new URLSearchParams({ name }), redirect: "manual" });
+  const html = await (await fetch("/")).text();
+  const id = [...html.matchAll(/href="\/projects\/([^"]+)"/g)]
+    .map((m) => decodeURIComponent(m[1]))
+    .find((slug) => slug.startsWith("連動テスト-"));
+  const grid = await (await fetch(`/api/projects/${encodeURIComponent(id)}/grid`)).json();
+  const task = grid.tasks[0];
+  await fetch(`/api/projects/${encodeURIComponent(id)}/tasks/${task.id}`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ field: "status", value: "完了" }),
+  });
+  const after = (await (await fetch(`/api/projects/${encodeURIComponent(id)}/grid`)).json()).tasks[0];
+  return { id, progress: after.progress, actualEnd: after.actual_end };
+});
+check(
+  "新しいプロジェクトでは、完了にすると進捗が 100% になる",
+  startsLinked.progress === 100 && !!startsLinked.actualEnd,
+  JSON.stringify(startsLinked),
 );
 
 // --- 集計行に入れないもの -------------------------------------------------------

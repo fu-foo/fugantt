@@ -1486,7 +1486,7 @@ async fn add_leave(cx: &Cx, Form(form): Form<LeaveForm>) -> Result<SeeOther> {
     let l = crate::i18n::lang(cx).await;
     let user = require_user(cx).await?;
     let project_id = project::id_from_path(cx)?.to_owned();
-    authorize_edit(cx, &user.id, &project_id).await?;
+    let project = authorize_edit(cx, &user.id, &project_id).await?;
 
     let assignee = trim(&form.assignee);
     if assignee.is_empty() {
@@ -1514,6 +1514,16 @@ async fn add_leave(cx: &Cx, Form(form): Form<LeaveForm>) -> Result<SeeOther> {
     .bind(db::now())
     .execute(db::pool(cx))
     .await?;
+
+    let note = trim(form.note.as_deref().unwrap_or(""));
+    let row = (
+        assignee.clone(),
+        start.to_string(),
+        end.to_string(),
+        note,
+        "off".to_owned(),
+    );
+    record_leave(cx, &project.name, user.display(), true, &row).await?;
 
     bump_and_announce(cx, &project_id, user.display()).await?;
 
@@ -1578,22 +1588,33 @@ async fn set_leaves(cx: &Cx, Json(form): Json<LeaveList>) -> Result<Json<Mutatio
     // There is one table of leave for the whole installation. What the dialog
     // edited was the part belonging to people on this plan, so that is the only
     // part this save may delete. Nobody else's week is collateral.
-    sqlx::query(
-        "DELETE FROM leaves WHERE assignee IN (
-             SELECT CASE WHEN users.display_name = '' THEN users.email ELSE users.display_name END
-               FROM project_members
-               JOIN users ON users.id = project_members.user_id
-              WHERE project_members.project_id = ?1
-             UNION
-             SELECT TRIM(assignee) FROM tasks
-              WHERE project_id = ?1 AND TRIM(assignee) <> ''
-             UNION
-             SELECT name FROM project_assignees WHERE project_id = ?1
-         )",
-    )
+    // Read before it goes, so what changed can be put on the record below.
+    let before: Vec<LeaveRow> = sqlx::query_as(&format!(
+        "SELECT assignee, start_date, end_date, note, kind FROM leaves WHERE assignee IN ({LEAVE_SCOPE})"
+    ))
+    .bind(&project_id)
+    .fetch_all(&mut *tx)
+    .await?;
+
+    sqlx::query(&format!(
+        "DELETE FROM leaves WHERE assignee IN ({LEAVE_SCOPE})"
+    ))
     .bind(&project_id)
     .execute(&mut *tx)
     .await?;
+
+    let after: Vec<LeaveRow> = rows
+        .iter()
+        .map(|(assignee, start, end, note, kind)| {
+            (
+                assignee.clone(),
+                start.to_string(),
+                end.to_string(),
+                note.clone(),
+                (*kind).to_owned(),
+            )
+        })
+        .collect();
 
     for (assignee, start, end, note, kind) in rows {
         sqlx::query(
@@ -1614,7 +1635,83 @@ async fn set_leaves(cx: &Cx, Json(form): Json<LeaveList>) -> Result<Json<Mutatio
 
     tx.commit().await?;
 
+    // The dialog writes the whole list back, so most of what it sends was
+    // already there. Only what actually came or went goes on the record.
+    let mut gone = before;
+    let mut came = Vec::new();
+    for row in after {
+        match gone.iter().position(|old| *old == row) {
+            Some(at) => {
+                gone.swap_remove(at);
+            }
+            None => came.push(row),
+        }
+    }
+    for row in &gone {
+        record_leave(cx, &project.name, user.display(), false, row).await?;
+    }
+    for row in &came {
+        record_leave(cx, &project.name, user.display(), true, row).await?;
+    }
+
     respond(cx, &project, user.display(), None).await
+}
+
+/// Whose leave a plan's editors look after: everyone the plan names.
+///
+/// Leave is one table for the whole company, and a name on a plan is free text,
+/// so this is not a fence — anybody editing a plan can name anybody. What keeps
+/// it honest is that every change goes on the record, with who made it and
+/// from which plan (`record_leave`).
+const LEAVE_SCOPE: &str = "
+    SELECT CASE WHEN users.display_name = '' THEN users.email ELSE users.display_name END
+      FROM project_members
+      JOIN users ON users.id = project_members.user_id
+     WHERE project_members.project_id = ?1
+    UNION
+    SELECT TRIM(assignee) FROM tasks
+     WHERE project_id = ?1 AND TRIM(assignee) <> ''
+    UNION
+    SELECT name FROM project_assignees WHERE project_id = ?1";
+
+/// One leave as stored: who, from, to, note, `off` or `on`.
+type LeaveRow = (String, String, String, String, String);
+
+/// Puts a change to somebody's leave on the record the administrators read.
+///
+/// One person's week off is on every plan they are part of, and any of those
+/// plans' editors can change it. The record says who did, from where.
+async fn record_leave(
+    cx: &Cx,
+    project: &str,
+    actor: &str,
+    added: bool,
+    (assignee, start, end, note, kind): &LeaveRow,
+) -> Result<()> {
+    let action = match (added, kind == "on") {
+        (true, false) => "休暇を追加",
+        (false, false) => "休暇を削除",
+        (true, true) => "出社を追加",
+        (false, true) => "出社を削除",
+    };
+    let note = if note.is_empty() {
+        String::new()
+    } else {
+        format!(" {note}")
+    };
+    let what = format!("{start}〜{end}{note}（{project}）");
+
+    history::record_admin(
+        cx,
+        history::AdminEntry {
+            action,
+            about: assignee,
+            before: if added { "" } else { &what },
+            after: if added { &what } else { "" },
+            actor,
+        },
+    )
+    .await
 }
 
 #[derive(Deserialize)]
@@ -1626,12 +1723,23 @@ struct RemoveLeave {
 async fn remove_leave(cx: &Cx, Form(form): Form<RemoveLeave>) -> Result<SeeOther> {
     let user = require_user(cx).await?;
     let project_id = project::id_from_path(cx)?.to_owned();
-    authorize_edit(cx, &user.id, &project_id).await?;
+    let project = authorize_edit(cx, &user.id, &project_id).await?;
+
+    let row: Option<LeaveRow> = sqlx::query_as(
+        "SELECT assignee, start_date, end_date, note, kind FROM leaves WHERE id = ?1",
+    )
+    .bind(form.id.trim())
+    .fetch_optional(db::pool(cx))
+    .await?;
 
     sqlx::query("DELETE FROM leaves WHERE id = ?1")
         .bind(form.id.trim())
         .execute(db::pool(cx))
         .await?;
+
+    if let Some(row) = &row {
+        record_leave(cx, &project.name, user.display(), false, row).await?;
+    }
 
     bump_and_announce(cx, &project_id, user.display()).await?;
 

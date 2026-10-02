@@ -6,6 +6,7 @@ mod browser;
 mod config;
 mod db;
 mod domain;
+mod guard;
 mod history;
 mod holidays;
 mod i18n;
@@ -151,6 +152,9 @@ async fn serve(settings: config::Loaded) -> Result<(), Box<dyn Error>> {
         .app_context(live::Hub::default())
         .app_context(ratelimit::Attempts::default())
         .layer(notfound::NotFound)
+        // Registered last, so it runs outermost: its headers land on the error
+        // pages too, and nothing reaches a route before its checks.
+        .layer(guard::Guard)
         // Pages, layouts, and routes register themselves at link time.
         .discover()
         .build();

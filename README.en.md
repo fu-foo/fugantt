@@ -326,6 +326,10 @@ an administrator — there is no open sign-up.
   if it is forgotten. No mail is ever sent.
 - **Accounts added, removed and moved are recorded with the name of whoever did
   it**, at the foot of the users page.
+- **Leave added or removed is recorded there too, with who did it and from
+  which plan.** Leave is one list for the whole company, editable from any plan
+  the person appears on — assignee names are free text, so it is not fenced by
+  permissions but kept traceable.
 - Somebody who leaves can simply be deleted: assignees and task history keep
   names as text, so the record survives them.
 
@@ -346,6 +350,21 @@ they are already solved.
 `FUGANTT_NO_AUTH=yes-everyone-on-this-network-can-edit` runs it without sign-in
 at all. **Everyone who can reach that URL can read and edit every project.** A
 banner stays on screen while it is on.
+
+### Defences
+
+- **Changes are accepted only from fugantt's own pages.** A form posted from
+  another port on the same machine, or a sibling subdomain, gets a 403 — told
+  apart by the browser's `Sec-Fetch-Site` (or `Origin` on older browsers). API
+  tokens are not affected. **A reverse proxy must pass `Host` or
+  `X-Forwarded-Host` as the browser sent it**, or your own changes are refused too.
+- **Requests have a size limit**: 1 MB normally, 64 MB for a JSON plan, 1 GB for
+  restoring a backup. Larger gets a 413.
+- **Sign-in failures: 8 per user name per 15 minutes.** Counting by address as
+  well happens only on fly.io; elsewhere a forwarding header is whatever the
+  sender wrote, so it is not trusted.
+- **Pages refuse to be framed and load no outside scripts, images or fonts**
+  (`Content-Security-Policy`). Colours are `#rrggbb` only, imported files included.
 
 ## What 1.0 promises
 

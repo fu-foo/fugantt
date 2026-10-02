@@ -86,6 +86,7 @@ async fn shell(cx: &Cx, slot: Result) -> Result {
                 <link rel="stylesheet" href=(static_files::grid_css())>
                 // After the others, so it can answer them.
                 <link rel="stylesheet" href=(static_files::theme_css())>
+                <script src=(static_files::page_js()) defer=""></script>
 
                 if own_css {
                     // Last of all: whoever wrote it gets the final word on their
@@ -303,7 +304,7 @@ async fn project_menu(project: &project::Project, l: crate::i18n::Lang) -> Resul
                     >
                     <button
                         class="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs hover:bg-slate-100"
-                        onclick=(&format!("return confirm('{}')", l.t("取り込むと、いまのタスクはすべて置き換わります。よろしいですか？")))
+                        data-confirm=(l.t("取り込むと、いまのタスクはすべて置き換わります。よろしいですか？"))
                     >
                         (l.t("取り込む"))
                     </button>

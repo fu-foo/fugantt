@@ -620,6 +620,7 @@ dependencies = [
  "futures-core",
  "futures-util",
  "http",
+ "http-body-util",
  "jiff",
  "rust_xlsxwriter",
  "serde",

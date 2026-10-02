@@ -29,6 +29,7 @@ sqlx = { version = "0.8", default-features = false, features = [
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 topcoat = { version = "0.5", features = ["tailwind", "multipart", "sse"] }
 uuid = { version = "1", features = ["v4"] }
+http-body-util = "0.1"
 
 [build-dependencies]
 # `default-features = false` keeps the build script off the server stack.

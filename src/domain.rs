@@ -550,6 +550,18 @@ pub fn is_hex_colour(value: &str) -> bool {
     matches!(digits.len(), 3 | 6) && digits.chars().all(|c| c.is_ascii_hexdigit())
 }
 
+/// A colour that came from outside — a file being imported — fit to store.
+///
+/// Everything typed in the settings is checked as it is entered. A file is not
+/// typed in, and what it calls a colour goes into a `style` attribute on the
+/// way out: `#fff;position:fixed;inset:0` covered a whole page with it, and a
+/// `url(…)` in one made every viewer fetch an address of the file's choosing.
+/// Anything that is not a plain `#rgb` / `#rrggbb` is no colour at all.
+pub fn clean_colour(value: &str) -> &str {
+    let value = value.trim();
+    if is_hex_colour(value) { value } else { "" }
+}
+
 /// Flattens the stored rows into the grid's view of them.
 ///
 /// Rows arrive ordered by `sort_key`; this walks them depth-first so a child

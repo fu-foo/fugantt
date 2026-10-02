@@ -1202,7 +1202,7 @@ pub async fn import_project(
             .bind(project_id)
             .bind(position as i64)
             .bind(&status.name)
-            .bind(&status.color)
+            .bind(domain::clean_colour(&status.color))
             .bind(status.percent)
             .execute(&mut *tx)
             .await?;
@@ -1249,8 +1249,8 @@ pub async fn import_project(
                                           ELSE assignees.background END",
             )
             .bind(&person.name)
-            .bind(&person.color)
-            .bind(&person.background)
+            .bind(domain::clean_colour(&person.color))
+            .bind(domain::clean_colour(&person.background))
             .execute(&mut *tx)
             .await?;
         }
@@ -1342,8 +1342,8 @@ pub async fn import_project(
                 .bind(&id)
                 .bind(&option.value)
                 .bind(&option_key)
-                .bind(&option.color)
-                .bind(&option.background)
+                .bind(domain::clean_colour(&option.color))
+                .bind(domain::clean_colour(&option.background))
                 .execute(&mut *tx)
                 .await?;
             }
@@ -1432,8 +1432,8 @@ pub async fn import_project(
         .bind(&task.note)
         .bind(task.waits.join("\n"))
         .bind(task.targets.join("\n"))
-        .bind(&task.color)
-        .bind(&task.background)
+        .bind(domain::clean_colour(&task.color))
+        .bind(domain::clean_colour(&task.background))
         .bind(db::now())
         // An empty author is an access token rather than a person: the column
         // points at an account, and inventing one would put a name on work

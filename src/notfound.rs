@@ -111,7 +111,7 @@ impl Layer for NotFound {
     }
 }
 
-fn page(l: crate::i18n::Lang, status: StatusCode, title: &str, note: String) -> Response {
+pub fn page(l: crate::i18n::Lang, status: StatusCode, title: &str, note: String) -> Response {
     let html = format!(
         r#"<!DOCTYPE html>
 <html lang="{lang}">
@@ -122,13 +122,14 @@ fn page(l: crate::i18n::Lang, status: StatusCode, title: &str, note: String) -> 
 <link rel="icon" type="image/svg+xml" href="{favicon}">
 <link rel="stylesheet" href="{tailwind}">
 <link rel="stylesheet" href="{theme}">
+<script src="{script}" defer></script>
 </head>
 <body class="flex min-h-screen items-center justify-center bg-slate-50 p-6">
 <main class="w-full max-w-md text-center">
 <h1 class="text-2xl font-bold tracking-tight">{title}</h1>
 <p class="mt-3 text-sm text-slate-500">{note}</p>
 <div class="mt-6 flex justify-center gap-3">
-<button type="button" onclick="history.back()" class="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium hover:bg-slate-100">{back}</button>
+<button type="button" data-back class="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium hover:bg-slate-100">{back}</button>
 <a href="/" class="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700">{home}</a>
 </div>
 </main>
@@ -142,6 +143,7 @@ fn page(l: crate::i18n::Lang, status: StatusCode, title: &str, note: String) -> 
         favicon = static_files::favicon(),
         tailwind = static_files::tailwind_css(),
         theme = static_files::theme_css(),
+        script = static_files::page_js(),
     );
 
     let mut response = Response::new(html.into());

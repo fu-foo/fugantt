@@ -27,6 +27,7 @@ const GRID_CSS: &str = include_str!("../web/dist/grid.css");
 const THEME_CSS: &str = include_str!("../web/src/theme.css");
 const GRID_JS: &str = include_str!("../web/dist/grid.js");
 const FAVICON: &str = include_str!("../web/dist/favicon.svg");
+const PAGE_JS: &str = include_str!("../web/src/page.js");
 
 struct StaticFile {
     name: &'static str,
@@ -34,7 +35,7 @@ struct StaticFile {
     content_type: &'static str,
 }
 
-const FILES: [StaticFile; 5] = [
+const FILES: [StaticFile; 6] = [
     StaticFile {
         name: "theme.css",
         body: THEME_CSS,
@@ -59,6 +60,11 @@ const FILES: [StaticFile; 5] = [
         name: "favicon.svg",
         body: FAVICON,
         content_type: "image/svg+xml",
+    },
+    StaticFile {
+        name: "page.js",
+        body: PAGE_JS,
+        content_type: "text/javascript; charset=utf-8",
     },
 ];
 
@@ -88,6 +94,12 @@ pub fn grid_js() -> &'static str {
 
 pub fn favicon() -> &'static str {
     &URLS[4]
+}
+
+/// The server-drawn pages' few behaviours: asking before a destructive button,
+/// and going back from the error page.
+pub fn page_js() -> &'static str {
+    &URLS[5]
 }
 
 /// A short digest of the contents, so a changed file gets a changed URL.

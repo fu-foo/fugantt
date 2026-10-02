@@ -28,7 +28,7 @@ async fn index(cx: &Cx) -> Result {
 
     // The record of who did what to the accounts, on the page where those
     // things are done. A log nobody can find answers nothing.
-    let admin_log = crate::history::admin_changes(cx, 20).await?;
+    let admin_log = crate::history::admin_changes(cx, 50).await?;
 
     view! {
         <div class="mx-auto w-full max-w-3xl">
@@ -139,7 +139,7 @@ async fn index(cx: &Cx) -> Result {
                                 <input type="hidden" name="id" value=(&account.id)>
                                 <button
                                     class="text-xs text-slate-400 hover:text-red-600"
-                                    onclick=(&format!("return confirm('{}')", l.t("このユーザーを削除します。よろしいですか？")))
+                                    data-confirm=(l.t("このユーザーを削除します。よろしいですか？"))
                                 >
                                     (l.t("削除"))
                                 </button>
@@ -151,7 +151,7 @@ async fn index(cx: &Cx) -> Result {
             <section class="mt-6 rounded-xl border border-slate-200 bg-white p-6">
                 <h2 class="text-lg font-semibold">(l.t("最近の管理操作"))</h2>
                 <p class="mt-1 text-xs text-slate-500">
-                    (l.t("ユーザーの追加・削除・権限変更を、誰がしたかと一緒に残します。"))
+                    (l.t("ユーザーの追加・削除・権限変更と、休暇・出社の追加・削除を、誰がどの計画からしたかと一緒に残します。"))
                 </p>
 
                 if admin_log.is_empty() {
@@ -174,6 +174,11 @@ async fn index(cx: &Cx) -> Result {
                                             (&l.word(&change.before))" → "
                                         }
                                         (&l.word(&change.after))
+                                    </span>
+                                } else if !change.before.is_empty() {
+                                    // Something that went: what it was, struck out.
+                                    <span class="text-xs text-slate-500 line-through">
+                                        (&l.word(&change.before))
                                     </span>
                                 }
                             </li>

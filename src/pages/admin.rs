@@ -634,7 +634,7 @@ async fn index(cx: &Cx) -> Result {
                     >
                     <button
                         class="self-start rounded-lg border border-red-300 bg-white px-4 py-2 text-sm font-medium text-red-700 hover:bg-red-100"
-                        onclick=(&format!("return confirm('{}')", l.t("いまの中身は、選んだファイルの中身に置き換わります。よろしいですか？")))
+                        data-confirm=(l.t("いまの中身は、選んだファイルの中身に置き換わります。よろしいですか？"))
                     >
                         (l.t("このファイルの内容に戻す"))
                     </button>

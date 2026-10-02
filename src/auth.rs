@@ -9,7 +9,7 @@ use topcoat::{
     context::Cx,
     router::{
         content::Form,
-        error::{RouterErrorExt, SeeOther, bad_request, see_other},
+        error::{RouterErrorExt, SeeOther, see_other},
         route,
     },
     session,
@@ -142,10 +142,13 @@ async fn register(cx: &Cx, Form(form): Form<Credentials>) -> Result<SeeOther> {
         .map(ToOwned::to_owned)
         .unwrap_or_else(|| email.split('@').next().unwrap_or("").to_owned());
 
+    // Only while there is nobody, checked in the same statement that inserts:
+    // two first registrations arriving together would otherwise both pass the
+    // check above and both become administrators.
     let inserted = sqlx::query(
         "INSERT INTO users (id, email, password_hash, created_at, base_role, display_name)
-         VALUES (?1, ?2, ?3, ?4, 'admin', ?5)
-         ON CONFLICT (email) DO NOTHING",
+         SELECT ?1, ?2, ?3, ?4, 'admin', ?5
+          WHERE NOT EXISTS (SELECT 1 FROM users)",
     )
     .bind(&id)
     .bind(&email)
@@ -156,7 +159,7 @@ async fn register(cx: &Cx, Form(form): Form<Credentials>) -> Result<SeeOther> {
     .await?;
 
     if inserted.rows_affected() == 0 {
-        return Err(bad_request("そのユーザー名はすでに登録されています。").into());
+        return Ok(see_other("/login?e=closed"));
     }
 
     start_session(cx, &id).await?;
@@ -193,6 +196,9 @@ async fn login(cx: &Cx, Form(form): Form<Credentials>) -> Result<SeeOther> {
     // replaces the screen leaves nowhere to try again from, and the one thing
     // somebody wants after a wrong password is the box they typed it in.
     let Some((id, password_hash)) = found else {
+        // Hashed all the same, against nobody. Answering at once would say, by
+        // how long it took, that there is no such account.
+        let _ = verify_password(form.password, nobody().await?).await?;
         ratelimit::attempts(cx).record_failure(&keys);
         return Ok(see_other("/login?e=bad"));
     };
@@ -264,6 +270,22 @@ pub async fn password_matches(cx: &Cx, id: &str, password: String) -> Result<boo
     };
 
     verify_password(password, hash).await
+}
+
+/// A hash no password matches, to spend the same time on an unknown account.
+async fn nobody() -> Result<String> {
+    static NOBODY: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
+        Argon2::default()
+            .hash_password(
+                uuid::Uuid::new_v4().as_bytes(),
+                &SaltString::generate(&mut OsRng),
+            )
+            .map(|hash| hash.to_string())
+            .unwrap_or_default()
+    });
+
+    // Made off the runtime: the first call pays for one Argon2 hash.
+    Ok(tokio::task::spawn_blocking(|| NOBODY.clone()).await?)
 }
 
 async fn verify_password(password: String, password_hash: String) -> Result<bool> {

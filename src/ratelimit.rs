@@ -22,6 +22,9 @@ const WINDOW: Duration = Duration::from_secs(15 * 60);
 /// How long the door stays closed once it does.
 const COOLDOWN: Duration = Duration::from_secs(15 * 60);
 
+/// Past this many, the stale records are swept on the next failure.
+const MAX_RECORDS: usize = 10_000;
+
 #[derive(Debug)]
 struct Record {
     failures: u32,
@@ -59,6 +62,12 @@ impl Attempts {
     pub fn record_failure(&self, keys: &[String]) {
         let mut records = self.records.lock().unwrap_or_else(PoisonError::into_inner);
 
+        // A record is kept for every name anybody tried. Cleared only when a
+        // door closed, a stream of different names grew this without end.
+        if records.len() > MAX_RECORDS {
+            records.retain(|_, record| record.since.elapsed() < WINDOW.max(COOLDOWN));
+        }
+
         for key in keys {
             let record = records.entry(key.clone()).or_insert(Record {
                 failures: 0,
@@ -91,9 +100,8 @@ pub fn attempts(cx: &Cx) -> &Attempts {
 
 /// What to count a login attempt against.
 ///
-/// The email is always there. The address only exists behind a proxy that
-/// passes it on — on fly.io or nginx it will, on a bare LAN it will not, and
-/// the email key carries the load on its own.
+/// The email is always there. The address only where it can be trusted — on
+/// fly.io — and elsewhere the email key carries the load on its own.
 pub fn keys(cx: &Cx, email: &str) -> Vec<String> {
     let mut keys = vec![format!("email:{email}")];
 
@@ -104,23 +112,21 @@ pub fn keys(cx: &Cx, email: &str) -> Vec<String> {
     keys
 }
 
+/// The address the request came from — when anyone can vouch for it.
+///
+/// A forwarding header is whatever the sender wrote. Read from a request that
+/// came straight to this server, `X-Forwarded-For: 1.2.3.4` is a new address on
+/// every attempt, and the limit by address is no limit. Fly's edge overwrites
+/// `Fly-Client-IP` itself, so there it means what it says; anywhere else the
+/// limit is by account alone. The framework does not hand the socket's own
+/// address to a request, or that would be the answer here.
 fn client_ip(cx: &Cx) -> Option<String> {
+    std::env::var_os("FLY_APP_NAME")?;
+
     let headers = topcoat::router::headers(cx);
+    let value = headers.get("fly-client-ip")?.to_str().ok()?.trim();
 
-    // `Fly-Client-IP` first: on fly.io it is the one the platform sets and a
-    // client cannot forge. `X-Forwarded-For` may be a chain; the first entry is
-    // the original client as the nearest proxy saw it.
-    for name in ["fly-client-ip", "x-forwarded-for", "x-real-ip"] {
-        if let Some(value) = headers.get(name).and_then(|value| value.to_str().ok()) {
-            let first = value.split(',').next().unwrap_or(value).trim();
-
-            if !first.is_empty() {
-                return Some(first.to_owned());
-            }
-        }
-    }
-
-    None
+    (!value.is_empty()).then(|| value.to_owned())
 }
 
 #[cfg(test)]

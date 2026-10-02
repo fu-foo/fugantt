@@ -15,6 +15,10 @@ pub fn of(ja: &str) -> Option<&'static str> {
         // --- actions, everywhere ------------------------------------------
         "保存" => "Save",
         "追加" => "Add",
+        "休暇を追加" => "Leave added",
+        "休暇を削除" => "Leave removed",
+        "出社を追加" => "Workday added",
+        "出社を削除" => "Workday removed",
         "追加・更新" => "Add or update",
         "削除" => "Delete",
         "外す" => "Remove",
@@ -523,8 +527,8 @@ pub fn of(ja: &str) -> Option<&'static str> {
         "プロジェクト一覧へ" => "Back to the projects",
         // --- 管理操作の記録 -----------------------------------------------
         "最近の管理操作" => "Recent changes to accounts",
-        "ユーザーの追加・削除・権限変更を、誰がしたかと一緒に残します。" => {
-            "Accounts added, removed and moved, with the name of whoever did it."
+        "ユーザーの追加・削除・権限変更と、休暇・出社の追加・削除を、誰がどの計画からしたかと一緒に残します。" => {
+            "Accounts added, removed or changed, and leave added or removed — with who did it, and from which plan."
         }
         "まだ何もありません。" => "Nothing yet.",
         "権限変更" => "Role",

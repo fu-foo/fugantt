@@ -6720,6 +6720,48 @@ const foldedLeave = await (async () => {
   return { id, open, folded, child };
 })();
 
+// 休暇は全社で1つの表で、どの計画の編集者からも触れる。だから誰がどの計画から
+// 変えたかを、管理者の読む記録に残す。中身の変わらない保存は何も残さない。
+// 記録は DB から読む：この時点の grid-test は、権限のテストで管理者ではなくなっている。
+const leaveLog = () =>
+  execFileSync("sqlite3", [
+    DB,
+    "SELECT action || '|' || about || '|' || before || '|' || after FROM admin_changes WHERE action LIKE '%休暇%' OR action LIKE '%出社%'",
+  ])
+    .toString()
+    .trim()
+    .split("\n")
+    .filter(Boolean);
+
+const leaveRecord = await (async () => {
+  const seen = leaveLog();
+
+  // ダイアログの保存は一覧を丸ごと書き戻す。同じ一覧を送れば、何も変わっていない。
+  await page.evaluate(async () => {
+    const grid = await (await fetch("/api/projects/test-project/grid")).json();
+    const same = grid.leaves.map(({ assignee, start, end, note, kind }) => ({ assignee, start, end, note, kind }));
+    await fetch("/api/projects/test-project/leaves", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ leaves: same }),
+    });
+  });
+
+  return { seen, untouched: leaveLog().length };
+})();
+
+check(
+  "休暇の追加と削除は、誰がどの計画からやったか記録に残る",
+  leaveRecord.seen.some((line) => line.startsWith("休暇を追加|佐藤|") && line.includes("畳んだ親（リリース計画）")) &&
+    leaveRecord.seen.some((line) => line.startsWith("休暇を削除|佐藤|") && line.includes("畳んだ親（リリース計画）")),
+  JSON.stringify(leaveRecord.seen.slice(-2)),
+);
+check(
+  "休暇の一覧をそのまま保存しても、記録は増えない",
+  leaveRecord.untouched === leaveRecord.seen.length,
+  JSON.stringify({ before: leaveRecord.seen.length, after: leaveRecord.untouched }),
+);
+
 check(
   "畳んだ親の行に、子の担当者の休みが出る",
   !!foldedLeave.id &&

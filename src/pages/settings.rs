@@ -698,7 +698,7 @@ async fn settings(cx: &Cx) -> Result {
                                             <input type="hidden" name="field_id" value=(&field.id)>
                                             <button
                                                 class="text-sm text-slate-400 hover:text-red-600"
-                                                onclick=(&format!("return confirm('{}')", l.t("この項目に入力した内容もすべて消えます。よろしいですか？")))
+                                                data-confirm=(l.t("この項目に入力した内容もすべて消えます。よろしいですか？"))
                                             >
                                                 (l.t("削除"))
                                             </button>

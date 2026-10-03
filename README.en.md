@@ -18,6 +18,7 @@ A Gantt chart you edit from the keyboard. Rust (Topcoat + SQLite), one binary.
 - **Days counted the way your workplace counts them.** Pick the weekdays, holidays and leave to leave out (weekends, holidays and leave by default). Waiting is always left out.
 - **Fits the Japanese calendar.** Holidays are computed (substitute and citizens' holidays included), business years, era years, blue Saturdays and red Sundays.
 - **Keyboard editing**, with Japanese input passing straight through.
+- **The chart adjusts with the mouse.** Drag a bar to move its dates, pull an end to stretch it, slide the handle inside to set progress.
 - **Excel and JSON export.** JSON imports, too.
 - **Japanese by default**, English when the browser asks for it (or set it yourself).
 - **Row count does not slow it down.** Only the rows on screen are drawn; at two thousand rows a keystroke costs the browser 15ms.

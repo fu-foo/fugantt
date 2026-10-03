@@ -34,7 +34,7 @@ A date is read **by its number of digits**.
 | Type | Get |
 | --- | --- |
 | `5` | the 5th of this month |
-| `305` | March 5th this year |
+| `305` | March 5th this year (three digits get a leading 0: `115` is January 15th) |
 | `1225` | December 25th this year |
 | `20261225` | as written |
 | `8/5`, `2026-08-05` | as written; full-width digits too |

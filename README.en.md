@@ -14,14 +14,14 @@ A Gantt chart you edit from the keyboard. Rust (Topcoat + SQLite), one binary.
 - **Behind on progress means behind the plan you wrote.** Rows with "50% by the 20th" entered turn red when they fall short; rows without it are never behind on progress (overdue and past-due rows turn red regardless).
 - **The delay is split.** Not "twelve days late", but "nine days of work, three days waiting".
 - **Who has room is a page.** Per person, per month: the days already taken, the days free, and which days those are.
-- **Undo.** `⌘Z` / `Ctrl+Z` — values, added rows, reordering. A cell somebody else touched in between is left alone.
+- **Undo.** `⌘Z` / `Ctrl+Z` — values, added rows, reordering. A cell somebody else touched in between is left alone. Deleting a row cannot be undone.
 - **Days counted the way your workplace counts them.** Pick the weekdays, holidays and leave to leave out (weekends, holidays and leave by default). Waiting is always left out.
 - **Fits the Japanese calendar.** Holidays are computed (substitute and citizens' holidays included), business years, era years, blue Saturdays and red Sundays.
 - **Keyboard editing**, with Japanese input passing straight through.
 - **The chart adjusts with the mouse.** Drag a bar to move its dates, pull an end to stretch it, slide the handle inside to set progress.
 - **Excel and JSON export.** JSON imports, too.
 - **Japanese by default**, English when the browser asks for it (or set it yourself).
-- **Row count does not slow it down.** Only the rows on screen are drawn; at two thousand rows a keystroke costs the browser 15ms.
+- **Row count does not slow it down.** Only the rows on screen are drawn, so a keystroke takes as long at two thousand rows as at a hundred.
 
 ![The schedule](docs/images/schedule.png)
 
@@ -36,14 +36,14 @@ A Gantt chart you edit from the keyboard. Rust (Topcoat + SQLite), one binary.
 
 ## Install
 
-Four binaries on every [release](https://github.com/fu-foo/fugantt/releases). Each runs on its own, with nothing else to install.
+Four binaries on every [release](https://github.com/fu-foo/fugantt/releases). Each holds one executable, with nothing else to install.
 
 | | |
 | --- | --- |
-| `fugantt-macos-arm64` | macOS / Apple Silicon (native — no Rosetta) |
-| `fugantt-macos-x86_64` | macOS / Intel |
-| `fugantt-windows-x86_64` | Windows 64-bit (C runtime linked statically) |
-| `fugantt-linux-x86_64` | Linux 64-bit (glibc) |
+| `fugantt-macos-arm64.tar.gz` | macOS / Apple Silicon (native — no Rosetta) |
+| `fugantt-macos-x86_64.tar.gz` | macOS / Intel |
+| `fugantt-windows-x86_64.zip` | Windows 64-bit (C runtime linked statically) |
+| `fugantt-linux-x86_64.tar.gz` | Linux 64-bit (glibc) |
 
 ### Windows
 
@@ -82,7 +82,8 @@ Then `fugantt` starts it, `scoop update fugantt` updates it, `scoop uninstall fu
 brew install fu-foo/tap/fugantt
 ```
 
-An M-series Mac gets the arm64 build.
+On a Mac, brew is the way. Downloaded straight from Releases, the binary is unsigned and Gatekeeper stops the first
+run; `xattr -d com.apple.quarantine fugantt` in the unpacked folder lets it start.
 
 ### Docker
 
@@ -93,6 +94,9 @@ docker run -p 1861:1861 -v fugantt:/data ghcr.io/fu-foo/fugantt
 The image is amd64 only. On Apple Silicon add `--platform linux/amd64` (it runs under emulation), or use the
 native binary above. A Fly.io configuration (`fly.toml`) is included.
 
+The image listens on every address from the start (`HOST=0.0.0.0`). Keep it out of other people's reach until the
+[first account](#the-first-account) exists, and read [On an office LAN](#on-an-office-lan) before opening it from other machines.
+
 ## Start it
 
 ```sh
@@ -100,7 +104,8 @@ fugantt
 ```
 
 It listens on `http://127.0.0.1:1861` and opens the page (an Edge application window on Windows, the default
-browser elsewhere). Close it or press Ctrl+C to stop.
+browser elsewhere). Close the terminal it runs in (on Windows, the console window) or press Ctrl+C to stop.
+Closing the browser does not stop it.
 
 > **The port is 1861** — the year Henry Gantt was born.
 
@@ -110,20 +115,23 @@ While there is nobody in the installation, the sign-in page shows **"Create the 
 Enter a name, a user name and a password (eight characters or more by default); whoever registers becomes the
 **administrator**.
 
+Anyone who can reach that page can use it. Create the first account locally before serving the LAN (`HOST=0.0.0.0`).
+
 That form disappears once the first person has registered. Everyone after is created by an administrator on the
 users page, who hands over the first password. There is no open sign-up and no mail.
 
 If no administrator can get in (a lost password, someone who left), run `fugantt --make-admin <user name>` on the server to make
-another account an administrator. It does not reset passwords; the new administrator sets one again.
-With a single administrator account this cannot help, so keep at least two.
+another account an administrator. The server can keep running. It does not reset passwords; the new administrator sets the old one's again.
+If the administrator's is the only account, there is nobody to promote — so make at least two accounts.
 
 ### The first project
 
 1. Type a name under "New project" and create it
 2. Press "Add the first task" and type its name. After that, **⌘Enter / Ctrl+Enter** adds a row below
-3. Type the planned start and end. A date can be just digits: `5` is the 5th of this month, `305` is March 5th
+3. Type the planned start and end. A date can be just digits: `5` is the 5th of this month, `1225` is December 25th
 4. When work starts, enter the actual start; when it ends, the actual end. The actual line appears under the planned bar
-5. Pick or type the assignee, the status and the due date
+5. Pick or type the assignee and the status. The **due date** is the date it has to be done by — a promise, kept
+   apart from the plan (your own schedule). [More in the guide](docs/guide.en.md#due-dates)
 
 Everything else is in the [guide](docs/guide.en.md).
 
@@ -182,8 +190,14 @@ Notes for reverse proxies are in the [reference](docs/reference.en.md#defences).
   ```sh
   sqlite3 fugantt.db "VACUUM INTO '/backup/fugantt-$(date +%F).db'"
   ```
-- **One server only.** Two servers on the same database do not see each other's changes on screen (change notices travel only inside one server)
-- **Updating is replacing the executable.** Migrations run by themselves; there is no going back to an older version. Back up first
+- **One server only.** Run it on one machine and let everyone else in through the browser. Two servers on the same
+  database do not see each other's changes on screen (change notices travel only inside one server)
+- **Do not put the database on a shared folder and open it from each PC.** Besides the above, SQLite's locking cannot
+  be trusted over a network file system, and the file can be corrupted
+- **Updating is replacing the executable.** Migrations run by themselves; there is no going back to an older version. Back up first.
+  The database stays where it is, so an existing `fugantt.db` carries on
+- **Upgrading from 0.3 or earlier: the port changed** from 3000 to 1861. Fix bookmarks and `docker run -p 3000:3000`,
+  or write `PORT = 3000`
 
 ## Documentation
 
@@ -194,6 +208,12 @@ Notes for reverse proxies are in the [reference](docs/reference.en.md#defences).
 | [Design](docs/design.en.md) | Why it behaves the way it does |
 
 ## Development
+
+Needs Rust 1.85 or later (edition 2024) and topcoat-cli.
+
+```sh
+cargo install topcoat-cli
+```
 
 ```sh
 cargo-topcoat dev        # http://127.0.0.1:1861, rebuilt on save

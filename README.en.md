@@ -2,237 +2,129 @@
 
 **Plan against actual, counted in working days.**
 
-A Gantt chart you edit from the keyboard, for teams who have to answer not just
-"when is it due" but "how far off the plan did it run, and why". Rust server,
-SQLite, one binary. The grid is plain TypeScript; everything else is HTML.
+A Gantt chart you edit from the keyboard. Rust (Topcoat + SQLite), one binary.
 
 [日本語の README](README.md)
 
 ![Add a row and type, drag a bar, filter to what is late](docs/images/demo.gif)
 
-## The problem it solves
+## What it does
 
-Most schedule tools hold one set of dates. Real projects hold two: what was
-planned, and what happened.
-
-- **Planned and actual on one row.** The start and end variances are not stored;
-  they are subtracted on every read.
-- **Days counted the way your workplace counts them.** Weekends, public
-  holidays, leave and waiting periods are excluded — or not, per project.
-- **The delay is split.** Not "twelve days late", but "nine days of work, three
-  days waiting on another team".
-- **Behind means behind the plan you wrote.** Enter "50% by the 20th" and the
-  shortfall is drawn from where the work got to up to the half of the bar, with
-  `8/20 50%` written at its end. Grab that bar and it sets a percentage, so its
-  axis is read as one — and two things that are compared have to share a ruler.
-  Reach the promise and the red is gone. Enter nothing and nothing is claimed: a
-  schedule tool that guesses your plan from the dates is judging you against a
-  plan nobody agreed to.
-- **Late is a column, not a colour.** Second from the left, filterable, so
-  "show me only the late ones" is a question the table can answer.
-- **Finished late is history, not an alarm.** A row that finished after its due
-  date says "was late" in a quiet mark, and nothing about it turns red. Red is
-  kept for the rows you can still do something about; filter for "was late"
-  when looking back. Counts agree: the statistics page's "late" and
-  `/api/summary`'s `delayed` are rows late now, not rows that were.
-- **Waiting is recorded**, with dates and a reason. Those days count towards
-  neither the duration nor the lateness.
-- **Two thousand rows type as fast as ten.** Only the rows on screen are in the
-  document; the rest are a spacer of the right height.
-- **Who has room is a page.** Per person, per month: the days they could work,
-  the days already taken, what is left, and which days those are.
+- **Planned and actual on one row.** The start and end variances are not stored; they are subtracted on every read.
+- **Behind means behind the plan you wrote.** Rows with "50% by the 20th" entered turn red when they fall short; rows without it are never behind on progress.
+- **The delay is split.** Not "twelve days late", but "nine days of work, three days waiting".
+- **Who has room is a page.** Per person, per month: the days already taken, the days free, and which days those are.
+- **Undo.** `⌘Z` / `Ctrl+Z` — values, added rows, reordering. A cell somebody else touched since is left alone.
+- **Days counted the way your workplace counts them.** Weekends, public holidays, leave and waiting excluded — or not, per project.
+- **Fits the Japanese calendar.** Holidays are computed (substitute and citizens' holidays included), business years, era years, blue Saturdays and red Sundays.
+- **Keyboard editing**, with Japanese input passing straight through.
+- **Excel and JSON export.** JSON imports, too.
+- **Japanese by default**, English when the browser asks for it.
+- **Row count does not slow it down.** Only the rows on screen are drawn; two thousand rows type in 15ms.
 
 ![The schedule](docs/images/schedule.png)
+
+**Statistics** are per project: the task count, average progress, how many are late now, the split of the delay
+(work, and waiting by reason), and counts by status and by person.
+**Task history** shows who changed which value, and when.
 
 | | |
 | --- | --- |
 | Statistics | ![Statistics](docs/images/stats.png) |
 | Task history | ![Task history](docs/images/history.png) |
 
-## Editing
+## Install
 
-The grid is keyboard-first. Whatever people are keeping their plans in now,
-they are typing into it without reaching for the mouse, and anything slower than
-that gets abandoned within a week.
+Four binaries on every [release](https://github.com/fu-foo/fugantt/releases). Each is one file and needs nothing else.
 
-Arrows move, Enter opens a cell, Tab goes right, Escape puts it back. Enter
-confirms and moves down — or right, in a menu or a date, which are filled in
-along the row; Tab and Enter step over the computed columns.
-`⌘Enter` / `Ctrl+Enter` adds a row you can type straight into, `⌥→` / `Alt+→` makes it a child, `⌥↑` / `Alt+↑`
-moves it within its siblings. Either modifier works on either platform; only the
-label on the screen changes.
-**Today** sits at the top left of the chart. Reading last year means scrolling
-away from now, and dragging back is nobody's idea of navigation.
+| | |
+| --- | --- |
+| `fugantt-macos-arm64` | macOS / Apple Silicon (native — no Rosetta) |
+| `fugantt-macos-x86_64` | macOS / Intel |
+| `fugantt-windows-x86_64` | Windows 64-bit (C runtime linked statically) |
+| `fugantt-linux-x86_64` | Linux 64-bit (glibc) |
 
-Both the table and the chart can be grabbed and pulled sideways, for mice with
-no sideways wheel. Until it moves a few pixels a press is still a click: cells
-select as before, and grabbing a bar still moves the bar.
+### Windows
 
-Bars drag: the body moves the dates, the ends stretch them, and the handle
-inside the plan bar sets the progress.
+**① Unzip and run**
 
-Summary rows draw no bar while their children are open — the children already
-show that span. A folded summary row draws its bar, and the leave of everyone
-folded away under it. **Show** at the top left of the chart brings summary bars
-back, for your own screen only.
+1. Download `fugantt-windows-x86_64.zip` from [Releases](https://github.com/fu-foo/fugantt/releases)
+2. Unzip it anywhere (`C:\fugantt`, say)
+3. Double-click `fugantt.exe`. The page opens in an Edge application window
 
-A new project takes its progress from the status: 完了 sets 100%, 未着手 0%, and
-a status with no percentage leaves the number to be typed. Teams that would
-rather type every number switch it to manual in the project's settings.
+- The first run says "**Windows protected your PC**" — it is unsigned. "More info" → "Run anyway"
+- A console window stays open. **That is the server**: closing it stops fugantt
+- The data is in `%LOCALAPPDATA%\fugantt\fugantt.db`
 
-`⌘Z` / `Ctrl+Z` takes back the last change this tab made, `⌘Y` / `⌘⇧Z` puts it
-back — values, a row that was added, and a row that was moved, which goes back
-to the parent and the sibling it sat after. Only your own changes, and only
-while the tab is open: if somebody else has touched the same cell, or moved the
-same row, it stops and says so, because undoing their work is the one thing an
-undo must never do. A row with anything in it is not removed by an undo, and
-deleting cannot be undone at all — putting a row back means putting its subtree
-back with the ids it had, which is a different piece of work.
+**② Scoop** (if you want updates handled)
 
-Dates take whatever you type — `20260805`, `8/5`, `2026-08-05` — including
-full-width digits, so a Japanese keyboard never has to switch modes.
-
-Pointing at a bar shows its dates, and whatever else the project asked for —
-including columns taken off the table, and including its own fields. A column
-worth a glance now and then does not have to sit on the screen all day.
-
-A new plan starts with eleven columns: task, the two lateness columns, assignee,
-status, due date, planned start and end, actual start and end, and comment. Day
-counts, variances, progress, waits and checkpoints start hidden — each is on the
-chart already, or entered through a dialog — and come back one tick at a time in
-the project's settings. Existing plans keep their columns.
-The same settings put the plan's people in order (↑↓); the assignee menu and the
-capacity table follow it. Rarely touched things — the eleven bar colours, the
-era table — start folded.
-
-Right-click gives the outline moves by name, and the row's own colours —
-background and text, from a short palette. People were already marking rows by
-writing ★ into the task name; this is the same intent with a tool that does not
-sort, export and stay there for ever.
-
-Filters sit above the columns, one per column, ANDed together. Dates and numbers
-compare rather than match: pick **at least / at most / equals / more than / less
-than** from the button beside the box. The two lateness columns are picked
-from a list: late, or on time — and, for the due date, "was late", a row that
-finished after it.
-
-## Who has room
-
-The schedule says when things are due. The question asked over it is whether the
-person you are about to hand something to has any room, and that used to be
-answered by running a finger across the chart.
-
-| Person | Available days | Elapsed | Committed | Free days | Overlapping | |
-| --- | --- | --- | --- | --- | --- | --- |
-| 佐藤 | 21d | 10d | 11d | **0d** | 5d | Overlapping: 8/24–8/28 |
-| 山田 | 21d | 10d | 0d | **11d** | — | Free days: 8/17–8/31 |
-| (unassigned) | — | — | 6d | — | — | |
-
-Counted from today. Days already gone are their own column, because half a month
-gone with "twelve days free" in it is a lie by arithmetic — and available days =
-elapsed + committed + free days, so the row adds up.
-
-A day is either taken or it is not. Three tasks on one Tuesday is one Tuesday —
-counting it three times produces the 300% loads that make a report unreadable
-and then unread — and how deep the stacking goes is its own column, because
-"booked solid" and "booked three times over" need different answers. Finished
-work and summary rows are left out, leave comes off the available days, and the
-stretches are printed, because "nine days free" is half an answer.
-
-**Availability everywhere**, in the menu on the left, is the same table across
-every project you can open. Somebody on three plans looks three times as free on
-each of their pages, and adding that up is not a person's job. A day booked
-twice is still one day, and the doubling shows in Overlapping. Days off are the
-shared calendar — weekends and the holidays in the global settings — plus the
-person's own leave; a single project's own calendar does not speak for the rest.
-
-No effort percentages. A finer unit needs a number on every task that nobody
-would keep up to date, and an invented number in a capacity table is worse than
-no table.
-
-## Where it came from
-
-fugantt was built for 予実管理 — the Japanese practice of managing a plan
-against its actuals — and that shows in the defaults rather than in the
-architecture.
-
-- **Public holidays are computed, not pasted.** `src/holidays.rs` implements the
-  rules, including substitute holidays and the "citizens' holiday" that appears
-  between two others. Last year's, this year's and next year's are filled in by
-  themselves — at start, and again as the date moves on. Each year is filled
-  once, so a holiday you delete stays deleted.
-- **The business year sits above the months**, starting in whichever month you
-  say (April by default, which is the Japanese norm; October and January are a
-  setting away).
-- **Saturday is blue and Sunday is red**, the way a Japanese calendar prints
-  them. Same-grey weekends are misread.
-- **Japanese era years** (`令和8年度 Q2`) are available, and stored as data — a
-  new era means adding one line in the settings, not shipping a build.
-- The weekday is printed under every date. Counting to a Friday off a month grid
-  is not a plan.
-
-None of this is hard-coded to one country: the holiday list, the business year,
-the weekdays you skip, and the language are all settings.
-
-## Language
-
-Japanese by default, English when the reader's browser asks for it. The order
-is: the person's own setting, then the installation's, then `Accept-Language`
-— which browsers fill in from the operating system.
-
-What the users named — statuses, their own fields, people, projects — is data
-and is never translated. Two people should not read the same plan in different
-words.
-
-## Running it
-
-```sh
-brew install fu-foo/tap/fugantt
-scoop bucket add fu-foo https://github.com/fu-foo/scoop-bucket && scoop install fugantt
-docker run -p 1861:1861 -v fugantt:/data ghcr.io/fu-foo/fugantt
-
-cargo-topcoat dev            # from source. http://127.0.0.1:1861
-```
-
-On Windows, either unzip `fugantt-windows-x86_64.zip` and double-click the
-executable — it opens its own window, and the console that stays behind is the
-server — or install it with [Scoop](https://scoop.sh), which needs no
-administrator and no installer:
+[Scoop](https://scoop.sh) needs no administrator and no installer. In PowerShell:
 
 ```powershell
+# Scoop itself (once)
 Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
 Invoke-RestMethod -Uri https://get.scoop.sh | Invoke-Expression
 
+# fugantt
 scoop bucket add fu-foo https://github.com/fu-foo/scoop-bucket
 scoop install fugantt
 ```
 
-Unsigned, so the first run brings up SmartScreen: "More info" then "Run anyway".
-A Scoop install lives in a folder named after the version and is replaced on
-update, so put `fugantt.ini` in `%LOCALAPPDATA%\fugantt\` rather than beside
-the executable. The database is already there.
+Then `fugantt` starts it, `scoop update fugantt` updates it, `scoop uninstall fugantt` removes it.
 
-Four binaries on every release: macOS on Apple Silicon and on Intel, Windows,
-and Linux — **Apple Silicon is native**, and `brew` installs the arm64 build on
-an M-series Mac. The Windows build links the C runtime statically, so it is one
-file and nothing else. Only the container image is amd64-only: an arm64 image
-would be built under emulation in CI, and a Rust release build in QEMU takes
-long enough to make cutting a release something nobody does. On Apple Silicon,
-`--platform linux/amd64` runs it, or use the native binary.
+> Scoop replaces the install folder on every update. **Put `fugantt.ini` in
+> `%LOCALAPPDATA%\fugantt\`, not beside the executable**, or an update removes it. The database is already there.
 
-The port is **1861** — the year Henry Gantt was born.
+### macOS / Linux
 
-Settings are environment variables, or the same names written in a
-`fugantt.ini` beside the executable — in the working directory, or in the
-platform's own place for user data. The environment wins, because that is what
-Docker and Fly pass in. `fugantt --help` lists what can be set and
-`fugantt --config` says where each value came from.
+```sh
+brew install fu-foo/tap/fugantt
+```
 
-Started on loopback, it opens the page itself — an Edge application window on
-Windows, a tab elsewhere. `FUGANTT_OPEN=0` if you would rather it did not.
+An M-series Mac gets the arm64 build.
 
-Plain `fugantt` runs in the foreground: close it or press Ctrl+C to stop. To run
-it in the background instead:
+### Docker
+
+```sh
+docker run -p 1861:1861 -v fugantt:/data ghcr.io/fu-foo/fugantt
+```
+
+The image is amd64 only. On Apple Silicon add `--platform linux/amd64` (it runs under emulation), or use the
+native binary above. A Fly.io configuration (`fly.toml`) is included.
+
+## Start it
+
+```sh
+fugantt
+```
+
+It listens on `http://127.0.0.1:1861` and opens the page (an Edge application window on Windows, the default
+browser elsewhere). Close it or press Ctrl+C to stop.
+
+> **The port is 1861** — the year Henry Gantt was born.
+
+### The first account
+
+While there is nobody in the installation, the sign-in page shows **"Create the first account"** beside it.
+Enter a name, a user name and a password (eight characters or more by default); whoever registers becomes the
+**administrator**.
+
+That form disappears once the first person has registered. Everyone after is created by an administrator on the
+users page, who hands over the first password. There is no open sign-up and no mail.
+
+If the administrator's password is lost, run `fugantt --make-admin <user name>` on the server.
+
+### The first project
+
+1. Type a name under "New project" and create it
+2. Press "Add the first task" and type its name. After that, **⌘Enter / Ctrl+Enter** adds a row below
+3. Type the planned start and end. A date can be just digits: `5` is the 5th of this month, `305` is March 5th
+4. When work starts, enter the actual start; when it ends, the actual end. The actual line appears under the planned bar
+5. Pick or type the assignee, the status and the due date
+
+Everything else is in the [guide](docs/guide.en.md).
+
+### In the background
 
 ```sh
 fugantt start     # starts it and returns (the page still opens)
@@ -241,199 +133,72 @@ fugantt log       # the end of its log
 fugantt stop      # stops it
 ```
 
-The log and the process number are kept in the data's default place, named by
-port (`fugantt-1861.log`).
+## Configure it
 
-The database is `FUGANTT_DB`, or a `fugantt.db` already in the working
-directory, or the platform's own place for user data — `%LOCALAPPDATA%`,
-`~/Library/Application Support`, `~/.local/share`. Whichever it is, the absolute
-path is printed at startup, and it is migrated on first start.
+Settings are environment variables, or the same names written in **`fugantt.ini`** (beside the executable, in the
+working directory, or in the platform's place for user data). **The environment wins.**
 
-For a release build, `cargo build --release` produces a single executable with
-the static files embedded — deploying is that file and a database, and nothing
-else.
-
-SQLite means **one machine**. The same database opened by two servers is two
-different plans.
-
-Backups are a button in the installation settings: one file out, the same file
-back in. Restoring keeps what was there a moment before, next to the database,
-because restoring the wrong file is a mistake people make in a hurry. Accounts
-and passwords go back with everything else.
-
-## Getting data in and out
-
-Excel (`.xlsx`) for reading: the same columns as the screen, with the chart
-drawn cell by cell to its right. JSON for moving: the whole project — settings,
-statuses, people, calendar and tasks — in one file.
-
-The tasks can travel on their own — "Tasks only" in the drawer, `?settings=0`
-on the endpoint — for anyone handing the plan to a program that has no use for
-a page of colours. A file with no settings section still imports; it simply
-says nothing about the parts it leaves out.
-
-The JSON is meant to be read, edited and handed back, including by a program:
-
-```json
-{
-  "version": 1,
-  "name": "Release plan",
-  "tasks": [
-    {
-      "id": "c0ffee…", "name": "Requirements", "depth": 0,
-      "start": "2026-08-03", "end": "2026-08-14",
-      "actual_start": "2026-08-03", "actual_end": "2026-08-18",
-      "progress": 100, "status": "完了", "assignee": "山田",
-      "waits": ["2026-08-17/2026-08-21"],
-      "targets": ["2026-08-10/50"],
-      "fields": { "Product": "A" }
-    }
-  ]
-}
+```ini
+# fugantt.ini
+PORT = 3100
+FUGANTT_DB = D:\plans\fugantt.db
 ```
+
+| Name | Default | |
+| --- | --- | --- |
+| `HOST` | `127.0.0.1` | `0.0.0.0` to serve the LAN |
+| `PORT` | `1861` | |
+| `FUGANTT_DB` | see below | The SQLite file. Migrated on start |
+| `FUGANTT_OPEN` | automatic | Whether to open the page on start: `window` (application window) / `tab` / `0` (don't) |
+| `FUGANTT_ALLOW_HTTP` | — | `1` allows signing in over plain HTTP (below) |
+| `FUGANTT_NO_AUTH` | — | Run without sign-in ([reference](docs/reference.en.md#running-without-sign-in)) |
+
+Without `FUGANTT_OPEN`, the page opens only when started on loopback: an application window on Windows, a tab elsewhere.
+
+`fugantt --config` says where each value came from; `fugantt --help` lists what can be set.
+
+**The database** is `FUGANTT_DB`, or a `fugantt.db` already in the working directory, or the platform's place for
+user data — `%LOCALAPPDATA%\fugantt`, `~/Library/Application Support/fugantt`, `~/.local/share/fugantt`.
+The absolute path is printed at startup.
+
+### On an office LAN
+
+`HOST=0.0.0.0` makes it reachable, but signing in from a LAN address will not work as it is: the session cookie is
+`Secure`, and browsers do not accept that from `http://` anywhere but localhost.
+
+- Serve it over HTTPS (Caddy's `tls internal`, a Tailscale certificate). Recommended
+- If you cannot, `FUGANTT_ALLOW_HTTP=1`. The token then travels in the clear, and a warning is printed at startup
+
+Notes for reverse proxies are in the [reference](docs/reference.en.md#defences).
+
+## Running it
+
+- **Backups are a button in the installation settings.** One file out, the same file back in. Restoring keeps what
+  was there a moment before, next to the database. **Accounts and passwords go back too**
+- From the command line, use `VACUUM INTO`; with WAL, a file copy is incomplete
+  ```sh
+  sqlite3 fugantt.db "VACUUM INTO '/backup/fugantt-$(date +%F).db'"
+  ```
+- **One server only.** Two processes writing the same SQLite file will break it
+- **Updating is replacing the executable.** Migrations run by themselves and cannot be reversed. Back up first
+
+## Documentation
 
 | | |
 | --- | --- |
-| `depth` | From 0. Deeper than the row above means a child of it. |
-| `waits` | `"from/to"`. Omit the end (`"from/"`) and it is still waiting. |
-| `targets` | `"date/percent"`. What the plan promises by when. Nothing here means the row is never behind on progress. |
-| `id` | Present and known: updated. Absent: added. Missing from the file: removed. Leave it out when writing by hand. |
-| references | Statuses, people and fields are named, never referenced by id. |
-| summary rows | Their dates and progress are not written out: they come from the children. |
+| [Guide](docs/guide.en.md) | The table and the chart, due dates, plan and actual, lateness, availability, statistics, settings, import |
+| [Reference](docs/reference.en.md) | Keys, settings, the JSON format, the API, roles and sign-in, what 1.0 promises |
+| [Design](docs/design.en.md) | Why it behaves the way it does |
 
-**No derived value is in the file** — no day counts, no variance, no lateness.
-Nothing written back can contradict itself. To *read* those, ask
-`GET /api/projects/{id}/grid`, which returns the table already computed.
-
-> Read from the grid, write to the document.
-
-## API tokens
-
-A token opens one project, with one role, and is shown once.
+## Development
 
 ```sh
-curl -H "Authorization: Bearer fug_…" \
-  https://example.com/api/projects/release-plan/document
-
-curl -X POST -H "Authorization: Bearer fug_…" \
-  -H "Content-Type: application/json" --data @plan.json \
-  https://example.com/api/projects/release-plan/document
+cargo-topcoat dev        # http://127.0.0.1:1861, rebuilt on save
+cargo build --release    # one executable, static files embedded
 ```
 
-A token for another project is refused, and a read-only token cannot write. A
-change made with a token is recorded as **`API <what the token is for>`** — no
-person's name, because nobody did that work, but never anonymous either.
-
-For numbers across projects, an administrator issues an API token that reads
-all of them:
-
-```sh
-curl -H "Authorization: Bearer fug_…" https://example.com/api/projects   # the plans
-curl -H "Authorization: Bearer fug_…" https://example.com/api/summary    # per project
-```
-
-`/api/summary` is the statistics page's arithmetic, one row per project
-(`late_days + wait_days = slipped`). Both work with a signed-in session too, and
-then return only what that person may see.
-
-## How it looks
-
-Theme — automatic, light or dark — and your own CSS, both per person and
-visible to nobody else. The plan's colours are not part of it: bars, statuses
-and people belong to the project, because two people reading the same plan in
-different colours are reading two different plans.
-
-Your CSS is loaded last, so it wins. 20,000 characters, and `@import` is
-defanged.
-
-## Roles and sign-in
-
-Whoever registers first is the administrator. After that, accounts are made by
-an administrator — there is no open sign-up.
-
-- **The base roles "editor" and "viewer" apply to every project.** To keep a
-  plan to a few people, set the base to "no access" and add them as members.
-- The password rule — minimum length, required kinds of character, refused
-  words — is set per installation.
-- Changing a password ends that person's other sessions.
-- An administrator sets the first password and hands it over, and sets it again
-  if it is forgotten. No mail is ever sent.
-- **Accounts added, removed and moved are recorded with the name of whoever did
-  it**, at the foot of the users page.
-- **Leave added or removed is recorded there too, with who did it and from
-  which plan.** Leave is one list for the whole company, editable from any plan
-  the person appears on — assignee names are free text, so it is not fenced by
-  permissions but kept traceable.
-- Somebody who leaves can simply be deleted: assignees and task history keep
-  names as text, so the record survives them.
-
-**When no administrator can get in**, the way back is the machine the data is
-on:
-
-```sh
-fugantt --make-admin yamada@example.com
-```
-
-Whoever can run that can already read the database file, so it grants nothing
-that was not already theirs.
-
-There is no LDAP, SAML or OIDC. Put a reverse proxy in front and let it do the
-authenticating — the way Redmine is usually run — and the hard parts stay where
-they are already solved.
-
-`FUGANTT_NO_AUTH=yes-everyone-on-this-network-can-edit` runs it without sign-in
-at all. **Everyone who can reach that URL can read and edit every project.** A
-banner stays on screen while it is on.
-
-### Defences
-
-- **Changes are accepted only from fugantt's own pages.** A form posted from
-  another port on the same machine, or a sibling subdomain, gets a 403 — told
-  apart by the browser's `Sec-Fetch-Site` (or `Origin` on older browsers). API
-  tokens are not affected. **A reverse proxy must pass `Host` or
-  `X-Forwarded-Host` as the browser sent it**, or your own changes are refused too.
-- **Requests have a size limit**: 1 MB normally, 64 MB for a JSON plan, 1 GB for
-  restoring a backup. Larger gets a 413.
-- **Sign-in failures: 8 per user name per 15 minutes.** Counting by address as
-  well happens only on fly.io; elsewhere a forwarding header is whatever the
-  sender wrote, so it is not trusted.
-- **Pages refuse to be framed and load no outside scripts, images or fonts**
-  (`Content-Security-Policy`). Colours are `#rrggbb` only, imported files included.
-
-## What 1.0 promises
-
-From 1.0, these are the things that will not be broken:
-
-- **The database.** An older file opens in a newer build, migrated on start.
-- **The API.** `/api/projects/{id}/document` (read and write), `/api/projects`,
-  `/api/summary`.
-- **The settings.** The `fugantt.ini` format and the environment variable names.
-- **The commands.** `fugantt`, `fugantt start` / `stop` / `status` / `log`,
-  `--config`, `--make-admin`.
-- **Port 1861**, as the default.
-
-**The endpoints the grid itself uses are not covered.** They change with it.
-
-**Decided against** — which is also a promise, of a kind:
-
-- **No Windows code signing.** The first run says "Windows protected your PC";
-  More info → Run anyway.
-- **The Docker image stays amd64.** On a Mac, use the binary — it is native.
-- **No cross-project statistics screen.** `/api/summary` has the numbers for
-  every project.
-- **No LDAP, SAML or OIDC.** Put a reverse proxy in front.
-- **Deleting a row cannot be undone.** It asks first. Undo covers values, added
-  rows and reordering.
-- **Opening a plan sends all of it.** 170ms at ten thousand rows, once.
-
-**Measured, not guaranteed** — here to save you the time:
-
-- Committing one cell is a **14ms** round trip at a hundred rows and at ten
-  thousand (release build).
-- A plan of **1,000–3,000 rows** is the working range. Ten thousand still types
-  at the same speed.
-- The browser tests drive a real Chrome (384 of them).
-- One process, one SQLite file. No limit is set on how many people use it.
+> `cargo-topcoat dev`, not `cargo topcoat dev`: topcoat-cli 0.5.0 cannot read its arguments when called as a cargo
+> subcommand. `cargo run` works too.
 
 ## Supporting
 

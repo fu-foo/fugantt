@@ -11,16 +11,16 @@ A Gantt chart you edit from the keyboard. Rust (Topcoat + SQLite), one binary.
 ## What it does
 
 - **Planned and actual on one row.** The start and end variances are not stored; they are subtracted on every read.
-- **Behind means behind the plan you wrote.** Rows with "50% by the 20th" entered turn red when they fall short; rows without it are never behind on progress.
+- **Behind on progress means behind the plan you wrote.** Rows with "50% by the 20th" entered turn red when they fall short; rows without it are never behind on progress (overdue and past-due rows turn red regardless).
 - **The delay is split.** Not "twelve days late", but "nine days of work, three days waiting".
 - **Who has room is a page.** Per person, per month: the days already taken, the days free, and which days those are.
-- **Undo.** `⌘Z` / `Ctrl+Z` — values, added rows, reordering. A cell somebody else touched since is left alone.
-- **Days counted the way your workplace counts them.** Weekends, public holidays, leave and waiting excluded — or not, per project.
+- **Undo.** `⌘Z` / `Ctrl+Z` — values, added rows, reordering. A cell somebody else touched in between is left alone.
+- **Days counted the way your workplace counts them.** Pick the weekdays, holidays and leave to leave out (weekends, holidays and leave by default). Waiting is always left out.
 - **Fits the Japanese calendar.** Holidays are computed (substitute and citizens' holidays included), business years, era years, blue Saturdays and red Sundays.
 - **Keyboard editing**, with Japanese input passing straight through.
 - **Excel and JSON export.** JSON imports, too.
-- **Japanese by default**, English when the browser asks for it.
-- **Row count does not slow it down.** Only the rows on screen are drawn; two thousand rows type in 15ms.
+- **Japanese by default**, English when the browser asks for it (or set it yourself).
+- **Row count does not slow it down.** Only the rows on screen are drawn; at two thousand rows a keystroke costs the browser 15ms.
 
 ![The schedule](docs/images/schedule.png)
 
@@ -35,7 +35,7 @@ A Gantt chart you edit from the keyboard. Rust (Topcoat + SQLite), one binary.
 
 ## Install
 
-Four binaries on every [release](https://github.com/fu-foo/fugantt/releases). Each is one file and needs nothing else.
+Four binaries on every [release](https://github.com/fu-foo/fugantt/releases). Each runs on its own, with nothing else to install.
 
 | | |
 | --- | --- |
@@ -112,7 +112,9 @@ Enter a name, a user name and a password (eight characters or more by default); 
 That form disappears once the first person has registered. Everyone after is created by an administrator on the
 users page, who hands over the first password. There is no open sign-up and no mail.
 
-If the administrator's password is lost, run `fugantt --make-admin <user name>` on the server.
+If no administrator can get in (a lost password, someone who left), run `fugantt --make-admin <user name>` on the server to make
+another account an administrator. It does not reset passwords; the new administrator sets one again.
+With a single administrator account this cannot help, so keep at least two.
 
 ### The first project
 
@@ -167,7 +169,7 @@ The absolute path is printed at startup.
 `Secure`, and browsers do not accept that from `http://` anywhere but localhost.
 
 - Serve it over HTTPS (Caddy's `tls internal`, a Tailscale certificate). Recommended
-- If you cannot, `FUGANTT_ALLOW_HTTP=1`. The token then travels in the clear, and a warning is printed at startup
+- If you cannot, `FUGANTT_ALLOW_HTTP=1`. The session token then travels in the clear, and a warning is printed at startup
 
 Notes for reverse proxies are in the [reference](docs/reference.en.md#defences).
 
@@ -175,12 +177,12 @@ Notes for reverse proxies are in the [reference](docs/reference.en.md#defences).
 
 - **Backups are a button in the installation settings.** One file out, the same file back in. Restoring keeps what
   was there a moment before, next to the database. **Accounts and passwords go back too**
-- From the command line, use `VACUUM INTO`; with WAL, a file copy is incomplete
+- From the command line, use `VACUUM INTO`. Recent changes live in the `-wal` file, so copying `fugantt.db` alone can miss them
   ```sh
   sqlite3 fugantt.db "VACUUM INTO '/backup/fugantt-$(date +%F).db'"
   ```
-- **One server only.** Two processes writing the same SQLite file will break it
-- **Updating is replacing the executable.** Migrations run by themselves and cannot be reversed. Back up first
+- **One server only.** Two servers on the same database do not see each other's changes on screen (change notices travel only inside one server)
+- **Updating is replacing the executable.** Migrations run by themselves; there is no going back to an older version. Back up first
 
 ## Documentation
 

@@ -293,6 +293,11 @@ pub fn status() -> i32 {
     match running(&paths) {
         Some(pid) => {
             println!("動いています（プロセス {pid}）。");
+            // The one that is running, which is not always the one on disk: a
+            // replaced executable changes nothing until the next start.
+            if let Some(version) = version_in(&tail_from(&paths.log, 0, 500)) {
+                println!("{version}");
+            }
             println!("画面: {url}");
             if let Some(data) = last_line_starting(&paths.log, "データ: ") {
                 println!("{data}");
@@ -354,10 +359,46 @@ fn first_line_starting(path: &PathBuf, from: u64, prefix: &str) -> Option<String
         .map(ToOwned::to_owned)
 }
 
+/// The version the running server announced when it started.
+fn version_in(log: &str) -> Option<&str> {
+    log.lines().rev().find(|line| {
+        line.strip_prefix("fugantt ")
+            .is_some_and(|rest| rest.starts_with(|first: char| first.is_ascii_digit()))
+    })
+}
+
 fn last_line_starting(path: &PathBuf, prefix: &str) -> Option<String> {
     tail_from(path, 0, 500)
         .lines()
         .rev()
         .find(|line| line.starts_with(prefix))
         .map(ToOwned::to_owned)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The newest start is the one that is running.
+    #[test]
+    fn the_running_version_is_the_last_one_the_log_names() {
+        let log = concat!(
+            "fugantt 0.9.0\n",
+            "データ: /srv/fugantt.db\n",
+            "fugantt 1.0.0\n",
+            "データ: /srv/fugantt.db\n",
+            "画面: http://127.0.0.1:1861\n",
+        );
+
+        assert_eq!(version_in(log), Some("fugantt 1.0.0"));
+    }
+
+    /// Other lines open with the name too; only a version follows it with a digit.
+    #[test]
+    fn a_line_that_only_starts_with_the_name_is_not_a_version() {
+        let log = "fugantt 1.0.0\nfugantt が裏で動いています（プロセス 12）。\n";
+
+        assert_eq!(version_in(log), Some("fugantt 1.0.0"));
+        assert_eq!(version_in("データ: /srv/fugantt.db\n"), None);
+    }
 }

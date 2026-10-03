@@ -63,9 +63,10 @@ Windows は Edge のアプリウィンドウ（アドレスバー無し）、ほ
 | --- | --- |
 | `fugantt` | 前面で起動。閉じるか Ctrl+C で止まる |
 | `fugantt start` | 裏で起動して、すぐ戻る（画面はいつもどおり開く） |
-| `fugantt status` | 動いているか、URL・データ・ログの場所 |
+| `fugantt status` | 動いているか、版・URL・データ・ログの場所 |
 | `fugantt log` | ログの最後 |
 | `fugantt stop` | 止める |
+| `fugantt version` | 版 |
 | `fugantt --config` | どの値がどこから来ているか |
 | `fugantt --help` | 書ける設定項目 |
 | `fugantt --make-admin <ユーザー名>` | そのアカウントを管理者にする |

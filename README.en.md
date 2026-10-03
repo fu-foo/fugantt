@@ -139,9 +139,10 @@ If the administrator's is the only account, there is nobody to promote — so ma
 
 ```sh
 fugantt start     # starts it and returns (the page still opens)
-fugantt status    # whether it is running, and where: URL, data, log
+fugantt status    # whether it is running, and where: version, URL, data, log
 fugantt log       # the end of its log
 fugantt stop      # stops it
+fugantt version   # the version
 ```
 
 ## Configure it
@@ -206,7 +207,8 @@ Cloudflare Access, `skip_auth_routes` on oauth2-proxy). The front must pass `Hos
 - **Do not put the database on a shared folder and open it from each PC.** Besides the above, SQLite's locking cannot
   be trusted over a network file system, and the file can be corrupted
 - **Updating is replacing the executable.** Migrations run by themselves; there is no going back to an older version. Back up first.
-  The database is looked for the same way, so an existing `fugantt.db` carries on
+  The database is looked for the same way, so an existing `fugantt.db` carries on.
+  The running version is at the bottom of the drawer, and in `fugantt status`
 - **Upgrading from 0.3 or earlier: the port changed** from 3000 to 1861. Fix bookmarks and `docker run -p 3000:3000`,
   or write `PORT = 3000`
 

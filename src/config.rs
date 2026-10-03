@@ -237,6 +237,10 @@ pub fn explain(loaded: &Loaded) -> String {
     out
 }
 
+/// The name and the version, as one line: what `fugantt version` prints, what
+/// a start says first, and what the drawer shows.
+pub const VERSION: &str = concat!("fugantt ", env!("CARGO_PKG_VERSION"));
+
 /// The text `--help` prints.
 pub fn help() -> String {
     let mut out = String::from(concat!(
@@ -253,6 +257,7 @@ pub fn help() -> String {
         "  fugantt --config   どの設定がどこから来ているかを出す\n",
         "  fugantt --make-admin <ユーザー名>\n",
         "                     その人を管理者にする（管理者が入れなくなったとき）\n",
+        "  fugantt version    版を出す\n",
         "  fugantt --help     これ\n\n",
         "書ける項目:\n",
     ));
@@ -341,5 +346,10 @@ mod tests {
         for key in KEYS {
             assert!(text.contains(key), "{key} が --help に出ていない");
         }
+    }
+
+    #[test]
+    fn the_help_lists_the_version_command() {
+        assert!(help().contains("  fugantt version "));
     }
 }

@@ -144,15 +144,20 @@ async fn shell(cx: &Cx, slot: Result) -> Result {
                             </nav>
                         }
 
-                        if !crate::open_access::enabled() {
-                            <form method="POST" action="/logout" class="mt-auto">
-                                <button
-                                    class="w-full rounded-lg px-3 py-2 text-left text-sm text-slate-500 hover:bg-slate-100"
-                                >
-                                    (l.t("ログアウト"))
-                                </button>
-                            </form>
-                        }
+                        // Pinned to the bottom together. The product's own
+                        // name, whatever the installation is called up top.
+                        <div class="mt-auto flex flex-col gap-2">
+                            if !crate::open_access::enabled() {
+                                <form method="POST" action="/logout">
+                                    <button
+                                        class="w-full rounded-lg px-3 py-2 text-left text-sm text-slate-500 hover:bg-slate-100"
+                                    >
+                                        (l.t("ログアウト"))
+                                    </button>
+                                </form>
+                            }
+                            <p class="px-3 text-xs text-slate-400">(crate::config::VERSION)</p>
+                        </div>
                     </aside>
                 }
 

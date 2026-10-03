@@ -64,9 +64,10 @@ executable does not move it.
 | --- | --- |
 | `fugantt` | Run in the foreground. Close it or press Ctrl+C to stop |
 | `fugantt start` | Start in the background and return (the page still opens) |
-| `fugantt status` | Whether it is running, and where: URL, data, log |
+| `fugantt status` | Whether it is running, and where: version, URL, data, log |
 | `fugantt log` | The end of its log |
 | `fugantt stop` | Stop it |
+| `fugantt version` | The version |
 | `fugantt --config` | Where each value came from |
 | `fugantt --help` | What can be set |
 | `fugantt --make-admin <user name>` | Make that account an administrator |

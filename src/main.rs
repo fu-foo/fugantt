@@ -48,8 +48,8 @@ fn main() -> Result<(), Box<dyn Error>> {
             print!("{}", config::explain(&settings));
             return Ok(());
         }
-        Some("--version" | "-V") => {
-            println!("fugantt {}", env!("CARGO_PKG_VERSION"));
+        Some("--version" | "-V" | "version") => {
+            println!("{}", config::VERSION);
             return Ok(());
         }
         // In the background, for whoever would rather not keep a console open.
@@ -110,6 +110,9 @@ async fn make_admin(who: Option<String>) -> Result<(), Box<dyn Error>> {
 
 #[tokio::main]
 async fn serve(settings: config::Loaded) -> Result<(), Box<dyn Error>> {
+    // First, so the top of the log says which version wrote the rest of it.
+    println!("{}", config::VERSION);
+
     if let Some(file) = &settings.path {
         println!("設定: {}", file.display());
     }

@@ -218,6 +218,5 @@ From 1.0, these are the things that will not be broken:
 
 - Committing one cell is a **14ms** round trip at a hundred rows and at ten thousand (release build)
 - A keystroke (↓) costs the browser **15ms** at a hundred rows and at ten thousand (2026-08-16, release build, a real browser, `web/test/measure.mjs`; the machine was not recorded)
-- A plan of **1,000–3,000 rows** is the working range
 - The browser tests drive a real Chrome (384 of them)
 - One process, one SQLite file. No limit is set on how many people use it

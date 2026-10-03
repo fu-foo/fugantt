@@ -12,3 +12,6 @@
 
 # 各自のローカル設定。名前のとおり共有するものではない
 .claude/settings.local.json
+
+# Fly.io に置くなら各自で書く。リポジトリでは持たない
+/fly.toml

@@ -96,7 +96,7 @@ with `-p 127.0.0.1:1861:1861` instead (the data stays in the volume, so start it
 [On an office LAN](#on-an-office-lan) before opening it from other machines.
 
 The image is amd64 only. On Apple Silicon add `--platform linux/amd64` (it runs under emulation), or use the
-native binary above. A Fly.io configuration (`fly.toml`) is included.
+native binary above.
 
 ## Start it
 
@@ -181,6 +181,17 @@ The absolute path is printed at startup.
 - If you cannot, `FUGANTT_ALLOW_HTTP=1`. The session token then travels in the clear, and a warning is printed at startup
 
 Notes for reverse proxies are in the [reference](docs/reference.en.md#defences).
+
+### On the internet
+
+It is meant for your own PC and an office LAN. Sign-in is a user name and a password, with no second factor.
+
+To use it from outside, keep it closed behind Tailscale, or put authentication in front (SSO through Cloudflare
+Access or oauth2-proxy). Turning fugantt's own sign-in off with `FUGANTT_NO_AUTH` loses who changed what, so keep both.
+
+Authentication in front also stops calls made with API tokens; let that path through at the front (a service token on
+Cloudflare Access, `skip_auth_routes` on oauth2-proxy). The front must pass `Host` as the browser sent it
+([reference](docs/reference.en.md#defences)).
 
 ## Running it
 

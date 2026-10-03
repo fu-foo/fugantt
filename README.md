@@ -96,7 +96,7 @@ docker run -p 1861:1861 -v fugantt:/data ghcr.io/fu-foo/fugantt
 ほかの PC から開くときは[社内 LAN に置くとき](#社内-lan-に置くとき)も読む。
 
 イメージは amd64 だけ。Apple Silicon では `--platform linux/amd64` を付ける（エミュレーションで動く）。
-ネイティブで動かしたいなら上のバイナリを。Fly.io の設定（`fly.toml`）も入っている。
+ネイティブで動かしたいなら上のバイナリを。
 
 ## 起動する
 
@@ -178,6 +178,16 @@ Linux が `~/.local/share/fugantt`。起動時に絶対パスを1行出す。
 - 用意できなければ `FUGANTT_ALLOW_HTTP=1`。セッションのトークンが平文で流れる。起動時に警告が出る
 
 リバースプロキシを挟むときの注意は[リファレンス](docs/reference.md#守り)に。
+
+### インターネットに出すとき
+
+想定は、手元の PC と社内 LAN。認証はユーザー名とパスワードだけで、2要素認証は無い。
+
+外から使いたいなら、Tailscale で閉じたまま使うか、前に認証を置く（Cloudflare Access や oauth2-proxy で SSO を挟む）。
+`FUGANTT_NO_AUTH` で fugantt 側のログインを外すと、誰が変えたかが残らなくなるので、両方で入る形にしておく。
+
+前に認証を置くと、API トークンでの呼び出しも止まる。その経路は前段で通す（Cloudflare Access ならサービストークン、
+oauth2-proxy なら `skip_auth_routes`）。前段は `Host` をブラウザが送ったまま渡す（[リファレンス](docs/reference.md#守り)）。
 
 ## 運用
 

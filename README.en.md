@@ -21,7 +21,7 @@ A Gantt chart you edit from the keyboard. Rust (Topcoat + SQLite), one binary.
 - **The chart adjusts with the mouse.** Drag a bar to move its dates, pull an end to stretch it, slide the handle inside to set progress.
 - **Excel and JSON export.** JSON imports, too.
 - **Japanese by default**, English when the browser asks for it (or set it yourself).
-- **More rows do not slow typing down.** Only the rows on screen are drawn, so a keystroke takes as long at two thousand rows as at a hundred.
+- **More rows do not slow typing down.** Only the rows on screen are drawn, so a keystroke takes about as long at ten thousand rows as at a hundred ([measured](docs/reference.en.md#what-10-promises)).
 
 ![The schedule](docs/images/schedule.png)
 
@@ -122,7 +122,7 @@ open sign-up and no mail.
 Anyone who can reach "Create the first account" can use it. Create the first account locally before serving the LAN (`HOST=0.0.0.0`).
 
 If no administrator can get in (a lost password, someone who left), run `fugantt --make-admin <user name>` on the server to make
-another account an administrator. The server can keep running.
+another account an administrator. The server can keep running, and that person need not sign in again: reloading the page is enough.
 The command does not reset passwords; the new administrator sets the old one's again.
 If the administrator's is the only account, there is nobody to promote — so make at least two accounts.
 

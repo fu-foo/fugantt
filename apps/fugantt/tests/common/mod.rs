@@ -7,6 +7,7 @@ use std::{
     net::{TcpListener, TcpStream},
     path::{Path, PathBuf},
     process::{Child, Command, Stdio},
+    sync::{Mutex, PoisonError},
     time::{Duration, Instant},
 };
 
@@ -32,6 +33,30 @@ pub fn fugantt(dir: &Path) -> Command {
     command
 }
 
+/// A port nothing is listening on, and that no other test here was given.
+///
+/// Asking the system for a free port and letting it go is not a promise: tests
+/// run side by side, and two of them asking a moment apart can be handed the
+/// same number. So the ones handed out in this process are remembered, and
+/// never handed out twice.
+fn free_port() -> u16 {
+    static TAKEN: Mutex<Vec<u16>> = Mutex::new(Vec::new());
+
+    loop {
+        let port = TcpListener::bind("127.0.0.1:0")
+            .unwrap()
+            .local_addr()
+            .unwrap()
+            .port();
+
+        let mut taken = TAKEN.lock().unwrap_or_else(PoisonError::into_inner);
+        if !taken.contains(&port) {
+            taken.push(port);
+            return port;
+        }
+    }
+}
+
 /// A running server, stopped when the test is done with it.
 pub struct Server {
     pub child: Child,
@@ -52,17 +77,22 @@ impl Server {
     }
 
     /// Starts in a fresh directory, after `prepare` has put what it wants there.
+    ///
+    /// Returns once the server is listening. Finding a free port means
+    /// listening on one for an instant, and tests run side by side: a server
+    /// that tries to take its port during somebody else's instant is refused
+    /// it, and a request sent then reaches nobody. So one server is started at
+    /// a time, and the next search for a port waits until this one has its own.
     pub fn start_with(name: &str, env: &[(&str, &str)], prepare: impl FnOnce(&Path)) -> Self {
+        static STARTING: Mutex<()> = Mutex::new(());
+
         let dir = scratch(name);
         prepare(&dir);
 
-        let port = TcpListener::bind("127.0.0.1:0")
-            .unwrap()
-            .local_addr()
-            .unwrap()
-            .port();
+        let _one_at_a_time = STARTING.lock().unwrap_or_else(PoisonError::into_inner);
+        let port = free_port();
 
-        let child = fugantt(&dir)
+        let mut child = fugantt(&dir)
             .env("PORT", port.to_string())
             .envs(env.iter().copied())
             .stdout(Stdio::piped())
@@ -70,18 +100,16 @@ impl Server {
             .spawn()
             .unwrap();
 
-        Self { child, port, dir }
-    }
-
-    fn connect(&self) -> TcpStream {
         let deadline = Instant::now() + Duration::from_secs(20);
-        loop {
-            match TcpStream::connect(("127.0.0.1", self.port)) {
-                Ok(stream) => break stream,
-                Err(error) if Instant::now() > deadline => panic!("起動しなかった: {error}"),
-                Err(_) => std::thread::sleep(Duration::from_millis(50)),
+        while TcpStream::connect(("127.0.0.1", port)).is_err() {
+            if let Some(status) = child.try_wait().unwrap() {
+                panic!("起動せずに終わった: {status}");
             }
+            assert!(Instant::now() < deadline, "起動しなかった");
+            std::thread::sleep(Duration::from_millis(20));
         }
+
+        Self { child, port, dir }
     }
 
     /// The raw response, status line and headers included.
@@ -116,18 +144,23 @@ impl Server {
         )
     }
 
+    /// One GET. The server is already listening by the time there is a
+    /// `Server` to ask.
     fn raw(&self, path: &str) -> Vec<u8> {
-        let mut stream = self.connect();
+        self.once(path).expect("応答を読めなかった")
+    }
+
+    fn once(&self, path: &str) -> std::io::Result<Vec<u8>> {
+        let mut stream = TcpStream::connect(("127.0.0.1", self.port))?;
         write!(
             stream,
             "GET {path} HTTP/1.1\r\nHost: 127.0.0.1:{}\r\nAccept: */*\r\nConnection: close\r\n\r\n",
             self.port
-        )
-        .unwrap();
+        )?;
 
         let mut raw = Vec::new();
-        stream.read_to_end(&mut raw).unwrap();
-        raw
+        stream.read_to_end(&mut raw)?;
+        Ok(raw)
     }
 }
 

@@ -42,14 +42,24 @@ fn json(server: &Server, path: &str) -> String {
     serde_json::to_string_pretty(&value).unwrap() + "\n"
 }
 
-/// A page, with the two things that move for reasons of their own taken out:
-/// the hash in each static URL, and the version.
+/// A page, with the three things that move for reasons of their own taken
+/// out: the hash in each static URL, the version, and the directory the
+/// server was started in — which the administrator's page shows, and which is
+/// a different place on every machine.
 fn html(server: &Server, path: &str) -> String {
     let (status, body) = server.body(path);
     assert_eq!(status, 200, "{path}: {body}");
 
     let version = concat!("fugantt ", env!("CARGO_PKG_VERSION"));
-    unhash(&body.replace(version, "fugantt VERSION")) + "\n"
+    let mut body = body.replace(version, "fugantt VERSION");
+
+    // As the test named it, and as the server resolved it.
+    let resolved = std::fs::canonicalize(&server.dir).unwrap_or_else(|_| server.dir.clone());
+    for dir in [resolved, server.dir.clone()] {
+        body = body.replace(&*dir.to_string_lossy(), "DIR");
+    }
+
+    unhash(&body) + "\n"
 }
 
 /// `/static/0123456789abcdef/name` → `/static/HASH/name`.
@@ -186,4 +196,29 @@ fn a_static_hash_is_taken_out_and_nothing_else() {
     // Not sixteen hex digits: left alone.
     assert_eq!(unhash("/static/abc/grid.css"), "/static/abc/grid.css");
     assert_eq!(unhash("no urls here"), "no urls here");
+}
+
+/// The answers are compared on other machines too, where this one's
+/// directories mean nothing.
+#[test]
+fn nothing_written_down_names_this_machine() {
+    let root = env!("CARGO_MANIFEST_DIR");
+    let root = root.strip_suffix("/apps/fugantt").unwrap_or(root);
+
+    for entry in std::fs::read_dir(here().join("golden")).unwrap() {
+        let path = entry.unwrap().path();
+        if path
+            .extension()
+            .is_some_and(|extension| extension == "actual")
+        {
+            continue;
+        }
+
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(
+            !text.contains(root),
+            "{} にこのマシンのパスがある",
+            path.display()
+        );
+    }
 }

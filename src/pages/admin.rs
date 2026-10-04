@@ -423,7 +423,7 @@ async fn index(cx: &Cx) -> Result {
                             type="number"
                             min="2020"
                             max="2099"
-                            value=(jiff::Zoned::now().year())
+                            value=(crate::clock::today().year())
                             class="w-28 rounded-lg border border-slate-300 px-3 py-2"
                         >
                     </div>

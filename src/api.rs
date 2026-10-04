@@ -727,7 +727,7 @@ async fn follow_on(
         let before = history::current_value(cx, task_id, "actual_end").await;
 
         if before.is_empty() {
-            let today = jiff::Zoned::now().date().to_string();
+            let today = crate::clock::today().to_string();
 
             write_cell(cx, task_id, &user.id, "actual_end = ?1", today.clone()).await?;
             let entry = note(
@@ -3346,7 +3346,7 @@ pub fn flexible_date(value: &str) -> Option<Date> {
         .replace(['/', '.', '年', '月'], "-")
         .replace('日', "");
     let value = value.trim_end_matches('-').to_owned();
-    let today = jiff::Zoned::now().date();
+    let today = crate::clock::today();
     let year = today.year();
     let month = today.month();
 

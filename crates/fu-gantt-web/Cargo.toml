@@ -1,0 +1,11 @@
+[package]
+name = "fu-gantt-web"
+version = "0.1.0"
+description = "The Gantt grid: one script and one stylesheet, ready to be served."
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish = false
+
+[dependencies]

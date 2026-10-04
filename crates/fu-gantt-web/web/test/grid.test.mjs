@@ -4,9 +4,10 @@
  * The grid is keyboard-driven and talks to the server on every commit, so the
  * only honest test drives a real browser against a running app.
  *
- * Needs a dev server (`cargo-topcoat dev`) and the database it is using:
+ * Needs a dev server (`cargo-topcoat dev`, from apps/fugantt) and the database
+ * it is using:
  *
- *   FUGANTT_DB=fugantt.db node test/grid.test.mjs
+ *   FUGANTT_DB=/path/to/fugantt.db node test/grid.test.mjs
  *
  * Do not edit files under the watcher while a run is in flight: the dev
  * server's live reload navigates the page mid-test, and the failure it
@@ -4968,7 +4969,7 @@ check(
 
 // 他人の SQLite を掴んで壊さない。買い物メモのデータベースは fugantt ではない。
 const foreign = (() => {
-  const path = join(here, "..", "..", "target", "not-fugantt.db");
+  const path = join(here, "..", "..", "..", "..", "target", "not-fugantt.db");
   execFileSync("sqlite3", [path, "CREATE TABLE IF NOT EXISTS shopping (item TEXT)"]);
   return [...readFileSync(path)];
 })();

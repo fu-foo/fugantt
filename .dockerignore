@@ -1,8 +1,8 @@
-# The build only needs the source and web/dist. Everything else makes the
+# The build only needs the source and crates/fu-gantt-web/web/dist. Everything else makes the
 # context bigger and the layer cache emptier.
 /target
 /.git
-/web/node_modules
+/crates/fu-gantt-web/web/node_modules
 *.db
 *.db-wal
 *.db-shm

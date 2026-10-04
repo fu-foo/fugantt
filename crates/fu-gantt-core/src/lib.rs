@@ -10,3 +10,5 @@
 
 pub mod domain;
 pub mod sortkey;
+pub mod text;
+pub mod wire;

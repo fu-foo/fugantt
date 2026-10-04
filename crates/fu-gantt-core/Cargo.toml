@@ -16,3 +16,6 @@ sqlx = ["dep:sqlx"]
 jiff.workspace = true
 serde.workspace = true
 sqlx = { workspace = true, features = ["derive"], optional = true }
+
+[dev-dependencies]
+serde_json.workspace = true

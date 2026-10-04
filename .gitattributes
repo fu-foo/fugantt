@@ -1,0 +1,2 @@
+*.db binary
+tests/golden/* text eol=lf

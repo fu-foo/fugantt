@@ -1,0 +1,641 @@
+{
+  "assignees": [
+    {
+      "background": "",
+      "color": "",
+      "name": "佐藤"
+    },
+    {
+      "background": "",
+      "color": "",
+      "name": "共有アカウント"
+    },
+    {
+      "background": "",
+      "color": "",
+      "name": "山田"
+    }
+  ],
+  "can_edit": true,
+  "column_order": [
+    "name",
+    "late",
+    "due_late",
+    "assignee",
+    "status",
+    "due",
+    "start",
+    "end",
+    "days",
+    "targets",
+    "actual_start",
+    "actual_end",
+    "actual_days",
+    "progress",
+    "start_variance",
+    "end_variance",
+    "waits",
+    "note",
+    "f-ticket"
+  ],
+  "column_widths": {},
+  "counting": {
+    "friday": false,
+    "holidays": true,
+    "leave": true,
+    "monday": false,
+    "saturday": true,
+    "sunday": true,
+    "thursday": false,
+    "tuesday": false,
+    "wednesday": false
+  },
+  "day_width": 26,
+  "eras": [
+    {
+      "from": "2019-05-01",
+      "name": "令和"
+    },
+    {
+      "from": "1989-01-08",
+      "name": "平成"
+    },
+    {
+      "from": "1926-12-25",
+      "name": "昭和"
+    },
+    {
+      "from": "1912-07-30",
+      "name": "大正"
+    },
+    {
+      "from": "1868-01-25",
+      "name": "明治"
+    }
+  ],
+  "fields": [
+    {
+      "id": "f-ticket",
+      "in_use": true,
+      "kind": "text",
+      "label": "チケット",
+      "options": []
+    }
+  ],
+  "filter_sets": [],
+  "fiscal_year_start": 4,
+  "frozen_columns": 1,
+  "hidden_columns": [],
+  "holidays": [
+    {
+      "date": "2025-01-01",
+      "name": "元日"
+    },
+    {
+      "date": "2025-01-13",
+      "name": "成人の日"
+    },
+    {
+      "date": "2025-02-11",
+      "name": "建国記念の日"
+    },
+    {
+      "date": "2025-02-23",
+      "name": "天皇誕生日"
+    },
+    {
+      "date": "2025-02-24",
+      "name": "振替休日"
+    },
+    {
+      "date": "2025-03-20",
+      "name": "春分の日"
+    },
+    {
+      "date": "2025-04-29",
+      "name": "昭和の日"
+    },
+    {
+      "date": "2025-05-03",
+      "name": "憲法記念日"
+    },
+    {
+      "date": "2025-05-04",
+      "name": "みどりの日"
+    },
+    {
+      "date": "2025-05-05",
+      "name": "こどもの日"
+    },
+    {
+      "date": "2025-05-06",
+      "name": "振替休日"
+    },
+    {
+      "date": "2025-07-21",
+      "name": "海の日"
+    },
+    {
+      "date": "2025-08-11",
+      "name": "山の日"
+    },
+    {
+      "date": "2025-09-15",
+      "name": "敬老の日"
+    },
+    {
+      "date": "2025-09-23",
+      "name": "秋分の日"
+    },
+    {
+      "date": "2025-10-13",
+      "name": "スポーツの日"
+    },
+    {
+      "date": "2025-11-03",
+      "name": "文化の日"
+    },
+    {
+      "date": "2025-11-23",
+      "name": "勤労感謝の日"
+    },
+    {
+      "date": "2025-11-24",
+      "name": "振替休日"
+    },
+    {
+      "date": "2026-01-01",
+      "name": "元日"
+    },
+    {
+      "date": "2026-01-12",
+      "name": "成人の日"
+    },
+    {
+      "date": "2026-02-11",
+      "name": "建国記念の日"
+    },
+    {
+      "date": "2026-02-23",
+      "name": "天皇誕生日"
+    },
+    {
+      "date": "2026-03-20",
+      "name": "春分の日"
+    },
+    {
+      "date": "2026-04-29",
+      "name": "昭和の日"
+    },
+    {
+      "date": "2026-05-03",
+      "name": "憲法記念日"
+    },
+    {
+      "date": "2026-05-04",
+      "name": "みどりの日"
+    },
+    {
+      "date": "2026-05-05",
+      "name": "こどもの日"
+    },
+    {
+      "date": "2026-05-06",
+      "name": "振替休日"
+    },
+    {
+      "date": "2026-07-20",
+      "name": "海の日"
+    },
+    {
+      "date": "2026-08-11",
+      "name": "山の日"
+    },
+    {
+      "date": "2026-09-21",
+      "name": "敬老の日"
+    },
+    {
+      "date": "2026-09-22",
+      "name": "国民の休日"
+    },
+    {
+      "date": "2026-09-23",
+      "name": "秋分の日"
+    },
+    {
+      "date": "2026-09-24",
+      "name": "創立記念日"
+    },
+    {
+      "date": "2026-10-12",
+      "name": "スポーツの日"
+    },
+    {
+      "date": "2026-11-03",
+      "name": "文化の日"
+    },
+    {
+      "date": "2026-11-23",
+      "name": "勤労感謝の日"
+    },
+    {
+      "date": "2027-01-01",
+      "name": "元日"
+    },
+    {
+      "date": "2027-01-11",
+      "name": "成人の日"
+    },
+    {
+      "date": "2027-02-11",
+      "name": "建国記念の日"
+    },
+    {
+      "date": "2027-02-23",
+      "name": "天皇誕生日"
+    },
+    {
+      "date": "2027-03-21",
+      "name": "春分の日"
+    },
+    {
+      "date": "2027-03-22",
+      "name": "振替休日"
+    },
+    {
+      "date": "2027-04-29",
+      "name": "昭和の日"
+    },
+    {
+      "date": "2027-05-03",
+      "name": "憲法記念日"
+    },
+    {
+      "date": "2027-05-04",
+      "name": "みどりの日"
+    },
+    {
+      "date": "2027-05-05",
+      "name": "こどもの日"
+    },
+    {
+      "date": "2027-07-19",
+      "name": "海の日"
+    },
+    {
+      "date": "2027-08-11",
+      "name": "山の日"
+    },
+    {
+      "date": "2027-09-20",
+      "name": "敬老の日"
+    },
+    {
+      "date": "2027-09-23",
+      "name": "秋分の日"
+    },
+    {
+      "date": "2027-10-11",
+      "name": "スポーツの日"
+    },
+    {
+      "date": "2027-11-03",
+      "name": "文化の日"
+    },
+    {
+      "date": "2027-11-23",
+      "name": "勤労感謝の日"
+    }
+  ],
+  "japanese_era": true,
+  "language": "en",
+  "leaves": [
+    {
+      "assignee": "佐藤",
+      "end": "2026-09-09",
+      "id": "l-1",
+      "kind": "off",
+      "note": "夏休み",
+      "start": "2026-09-07"
+    },
+    {
+      "assignee": "山田",
+      "end": "2026-09-19",
+      "id": "l-2",
+      "kind": "on",
+      "note": "休日出勤",
+      "start": "2026-09-19"
+    }
+  ],
+  "project_id": "golden",
+  "quarters": true,
+  "range_end": "2026-10-16",
+  "range_start": "2026-07-25",
+  "revision": 7,
+  "statuses": [
+    {
+      "color": "#f1f5f9",
+      "name": "未着手",
+      "percent": 0
+    },
+    {
+      "color": "#dbeafe",
+      "name": "進行中",
+      "percent": null
+    },
+    {
+      "color": "#ede9fe",
+      "name": "待ち",
+      "percent": null
+    },
+    {
+      "color": "#dcfce7",
+      "name": "完了",
+      "percent": 100
+    },
+    {
+      "color": "#fef3c7",
+      "name": "保留",
+      "percent": null
+    }
+  ],
+  "tasks": [
+    {
+      "actual_days": 11,
+      "actual_end": "2026-08-18",
+      "actual_start": "2026-08-03",
+      "assignee": "山田",
+      "background": "",
+      "color": "",
+      "days": 9,
+      "delayed": false,
+      "depth": 0,
+      "due": null,
+      "due_late": false,
+      "due_late_open": false,
+      "end": "2026-08-14",
+      "end_variance": 2,
+      "expected": 100,
+      "has_children": false,
+      "id": "t-req",
+      "name": "要件定義",
+      "note": "",
+      "overdue": 0,
+      "progress": 100,
+      "start": "2026-08-03",
+      "start_variance": 0,
+      "status": "完了",
+      "tags": [],
+      "targets": [
+        {
+          "date": "2026-08-14",
+          "due": true,
+          "missed": false,
+          "percent": 100
+        }
+      ],
+      "values": {},
+      "wait_days": 0,
+      "waits": []
+    },
+    {
+      "actual_days": 25,
+      "actual_end": null,
+      "actual_start": "2026-08-12",
+      "assignee": "",
+      "background": "",
+      "color": "",
+      "days": 30,
+      "delayed": false,
+      "depth": 0,
+      "due": null,
+      "due_late": false,
+      "due_late_open": false,
+      "end": "2026-09-25",
+      "end_variance": null,
+      "expected": null,
+      "has_children": true,
+      "id": "t-dev",
+      "name": "開発",
+      "note": "",
+      "overdue": 5,
+      "progress": 26,
+      "start": "2026-08-10",
+      "start_variance": 1,
+      "status": "未着手",
+      "tags": [],
+      "targets": [],
+      "values": {},
+      "wait_days": 0,
+      "waits": []
+    },
+    {
+      "actual_days": 13,
+      "actual_end": null,
+      "actual_start": "2026-08-12",
+      "assignee": "佐藤",
+      "background": "",
+      "color": "",
+      "days": 9,
+      "delayed": false,
+      "depth": 1,
+      "due": null,
+      "due_late": false,
+      "due_late_open": false,
+      "end": "2026-08-28",
+      "end_variance": null,
+      "expected": 50,
+      "has_children": false,
+      "id": "t-des",
+      "name": "設計",
+      "note": "画面は別紙",
+      "overdue": 5,
+      "progress": 60,
+      "start": "2026-08-10",
+      "start_variance": 1,
+      "status": "待ち",
+      "tags": [],
+      "targets": [
+        {
+          "date": "2026-08-20",
+          "due": true,
+          "missed": false,
+          "percent": 50
+        },
+        {
+          "date": "2026-10-15",
+          "due": false,
+          "missed": false,
+          "percent": 90
+        }
+      ],
+      "values": {},
+      "wait_days": 5,
+      "waits": [
+        {
+          "days": 5,
+          "end": "2026-08-21",
+          "open": false,
+          "reason": "他部署の回答待ち",
+          "start": "2026-08-17"
+        },
+        {
+          "days": 0,
+          "end": "2026-09-15",
+          "open": true,
+          "reason": "",
+          "start": "2026-09-10"
+        }
+      ]
+    },
+    {
+      "actual_days": null,
+      "actual_end": null,
+      "actual_start": null,
+      "assignee": "佐藤",
+      "background": "",
+      "color": "",
+      "days": 18,
+      "delayed": false,
+      "depth": 1,
+      "due": null,
+      "due_late": false,
+      "due_late_open": false,
+      "end": "2026-09-25",
+      "end_variance": null,
+      "expected": null,
+      "has_children": false,
+      "id": "t-imp",
+      "name": "実装",
+      "note": "",
+      "overdue": 0,
+      "progress": 10,
+      "start": "2026-08-24",
+      "start_variance": null,
+      "status": "未着手",
+      "tags": [],
+      "targets": [],
+      "values": {
+        "f-ticket": "DEV-102"
+      },
+      "wait_days": 0,
+      "waits": []
+    },
+    {
+      "actual_days": null,
+      "actual_end": null,
+      "actual_start": null,
+      "assignee": "山田",
+      "background": "#fee2e2",
+      "color": "#b91c1c",
+      "days": 11,
+      "delayed": false,
+      "depth": 0,
+      "due": null,
+      "due_late": false,
+      "due_late_open": false,
+      "end": "2026-10-09",
+      "end_variance": null,
+      "expected": null,
+      "has_children": false,
+      "id": "t-test",
+      "name": "テスト",
+      "note": "",
+      "overdue": 0,
+      "progress": 0,
+      "start": "2026-09-21",
+      "start_variance": null,
+      "status": "未着手",
+      "tags": [],
+      "targets": [],
+      "values": {},
+      "wait_days": 0,
+      "waits": []
+    },
+    {
+      "actual_days": null,
+      "actual_end": null,
+      "actual_start": null,
+      "assignee": "",
+      "background": "",
+      "color": "",
+      "days": 13,
+      "delayed": true,
+      "depth": 0,
+      "due": null,
+      "due_late": false,
+      "due_late_open": false,
+      "end": "2026-08-20",
+      "end_variance": null,
+      "expected": 50,
+      "has_children": false,
+      "id": "t-doc",
+      "name": "ドキュメント整備",
+      "note": "",
+      "overdue": 18,
+      "progress": 5,
+      "start": "2026-08-01",
+      "start_variance": null,
+      "status": "進行中",
+      "tags": [],
+      "targets": [
+        {
+          "date": "2026-08-27",
+          "due": true,
+          "missed": true,
+          "percent": 50
+        }
+      ],
+      "values": {},
+      "wait_days": 0,
+      "waits": []
+    },
+    {
+      "actual_days": null,
+      "actual_end": null,
+      "actual_start": null,
+      "assignee": "山田",
+      "background": "",
+      "color": "",
+      "days": null,
+      "delayed": false,
+      "depth": 0,
+      "due": "2026-10-16",
+      "due_late": false,
+      "due_late_open": false,
+      "end": null,
+      "end_variance": null,
+      "expected": null,
+      "has_children": false,
+      "id": "t-due",
+      "name": "納品",
+      "note": "",
+      "overdue": 0,
+      "progress": 0,
+      "start": null,
+      "start_variance": null,
+      "status": "未着手",
+      "tags": [],
+      "targets": [],
+      "values": {},
+      "wait_days": 0,
+      "waits": []
+    }
+  ],
+  "theme": {
+    "actual": "#059669",
+    "bar": "#dbeafe",
+    "done": "#2563eb",
+    "holiday": "#fef2f2",
+    "late": "#dc2626",
+    "leave": "#fff7ed",
+    "saturday": "#eff6ff",
+    "summary": "#64748b",
+    "sunday": "#fef2f2",
+    "today": "#ea580c",
+    "wait": "#ede9fe"
+  },
+  "today": "2026-09-15",
+  "tooltip_columns": []
+}

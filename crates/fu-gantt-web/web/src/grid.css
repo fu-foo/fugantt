@@ -1414,6 +1414,24 @@ select.fg-editor {
   color: #cbd5e1;
 }
 
+/* The way out to a row's own page. Quiet until the row is pointed at, so a
+   table of a hundred rows is not a table of a hundred arrows. */
+.fg-row-link {
+  margin-left: 6px;
+  color: var(--fg-muted);
+  text-decoration: none;
+  opacity: 0;
+}
+
+.fg-row:hover .fg-row-link,
+.fg-row-link:focus-visible {
+  opacity: 1;
+}
+
+.fg-row-link:hover {
+  color: var(--fg-text);
+}
+
 /* --- chrome -------------------------------------------------------------- */
 
 .fg-error {

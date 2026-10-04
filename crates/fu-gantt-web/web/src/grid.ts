@@ -1,5 +1,5 @@
 import "./grid.css";
-import { apiBase } from "./base";
+import { apiBase, cleanQuery, rowLink, withQuery } from "./base";
 
 /** One row as the server resolved it. Nothing here is recomputed in the browser. */
 interface Task {
@@ -393,6 +393,7 @@ const FILTER_BOUND: Record<string, Bound> = {
  * because that is data, not wording.
  */
 const EN: Record<string, string> = {
+  "開く": "Open",
   // columns
   "タスク": "Task",
   "予定開始": "Planned start",
@@ -1107,6 +1108,8 @@ class Grid {
     private readonly projectId: string,
     /** Where the API lives, without a trailing slash. */
     private readonly api: string,
+    /** The host's query, put on every request. Empty when it gave none. */
+    private readonly query: string,
     private data: GridData,
   ) {
     this.collapsed = loadCollapsed(projectId);
@@ -1130,9 +1133,14 @@ class Grid {
    * rather than trying to apply someone else's edit. Our own writes come back
    * too, but by then we already hold that revision, so they fall through.
    */
+  /** An address under this grid's API, with the host's query on it. */
+  private at(path: string): string {
+    return withQuery(`${this.api}${path}`, this.query);
+  }
+
   private listen(): void {
     const source = new EventSource(
-      `${this.api}/live`,
+      this.at(`/live`),
     );
 
     source.addEventListener("change", (event) => {
@@ -1170,7 +1178,7 @@ class Grid {
 
     try {
       const response = await fetch(
-        `${this.api}/tasks/${encodeURIComponent(taskId)}/patch`,
+        this.at(`/tasks/${encodeURIComponent(taskId)}/patch`),
       );
 
       // A row that is not there any more, or a plan this browser has fallen
@@ -1203,7 +1211,7 @@ class Grid {
 
     try {
       const response = await fetch(
-        `${this.api}/grid`,
+        this.at(`/grid`),
       );
       if (!response.ok) return;
 
@@ -1373,7 +1381,7 @@ class Grid {
         drop.addEventListener("click", async () => {
           close();
           await this.send(
-            `${this.api}/filters/remove`,
+            this.at(`/filters/remove`),
             { method: "POST", body: { id: set.id } },
           );
         });
@@ -1409,7 +1417,7 @@ class Grid {
       }
 
       close();
-      await this.send(`${this.api}/filters`, {
+      await this.send(this.at(`/filters`), {
         method: "POST",
         body: {
           name: name.value.trim(),
@@ -2637,7 +2645,7 @@ class Grid {
 
       dialog.close();
 
-      await this.send(`${this.api}/leaves`, {
+      await this.send(this.at(`/leaves`), {
         method: "POST",
         body: { leaves },
       });
@@ -2742,7 +2750,7 @@ class Grid {
 
       dialog.close();
 
-      await this.send(`${this.api}/tasks/${task.id}`, {
+      await this.send(this.at(`/tasks/${task.id}`), {
         method: "POST",
         body: { field: "targets", value: lines.join("\n") },
         follow: task.id,
@@ -2841,7 +2849,7 @@ class Grid {
 
       dialog.close();
 
-      await this.send(`${this.api}/tasks/${task.id}`, {
+      await this.send(this.at(`/tasks/${task.id}`), {
         method: "POST",
         body: { field: "waits", value: lines.join("\n") },
         follow: task.id,
@@ -2920,7 +2928,7 @@ class Grid {
     this.applyLocally(task, column, value);
     this.render();
 
-    await this.send(`${this.api}/tasks/${task.id}`, {
+    await this.send(this.at(`/tasks/${task.id}`), {
       method: "POST",
       body: column.fieldId
         ? { field: "custom", field_id: column.fieldId, value }
@@ -2944,7 +2952,7 @@ class Grid {
     this.applyLocally(task, column, value);
     this.render();
 
-    await this.send(`${this.api}/tasks/${task.id}`, {
+    await this.send(this.at(`/tasks/${task.id}`), {
       method: "POST",
       body: column.fieldId
         ? { field: "custom", field_id: column.fieldId, value }
@@ -2956,7 +2964,7 @@ class Grid {
 
   /** Writes both dates at once, the way dragging a bar does. */
   private async writeSpan(task: Task, field: string, value: string): Promise<void> {
-    await this.send(`${this.api}/tasks/${task.id}`, {
+    await this.send(this.at(`/tasks/${task.id}`), {
       method: "POST",
       body: { field, value },
       follow: task.id,
@@ -3145,7 +3153,7 @@ class Grid {
     this.inserting++;
     let result: Mutation | null;
     try {
-      result = await this.send(`${this.api}/tasks`, {
+      result = await this.send(this.at(`/tasks`), {
         method: "POST",
         body: { after },
       });
@@ -3200,7 +3208,7 @@ class Grid {
     const was = this.spotOf(task.id);
 
     const result = await this.send(
-      `${this.api}/tasks/${task.id}/move`,
+      this.at(`/tasks/${task.id}/move`),
       { method: "POST", body: { action }, follow: task.id, was: was ?? undefined },
     );
 
@@ -3222,7 +3230,7 @@ class Grid {
     if (!window.confirm(question)) return;
 
     await this.send(
-      `${this.api}/tasks/${task.id}`,
+      this.at(`/tasks/${task.id}`),
       { method: "DELETE" },
     );
 
@@ -3425,7 +3433,7 @@ class Grid {
   /** The plan as the server has it, when a patch could not be trusted. */
   private async refetch(): Promise<void> {
     const response = await fetch(
-      `${this.api}/grid`,
+      this.at(`/grid`),
       { headers: { accept: "application/json" } },
     );
 
@@ -3654,7 +3662,7 @@ class Grid {
 
     this.replaying = true;
     const result = await this.send(
-      `${this.api}/tasks/${step.taskId}`,
+      this.at(`/tasks/${step.taskId}`),
       {
         method: "POST",
         body: { field: step.field, field_id: step.fieldId, value: target.send, expect },
@@ -3695,7 +3703,7 @@ class Grid {
 
     this.replaying = true;
     const result = await this.send(
-      `${this.api}/tasks/${step.taskId}/place`,
+      this.at(`/tasks/${step.taskId}/place`),
       { method: "POST", body: target, follow: step.taskId, was: now },
     );
     this.replaying = false;
@@ -3721,7 +3729,7 @@ class Grid {
     if (direction === "redo") {
       this.replaying = true;
       const result = await this.send(
-        `${this.api}/tasks`,
+        this.at(`/tasks`),
         { method: "POST", body: { after: step.at.after ?? step.at.parent } },
       );
       this.replaying = false;
@@ -3733,7 +3741,7 @@ class Grid {
       if (step.at.after === null && step.at.parent !== null) {
         this.replaying = true;
         await this.send(
-          `${this.api}/tasks/${result.task_id}/place`,
+          this.at(`/tasks/${result.task_id}/place`),
           { method: "POST", body: step.at, follow: result.task_id },
         );
         this.replaying = false;
@@ -3761,7 +3769,7 @@ class Grid {
 
     this.replaying = true;
     const result = await this.send(
-      `${this.api}/tasks/${step.taskId}`,
+      this.at(`/tasks/${step.taskId}`),
       { method: "DELETE" },
     );
     this.replaying = false;
@@ -4946,6 +4954,22 @@ class Grid {
         if (!task.name) text.classList.add("is-placeholder");
         cell.append(text);
 
+        // A way out to the page the host keeps for this row, when it has one.
+        const href = rowLink(this.root.dataset["rowLink"], task.id);
+        if (href !== null) {
+          const link = element("a", "fg-row-link", "↗");
+          link.href = href;
+          link.title = t("開く");
+          link.setAttribute("aria-label", t("開く"));
+          // Not a cell to type in: a press here is only ever a press on a link,
+          // so it selects nothing, opens no editor and pulls no pane.
+          link.tabIndex = -1;
+          for (const kind of ["mousedown", "pointerdown", "dblclick"]) {
+            link.addEventListener(kind, (event) => event.stopPropagation());
+          }
+          cell.append(link);
+        }
+
         if (task.has_children && this.collapsed.has(task.id)) {
           cell.append(element("span", "fg-folded", `+${this.hiddenCount(task)}`));
         }
@@ -5219,7 +5243,7 @@ class Grid {
       const was = this.spotOf(task.id);
 
       await this.send(
-        `${this.api}/tasks/${task.id}/place`,
+        this.at(`/tasks/${task.id}/place`),
         { method: "POST", body: drop, follow: task.id, was: was ?? undefined },
       );
     };
@@ -5287,7 +5311,7 @@ class Grid {
       task.progress = progress;
       this.render();
 
-      await this.send(`${this.api}/tasks/${task.id}`, {
+      await this.send(this.at(`/tasks/${task.id}`), {
         method: "POST",
         body: { field: "progress", value: String(progress) },
         rollback,
@@ -6191,7 +6215,7 @@ class Grid {
             ? { field: "actual_end", value: end }
             : { field: "actual_schedule", value: `${start}/${end}` };
 
-      await this.send(`${this.api}/tasks/${task.id}`, {
+      await this.send(this.at(`/tasks/${task.id}`), {
         method: "POST",
         body: edit,
         follow: task.id,
@@ -6298,7 +6322,7 @@ class Grid {
       const start = shiftDate(origin, from + (mode === "end" ? 0 : shift));
       const end = shiftDate(origin, from + span - 1 + (mode === "start" ? 0 : shift));
 
-      await this.send(`${this.api}/tasks/${task.id}`, {
+      await this.send(this.at(`/tasks/${task.id}`), {
         method: "POST",
         body: { field: "schedule", value: `${start}/${end}` },
         follow: task.id,
@@ -6606,7 +6630,7 @@ class Grid {
     which: "background" | "color" | "both",
     colour: string,
   ): Promise<void> {
-    const url = `${this.api}/tasks/${task.id}`;
+    const url = this.at(`/tasks/${task.id}`);
 
     for (const field of which === "both" ? ["background", "color"] : [which]) {
       await this.send(url, {
@@ -6684,15 +6708,16 @@ async function start(): Promise<void> {
   if (!projectId) return;
 
   const api = apiBase(root.dataset["api"], projectId);
+  const query = cleanQuery(root.dataset["query"]);
 
   try {
-    const response = await fetch(`${api}/grid`, {
+    const response = await fetch(withQuery(`${api}/grid`, query), {
       headers: { accept: "application/json" },
     });
 
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
-    new Grid(root, projectId, api, (await response.json()) as GridData);
+    new Grid(root, projectId, api, query, (await response.json()) as GridData);
   } catch (error) {
     root.replaceChildren(
       element("p", "fg-empty", t("スケジュールを読み込めませんでした。再読み込みしてください。")),

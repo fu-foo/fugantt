@@ -1,6 +1,6 @@
 [package]
 name = "fu-gantt-web"
-version = "0.1.0"
+version = "0.2.0"
 description = "The Gantt grid: one script and one stylesheet, ready to be served."
 edition.workspace = true
 license.workspace = true

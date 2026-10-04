@@ -8,8 +8,8 @@ fugantt のグリッドは、fugantt 以外のアプリにも組み込める。�
 ## 使うクレート
 
 ```toml
-fu-gantt-core = { git = "https://github.com/fu-foo/fugantt", tag = "v1.1.0" }
-fu-gantt-web  = { git = "https://github.com/fu-foo/fugantt", tag = "v1.1.0" }
+fu-gantt-core = { git = "https://github.com/fu-foo/fugantt", tag = "v1.2.0" }
+fu-gantt-web  = { git = "https://github.com/fu-foo/fugantt", tag = "v1.2.0" }
 ```
 
 | クレート | 中身 | 依存 |
@@ -26,6 +26,8 @@ fu-gantt-web  = { git = "https://github.com/fu-foo/fugantt", tag = "v1.1.0" }
 <div id="fugantt-grid"
      data-project="abc"
      data-api="/gantt/api/projects/abc"
+     data-query="status=open"
+     data-row-link="/issues/by-id/{id}"
      data-filter-count="#my-counter"></div>
 <script src="（GRID_JS を返す URL）" defer></script>
 ```
@@ -35,6 +37,8 @@ fu-gantt-web  = { git = "https://github.com/fu-foo/fugantt", tag = "v1.1.0" }
 | `id="fugantt-grid"` | ○ | グリッドが描く先。1ページに1つ |
 | `data-project` | ○ | プロジェクトの識別子。折りたたみ状態をブラウザーに覚えさせるキーにも使う |
 | `data-api` | | API の基点。無ければ `/api/projects/{data-project}` |
+| `data-query` | | グリッドが送るすべてのリクエストに付けるクエリー（`?` は付けずに書く）。グリッドは中身を解釈しない。無ければ何も付けない |
+| `data-row-link` | | 行から外のページに飛ぶリンクの雛形。`{id}` が行の id に置き換わる。`/` で始まるか `http(s)://` で始まるものだけ。無ければリンクを出さない |
 | `data-filter-count` | | 絞り込み件数を書く要素の CSS セレクター。無ければ `#fugantt-filter-count`。要素が無ければ何も書かない |
 
 要素には高さが要る（グリッドは親の高さいっぱいに広がる）。
@@ -123,6 +127,13 @@ let grid: GridData = fu_gantt_core::domain::build(project_id, revision, today, r
 - **書き込みのリクエストには `x-fugantt-client` ヘッダーが付く。** その値を `LiveChange.client` に
   入れて返すと、書いた本人のブラウザーが自分の変更の通知を無視できる
 - **権限の検査はホストの仕事。** グリッドは、返ってきた `GridData` の内容どおりに描くだけ
+- **`data-query` を使うなら、読みと書きの両方でそれを解釈する。** グリッドは `grid`・`patch`・`live`
+  と、すべての書き込みに同じクエリーを付ける。書き込みの応答（`Mutation`）も、その条件で見た
+  計画にすること
+- **条件付きのとき、`Patch.total` は「その条件で見えている行数」にする。** グリッドは手元の
+  行数と比べ、合わなければ `/grid` を読み直す
+- **書き込みで行が条件から外れたら、`grid`（全体）を返す。** `patch` で返すと行が残って見える。
+  `note` に理由を入れると、グリッドがそれを1行で知らせる
 
 ## 版
 

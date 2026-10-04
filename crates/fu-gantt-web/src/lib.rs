@@ -4,7 +4,8 @@
 //!
 //! ```html
 //! <link rel="stylesheet" href="…/grid.css">
-//! <div id="fugantt-grid" data-project="abc" data-api="/somewhere/abc"></div>
+//! <div id="fugantt-grid" data-project="abc" data-api="/somewhere/abc"
+//!      data-query="status=open" data-row-link="/issues/{id}"></div>
 //! <script src="…/grid.js" defer></script>
 //! ```
 //!

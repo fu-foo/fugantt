@@ -1,6 +1,6 @@
 # Two stages: build the binary, then ship it on its own.
 #
-# `web/dist` is committed, so the build needs Rust and nothing else — no Node,
+# `crates/fu-gantt-web/web/dist` is committed, so the build needs Rust and nothing else — no Node,
 # no network beyond crates.io.
 
 FROM rust:1.97-bookworm AS build

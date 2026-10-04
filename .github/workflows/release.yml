@@ -1,6 +1,6 @@
 # Builds the binaries a release is made of.
 #
-# `web/dist` is in the repository, so every job here is plain `cargo build` —
+# `crates/fu-gantt-web/web/dist` is in the repository, so every job here is plain `cargo build` —
 # no Node step, and nothing that can drift between a developer's machine and
 # this one.
 

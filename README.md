@@ -225,12 +225,28 @@ cargo install topcoat-cli --version 0.5.0
 ```
 
 ```sh
-cargo-topcoat dev        # http://127.0.0.1:1861。保存すると作り直す
-cargo build --release    # 配布用の実行ファイル1本（静的ファイルも中に入る）
+cd apps/fugantt
+cargo-topcoat dev                    # http://127.0.0.1:1861。保存すると作り直す
+cargo build --release -p fugantt     # 配布用の実行ファイル1本（静的ファイルも中に入る）
 ```
 
 > `cargo topcoat dev` ではなく `cargo-topcoat dev`。topcoat-cli 0.5.0 は
-> cargo のサブコマンドとして呼ばれると引数を読めない。`cargo run` でも動く。
+> cargo のサブコマンドとして呼ばれると引数を読めない。`cargo run -p fugantt` でも動く。
+
+グリッドの画面（TypeScript）を直したら、`crates/fu-gantt-web/web` で `npm run build` して
+`dist/` ごとコミットする。
+
+### リポジトリの構成
+
+| 場所 | 中身 |
+|---|---|
+| `apps/fugantt` | fugantt 本体。DB・認証・ページ・API |
+| `crates/fu-calendar` | 日本の祝日の計算。依存なし |
+| `crates/fu-gantt-core` | ガントの計算と、グリッドとやり取りする JSON の型 |
+| `crates/fu-gantt-web` | グリッドの画面（`grid.ts`）とそのビルド結果 |
+| `examples/minimal-host` | fugantt 以外からグリッドを動かす最小の例 |
+
+グリッドを別のアプリに組み込む方法は [docs/gantt-api.md](docs/gantt-api.md) にある。
 
 ## 応援する
 

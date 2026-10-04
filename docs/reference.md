@@ -216,6 +216,6 @@ curl -H "Authorization: Bearer fug_…" https://example.com/api/summary    # 案
 **測った事実**（保証ではなく、時間の節約のために）
 
 - 1セル直したときの往復は、100行でも1万行でも **14ms**（release、実測）
-- 打鍵（↓キー1回）のブラウザ側の処理は、100行でも1万行でも **15ms**（2026-08-16、release、実際のブラウザ。`web/test/measure.mjs`。測った機種は記録していない）
+- 打鍵（↓キー1回）のブラウザ側の処理は、100行でも1万行でも **15ms**（2026-08-16、release、実際のブラウザ。`crates/fu-gantt-web/web/test/measure.mjs`。測った機種は記録していない）
 - ブラウザのテストは Chrome で実際に動かしている（384件）
 - 1プロセス、SQLite のファイル1つ。同時に何人まで、という上限は設けていない

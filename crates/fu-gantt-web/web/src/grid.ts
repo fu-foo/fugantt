@@ -3321,6 +3321,11 @@ class Grid {
 
       this.select(moved >= 0 ? moved : this.row, this.column);
 
+      // The server did what was asked and has something to say about it: a
+      // row that left the view it was being looked at through, say. Said here
+      // so that every kind of write can be explained, not only a move.
+      if (result.note) this.showNotice(result.note);
+
       return result;
     } catch {
       this.setData(before);

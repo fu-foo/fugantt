@@ -324,7 +324,17 @@ async fn edit(cx: &Cx, Json(edit): Json<CellEdit>) -> Result<Json<Mutation>> {
         Write::Progress(percent) => task.progress = percent,
     }
 
-    Ok(Json(plan.changed(&id, view, None)))
+    // A row that has just left the view is sent back gone, and the grid would
+    // show exactly that: a row vanishing under the cursor. So the answer says
+    // why. It is still a change — the revision moves — only one with a word
+    // to go with it.
+    let left = view.hide_done && task.progress >= 100;
+    let mut answer = plan.changed(&id, view, None);
+    if left {
+        answer.note = Some("条件から外れたので表示から消えました。");
+    }
+
+    Ok(Json(answer))
 }
 
 #[route(POST "/g/api/plans/demo/tasks/{task_id}/move")]

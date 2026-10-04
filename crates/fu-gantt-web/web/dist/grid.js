@@ -2180,6 +2180,7 @@ ${lines.join("\n")}` : "";
         if (options.follow) this.reveal(options.follow);
         const moved = options.follow ? this.tasks.findIndex((task) => task.id === options.follow) : -1;
         this.select(moved >= 0 ? moved : this.row, this.column);
+        if (result.note) this.showNotice(result.note);
         return result;
       } catch {
         this.setData(before);

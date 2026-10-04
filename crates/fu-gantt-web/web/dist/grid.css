@@ -1031,6 +1031,19 @@ select.fg-editor {
 .fg-name-text.is-placeholder {
   color: #cbd5e1;
 }
+.fg-row-link {
+  margin-left: 6px;
+  color: var(--fg-muted);
+  text-decoration: none;
+  opacity: 0;
+}
+.fg-row:hover .fg-row-link,
+.fg-row-link:focus-visible {
+  opacity: 1;
+}
+.fg-row-link:hover {
+  color: var(--fg-text);
+}
 .fg-error {
   display: flex;
   align-items: center;

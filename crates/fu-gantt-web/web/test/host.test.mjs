@@ -109,11 +109,23 @@ check(
   queries.join(" "),
 );
 
+// Finishing a row takes it out of this view. The host says why, and the grid
+// passes that on rather than letting the row vanish without a word.
+await page.click(".fg-pane-left .fg-row.fg-data .fg-cell-progress");
+await page.keyboard.type("100");
+await page.keyboard.press("Enter");
+await page
+  .waitForFunction(() => document.querySelector(".fg-notice") !== null, { timeout: 3000 })
+  .catch(() => {});
+const gone = await page.evaluate(() => document.querySelector(".fg-notice")?.textContent ?? null);
+check("条件から外れた行が消える", (await names()).join(",") === "実装,テスト", (await names()).join(","));
+check("消えた理由を知らせる", (gone ?? "").includes("条件から外れた"), gone ?? "なし");
+
 await page.click(".fg-pane-left .fg-row.fg-data .fg-row-link");
 await page.waitForFunction(() => location.pathname.startsWith("/rows/"), { timeout: 5000 }).catch(() => {});
 check(
   "リンクを押すと行のページに移る",
-  await page.evaluate(() => location.pathname === "/rows/t-1"),
+  await page.evaluate(() => location.pathname === "/rows/t-2"),
   await page.evaluate(() => location.pathname),
 );
 

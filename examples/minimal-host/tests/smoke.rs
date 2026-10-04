@@ -250,6 +250,8 @@ fn a_view_is_kept_on_reads_and_on_what_a_write_answers() {
         Some(r#"{"field":"progress","value":"100"}"#),
     );
     assert_eq!(names(&done["grid"]), ["実装", "テスト"]);
+    // ...and says so, or the row vanishing reads as the write having failed.
+    assert_eq!(done["note"], "条件から外れたので表示から消えました。");
 
     // ...and out of the next read, while the plain view still has it.
     let hiding = host.json("GET", &format!("{API}/grid?hide_done=1"), None);
@@ -267,4 +269,27 @@ fn a_row_has_a_page_of_its_own() {
     assert!(page.contains("実装"), "{page}");
 
     assert_eq!(host.ask("GET", "/rows/nope", None).0, 404);
+}
+
+/// A write that leaves the row in view has nothing to explain.
+#[test]
+fn a_write_that_stays_in_view_says_nothing() {
+    let host = Host::start();
+    let grid = host.json("GET", &format!("{API}/grid?hide_done=1"), None);
+    let first = grid["tasks"][0]["id"].as_str().unwrap().to_owned();
+
+    let half = host.json(
+        "POST",
+        &format!("{API}/tasks/{first}?hide_done=1"),
+        Some(r#"{"field":"progress","value":"50"}"#),
+    );
+    assert!(half.get("note").is_none(), "{half}");
+
+    // Nor does finishing a row when nothing is being hidden.
+    let done = host.json(
+        "POST",
+        &format!("{API}/tasks/{first}"),
+        Some(r#"{"field":"progress","value":"100"}"#),
+    );
+    assert!(done.get("note").is_none(), "{done}");
 }

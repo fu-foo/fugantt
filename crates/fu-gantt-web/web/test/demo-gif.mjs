@@ -12,7 +12,7 @@
  *
  *   ffmpeg -i /tmp/demo.webm -c:v libx264 -pix_fmt yuv420p /tmp/demo.mp4
  *   ffmpeg -i /tmp/demo.mp4 -vf "fps=12,scale=1280:-1:flags=lanczos,palettegen=max_colors=128:stats_mode=diff" /tmp/pal.png
- *   ffmpeg -i /tmp/demo.mp4 -i /tmp/pal.png -lavfi "fps=12,scale=1280:-1:flags=lanczos[x];[x][1:v]paletteuse=dither=bayer:bayer_scale=4:diff_mode=rectangle" ../docs/images/demo.gif
+ *   ffmpeg -i /tmp/demo.mp4 -i /tmp/pal.png -lavfi "fps=12,scale=1280:-1:flags=lanczos[x];[x][1:v]paletteuse=dither=bayer:bayer_scale=4:diff_mode=rectangle" ../../../docs/images/demo.gif
  *
  * 1. Ctrl+Enter で行を足して、そのまま名前・担当者・ステータス・日付を打つ
  * 2. チャートのバーを引くと、表の日付が一緒に動く

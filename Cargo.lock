@@ -640,12 +640,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "fu-gantt-web"
+version = "0.1.0"
+
+[[package]]
 name = "fugantt"
 version = "1.0.1"
 dependencies = [
  "argon2",
  "fu-calendar",
  "fu-gantt-core",
+ "fu-gantt-web",
  "futures-core",
  "futures-util",
  "http",

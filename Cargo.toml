@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["apps/fugantt"]
+members = ["apps/fugantt", "crates/fu-calendar"]
 
 [workspace.package]
 edition = "2024"

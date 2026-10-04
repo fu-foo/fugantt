@@ -11,6 +11,7 @@ authors.workspace = true
 publish = false
 
 [dependencies]
+fu-calendar = { path = "../../crates/fu-calendar" }
 argon2 = "0.5"
 # Named directly for the request parts a layer reads; already in the tree
 # under topcoat.

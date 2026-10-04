@@ -72,6 +72,51 @@ check(
   api.every((path) => path.startsWith("/g/api/plans/demo/")),
   api.filter((path) => !path.startsWith("/g/api/plans/demo/")).join(" "),
 );
+// The link beside a name leads where the host said, and pressing it is only
+// pressing a link.
+const link = await page.evaluate(() => {
+  const anchor = document.querySelector(".fg-pane-left .fg-row.fg-data .fg-row-link");
+  return anchor ? anchor.getAttribute("href") : null;
+});
+check("行のリンクが出る", link === "/rows/t-1", link ?? "なし");
+
+// The same page under a view: every request carries it.
+asked.length = 0;
+const queries = [];
+page.on("request", (request) => {
+  const url = new URL(request.url());
+  if (url.pathname.includes("/api/")) queries.push(url.search);
+});
+
+await page.goto(`${BASE}/?hide_done=1`, { waitUntil: "domcontentloaded" });
+await page.waitForSelector(".fg-grid", { timeout: 10000 }).catch(() => {});
+
+// A write under the view, so there is more than a read to judge by.
+await page.click(".fg-pane-left .fg-row.fg-data .fg-name-text");
+await page.keyboard.press("F2");
+await page.keyboard.down("Meta");
+await page.keyboard.press("a");
+await page.keyboard.up("Meta");
+await page.keyboard.type("詳細設計");
+await page.keyboard.press("Enter");
+await new Promise((resolve) => setTimeout(resolve, 500));
+
+check("条件の下でも書き込める", (await names())[0] === "詳細設計", (await names()).join(","));
+check("読みと書きの両方を見た", queries.length >= 2, String(queries.length));
+check(
+  "すべてのリクエストに条件が付いている",
+  queries.every((search) => search === "?hide_done=1"),
+  queries.join(" "),
+);
+
+await page.click(".fg-pane-left .fg-row.fg-data .fg-row-link");
+await page.waitForFunction(() => location.pathname.startsWith("/rows/"), { timeout: 5000 }).catch(() => {});
+check(
+  "リンクを押すと行のページに移る",
+  await page.evaluate(() => location.pathname === "/rows/t-1"),
+  await page.evaluate(() => location.pathname),
+);
+
 check("JavaScript エラーが出ていない", pageErrors.length === 0, pageErrors.join(" / "));
 
 await browser.close();

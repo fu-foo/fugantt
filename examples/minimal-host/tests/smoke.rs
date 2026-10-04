@@ -4,6 +4,7 @@ use std::{
     io::{Read, Write},
     net::{TcpListener, TcpStream},
     process::{Child, Command, Stdio},
+    sync::{Mutex, PoisonError},
     time::{Duration, Instant},
 };
 
@@ -20,14 +21,22 @@ impl Drop for Host {
 }
 
 impl Host {
+    /// Returns once the host is listening.
+    ///
+    /// Finding a free port means listening on one for an instant, and tests
+    /// run side by side: a host that tries to take its port during somebody
+    /// else's instant is refused it. So one is started at a time.
     fn start() -> Self {
+        static STARTING: Mutex<()> = Mutex::new(());
+        let _one_at_a_time = STARTING.lock().unwrap_or_else(PoisonError::into_inner);
+
         let port = TcpListener::bind("127.0.0.1:0")
             .unwrap()
             .local_addr()
             .unwrap()
             .port();
 
-        let child = Command::new(env!("CARGO_BIN_EXE_minimal-host"))
+        let mut child = Command::new(env!("CARGO_BIN_EXE_minimal-host"))
             .env("PORT", port.to_string())
             .env("HOST", "127.0.0.1")
             .stdout(Stdio::null())
@@ -35,19 +44,21 @@ impl Host {
             .spawn()
             .unwrap();
 
+        let deadline = Instant::now() + Duration::from_secs(20);
+        while TcpStream::connect(("127.0.0.1", port)).is_err() {
+            if let Some(status) = child.try_wait().unwrap() {
+                panic!("起動せずに終わった: {status}");
+            }
+            assert!(Instant::now() < deadline, "起動しなかった");
+            std::thread::sleep(Duration::from_millis(20));
+        }
+
         Self { child, port }
     }
 
     /// The status and the body of one request.
     fn ask(&self, method: &str, path: &str, body: Option<&str>) -> (u16, String) {
-        let deadline = Instant::now() + Duration::from_secs(20);
-        let mut stream = loop {
-            match TcpStream::connect(("127.0.0.1", self.port)) {
-                Ok(stream) => break stream,
-                Err(error) if Instant::now() > deadline => panic!("起動しなかった: {error}"),
-                Err(_) => std::thread::sleep(Duration::from_millis(50)),
-            }
-        };
+        let mut stream = TcpStream::connect(("127.0.0.1", self.port)).unwrap();
 
         let body = body.unwrap_or("");
         write!(
@@ -208,4 +219,52 @@ fn the_plan_says_it_may_be_edited() {
 
     let grid = host.json("GET", &format!("{API}/grid"), None);
     assert_eq!(grid["can_edit"], true);
+}
+
+/// The page hands the grid whatever view it was asked for, and nothing when
+/// it was asked for none.
+#[test]
+fn the_page_passes_its_view_on_to_the_grid() {
+    let host = Host::start();
+
+    let (_, plain) = host.ask("GET", "/", None);
+    assert!(!plain.contains("data-query"), "{plain}");
+    assert!(plain.contains(r#"data-row-link="/rows/{id}""#), "{plain}");
+
+    let (_, hiding) = host.ask("GET", "/?hide_done=1", None);
+    assert!(hiding.contains(r#"data-query="hide_done=1""#), "{hiding}");
+}
+
+/// The same query on a read and on a write gives the same view of the plan.
+#[test]
+fn a_view_is_kept_on_reads_and_on_what_a_write_answers() {
+    let host = Host::start();
+    let grid = host.json("GET", &format!("{API}/grid?hide_done=1"), None);
+    assert_eq!(names(&grid).len(), 3);
+    let first = grid["tasks"][0]["id"].as_str().unwrap().to_owned();
+
+    // Finishing a row under that view takes it out of the answer...
+    let done = host.json(
+        "POST",
+        &format!("{API}/tasks/{first}?hide_done=1"),
+        Some(r#"{"field":"progress","value":"100"}"#),
+    );
+    assert_eq!(names(&done["grid"]), ["実装", "テスト"]);
+
+    // ...and out of the next read, while the plain view still has it.
+    let hiding = host.json("GET", &format!("{API}/grid?hide_done=1"), None);
+    assert_eq!(names(&hiding), ["実装", "テスト"]);
+    let all = host.json("GET", &format!("{API}/grid"), None);
+    assert_eq!(names(&all).len(), 3);
+}
+
+#[test]
+fn a_row_has_a_page_of_its_own() {
+    let host = Host::start();
+
+    let (status, page) = host.ask("GET", "/rows/t-2", None);
+    assert_eq!(status, 200);
+    assert!(page.contains("実装"), "{page}");
+
+    assert_eq!(host.ask("GET", "/rows/nope", None).0, 404);
 }

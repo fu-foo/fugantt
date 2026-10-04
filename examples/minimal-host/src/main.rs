@@ -25,7 +25,7 @@ use topcoat::{
         Body, Response, Router, RouterBuilderDiscoverExt,
         content::Json,
         error::{bad_request, not_found},
-        raw_path_params, route,
+        query_params, raw_path_params, route,
     },
 };
 
@@ -82,9 +82,14 @@ impl State {
         }
     }
 
-    /// The whole plan, worked out afresh.
-    fn grid(&self) -> GridData {
-        let mut rows = self.rows.clone();
+    /// The plan as one view of it sees it, worked out afresh.
+    fn grid(&self, view: View) -> GridData {
+        let mut rows: Vec<TaskRow> = self
+            .rows
+            .iter()
+            .filter(|row| !(view.hide_done && row.progress >= 100))
+            .cloned()
+            .collect();
         rows.sort_by(|a, b| a.sort_key.cmp(&b.sort_key));
 
         domain::build(
@@ -109,18 +114,41 @@ impl State {
     }
 
     /// What every write answers with: the new plan, and the row it was about.
-    fn changed(&mut self, task_id: &str, note: Option<&'static str>) -> Mutation {
+    fn changed(&mut self, task_id: &str, view: View, note: Option<&'static str>) -> Mutation {
         if note.is_none() {
             self.revision += 1;
         }
 
         Mutation {
-            grid: Some(self.grid()),
+            grid: Some(self.grid(view)),
             patch: None,
             task_id: Some(task_id.to_owned()),
             note,
         }
     }
+}
+
+/// Which rows whoever is looking wants to see.
+///
+/// The grid does not know what this means. It was handed the query by the
+/// page and hands it back on every request; reading it is this program's job.
+#[derive(Clone, Copy, Default)]
+struct View {
+    hide_done: bool,
+}
+
+#[query_params(error = bad_request("hide_done は 0 か 1 です。"))]
+struct ViewQuery {
+    hide_done: Option<String>,
+}
+
+fn view(cx: &Cx) -> View {
+    let hide_done = query_params::<ViewQuery>(cx)
+        .ok()
+        .and_then(|query| query.hide_done.clone())
+        .is_some_and(|value| value == "1");
+
+    View { hide_done }
 }
 
 fn plan(cx: &Cx) -> std::sync::MutexGuard<'_, State> {
@@ -145,7 +173,13 @@ fn file(content_type: &str, body: &'static str) -> Result<Response> {
 }
 
 #[route(GET "/")]
-async fn page(_cx: &Cx) -> Result<Response> {
+async fn page(cx: &Cx) -> Result<Response> {
+    let query = if view(cx).hide_done {
+        r#" data-query="hide_done=1""#
+    } else {
+        ""
+    };
+
     let html = format!(
         r##"<!doctype html>
 <html lang="ja">
@@ -157,10 +191,36 @@ async fn page(_cx: &Cx) -> Result<Response> {
   header {{ padding: 8px 16px; }}
   #fugantt-grid {{ height: calc(100vh - 48px); display: flex; flex-direction: column; }}
 </style>
-<header>minimal-host <span id="count"></span></header>
-<div id="fugantt-grid" data-project="demo" data-api="{API}" data-filter-count="#count"></div>
+<header>minimal-host <a href="/">すべて</a> <a href="/?hide_done=1">終わったものを隠す</a> <span id="count"></span></header>
+<div id="fugantt-grid" data-project="demo" data-api="{API}" data-filter-count="#count" data-row-link="/rows/{{id}}"{query}></div>
 <script src="/g/grid.js" defer></script>
 </html>"##
+    );
+
+    Ok(Response::builder()
+        .header("Content-Type", "text/html; charset=utf-8")
+        .body(Body::from(html))?)
+}
+
+/// Where a row's link leads. A real host has the row's own page here.
+#[route(GET "/rows/{task_id}")]
+async fn row_page(cx: &Cx) -> Result<Response> {
+    let id = task_id(cx)?;
+    let plan = plan(cx);
+
+    let Some(task) = plan.rows.iter().find(|row| row.id == id) else {
+        return Err(not_found().into());
+    };
+
+    // The name is the only thing here somebody typed.
+    let name = task
+        .name
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;");
+    let html = format!(
+        "<!doctype html><meta charset=\"utf-8\"><title>{name}</title>\
+         <p><a href=\"/\">← 計画に戻る</a></p><h1>{name}</h1>"
     );
 
     Ok(Response::builder()
@@ -180,11 +240,12 @@ async fn grid_css(_cx: &Cx) -> Result<Response> {
 
 #[route(GET "/g/api/plans/demo/grid")]
 async fn grid(cx: &Cx) -> Result<Json<GridData>> {
-    Ok(Json(plan(cx).grid()))
+    Ok(Json(plan(cx).grid(view(cx))))
 }
 
 #[route(POST "/g/api/plans/demo/tasks")]
 async fn insert(cx: &Cx, Json(insert): Json<InsertTask>) -> Result<Json<Mutation>> {
+    let view = view(cx);
     let mut plan = plan(cx);
     let order = plan.ordered();
 
@@ -206,13 +267,14 @@ async fn insert(cx: &Cx, Json(insert): Json<InsertTask>) -> Result<Json<Mutation
     plan.next_id += 1;
     plan.rows.push(row(&id, &key, "", "", ""));
 
-    Ok(Json(plan.changed(&id, None)))
+    Ok(Json(plan.changed(&id, view, None)))
 }
 
 #[route(POST "/g/api/plans/demo/tasks/{task_id}")]
 async fn edit(cx: &Cx, Json(edit): Json<CellEdit>) -> Result<Json<Mutation>> {
     let id = task_id(cx)?;
     let today = jiff::Zoned::now().date();
+    let view = view(cx);
     let mut plan = plan(cx);
 
     // Read before anything is written, so a refusal leaves the row as it was.
@@ -262,12 +324,13 @@ async fn edit(cx: &Cx, Json(edit): Json<CellEdit>) -> Result<Json<Mutation>> {
         Write::Progress(percent) => task.progress = percent,
     }
 
-    Ok(Json(plan.changed(&id, None)))
+    Ok(Json(plan.changed(&id, view, None)))
 }
 
 #[route(POST "/g/api/plans/demo/tasks/{task_id}/move")]
 async fn reorder(cx: &Cx, Json(request): Json<MoveRequest>) -> Result<Json<Mutation>> {
     let id = task_id(cx)?;
+    let view = view(cx);
     let mut plan = plan(cx);
     let order = plan.ordered();
 
@@ -280,14 +343,20 @@ async fn reorder(cx: &Cx, Json(request): Json<MoveRequest>) -> Result<Json<Mutat
         Move::Down => (at + 1 < order.len()).then_some(at + 1),
         // A flat list: there is no outline to move through.
         Move::Indent | Move::Outdent => {
-            return Ok(Json(
-                plan.changed(&id, Some("この見本には階層がありません。")),
-            ));
+            return Ok(Json(plan.changed(
+                &id,
+                view,
+                Some("この見本には階層がありません。"),
+            )));
         }
     };
 
     let Some(other) = other else {
-        return Ok(Json(plan.changed(&id, Some("これ以上は動かせません。"))));
+        return Ok(Json(plan.changed(
+            &id,
+            view,
+            Some("これ以上は動かせません。"),
+        )));
     };
 
     // Changing places is trading keys.
@@ -295,7 +364,7 @@ async fn reorder(cx: &Cx, Json(request): Json<MoveRequest>) -> Result<Json<Mutat
     let key = plan.rows[a].sort_key.clone();
     plan.rows[a].sort_key = std::mem::replace(&mut plan.rows[b].sort_key, key);
 
-    Ok(Json(plan.changed(&id, None)))
+    Ok(Json(plan.changed(&id, view, None)))
 }
 
 #[tokio::main]

@@ -30,3 +30,6 @@ jobs:
       # library when asked. Both are easy to break without noticing.
       - run: cargo test -p fu-calendar --all-features
       - run: cargo tree -p fu-calendar --edges normal --depth 1
+      # fugantt always turns `sqlx` on, so nothing else would notice the core
+      # no longer building without it.
+      - run: cargo test -p fu-gantt-core --no-default-features

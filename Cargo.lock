@@ -630,11 +630,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "fu-gantt-core"
+version = "0.1.0"
+dependencies = [
+ "jiff",
+ "serde",
+ "sqlx",
+]
+
+[[package]]
 name = "fugantt"
 version = "1.0.1"
 dependencies = [
  "argon2",
  "fu-calendar",
+ "fu-gantt-core",
  "futures-core",
  "futures-util",
  "http",

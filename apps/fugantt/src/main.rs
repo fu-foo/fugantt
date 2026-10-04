@@ -7,7 +7,6 @@ mod clock;
 mod config;
 mod daemon;
 mod db;
-mod domain;
 mod guard;
 mod history;
 mod holidays;
@@ -20,10 +19,13 @@ mod pages;
 mod project;
 mod ratelimit;
 mod session_cookie;
-mod sortkey;
 mod static_files;
 mod tokens;
 mod users;
+
+// The chart's arithmetic lives in its own crate. Named here so the rest of
+// the program goes on saying `crate::domain`.
+use fu_gantt_core::{domain, sortkey};
 
 use std::error::Error;
 

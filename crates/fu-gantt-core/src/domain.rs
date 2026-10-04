@@ -8,10 +8,10 @@ use std::collections::HashMap;
 
 use jiff::civil::Date;
 use serde::Serialize;
-use sqlx::FromRow;
 
 /// A task exactly as it is stored.
-#[derive(Debug, Clone, FromRow)]
+#[derive(Debug, Clone)]
+#[cfg_attr(feature = "sqlx", derive(sqlx::FromRow))]
 pub struct TaskRow {
     pub id: String,
     pub parent_id: Option<String>,
@@ -176,8 +176,7 @@ pub struct GridData {
 }
 
 impl GridData {
-    /// An empty grid, for tests to build on.
-    #[cfg(test)]
+    /// An empty grid, for tests to build on — this crate's, and a host's.
     pub fn empty(project_id: &str, revision: i64) -> Self {
         Self {
             project_id: project_id.to_owned(),
@@ -725,7 +724,8 @@ pub fn build(
 }
 
 /// A named set of filter conditions.
-#[derive(Debug, Clone, Serialize, sqlx::FromRow)]
+#[derive(Debug, Clone, Serialize)]
+#[cfg_attr(feature = "sqlx", derive(sqlx::FromRow))]
 pub struct FilterSet {
     pub id: String,
     pub name: String,

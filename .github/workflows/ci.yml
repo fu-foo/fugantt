@@ -26,3 +26,7 @@ jobs:
       - run: cargo fmt --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace
+      # The calendar promises to stand on nothing, and to meet either date
+      # library when asked. Both are easy to break without noticing.
+      - run: cargo test -p fu-calendar --all-features
+      - run: cargo tree -p fu-calendar --edges normal --depth 1

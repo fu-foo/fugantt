@@ -1,0 +1,20 @@
+[package]
+name = "fu-calendar"
+version = "0.1.0"
+description = "Japanese public holidays, worked out from the rules rather than listed."
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish = false
+
+[features]
+jiff = ["dep:jiff"]
+chrono = ["dep:chrono"]
+
+[dependencies]
+jiff = { workspace = true, optional = true }
+chrono = { version = "0.4", default-features = false, optional = true }
+
+[dev-dependencies]
+jiff.workspace = true

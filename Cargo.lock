@@ -1307,6 +1307,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6877bb514081ee2a7ff5ef9de3281f14a4dd4bceac4c09388074a6b5df8a139a"
 
 [[package]]
+name = "minimal-host"
+version = "0.0.0"
+dependencies = [
+ "fu-gantt-core",
+ "fu-gantt-web",
+ "jiff",
+ "serde_json",
+ "tokio",
+ "topcoat",
+]
+
+[[package]]
 name = "miniz_oxide"
 version = "0.8.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"

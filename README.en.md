@@ -229,12 +229,27 @@ cargo install topcoat-cli --version 0.5.0
 ```
 
 ```sh
-cargo-topcoat dev        # http://127.0.0.1:1861, rebuilt on save
-cargo build --release    # one executable, static files embedded
+cd apps/fugantt
+cargo-topcoat dev                    # http://127.0.0.1:1861, rebuilt on save
+cargo build --release -p fugantt     # one executable, static files embedded
 ```
 
 > `cargo-topcoat dev`, not `cargo topcoat dev`: topcoat-cli 0.5.0 cannot read its arguments when called as a cargo
-> subcommand. `cargo run` works too.
+> subcommand. `cargo run -p fugantt` works too.
+
+After changing the grid (TypeScript), run `npm run build` in `crates/fu-gantt-web/web` and commit `dist/` with it.
+
+### What is where
+
+| Place | What |
+|---|---|
+| `apps/fugantt` | fugantt itself: the database, sign-in, pages and API |
+| `crates/fu-calendar` | Japanese public holidays, worked out from the rules. No dependencies |
+| `crates/fu-gantt-core` | The chart's arithmetic, and the JSON the grid and its host exchange |
+| `crates/fu-gantt-web` | The grid (`grid.ts`) and its built files |
+| `examples/minimal-host` | The smallest host that shows the grid without fugantt |
+
+How to put the grid into another program is in [docs/gantt-api.md](docs/gantt-api.md) (Japanese).
 
 ## Supporting
 

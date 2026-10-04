@@ -3,6 +3,7 @@ mod app_settings;
 mod auth;
 mod backup;
 mod browser;
+mod clock;
 mod config;
 mod daemon;
 mod db;
@@ -137,7 +138,7 @@ async fn serve(settings: config::Loaded) -> Result<(), Box<dyn Error>> {
     let calendar = pool.clone();
     tokio::spawn(async move {
         loop {
-            match holidays::keep_filled(&calendar, jiff::Zoned::now().date()).await {
+            match holidays::keep_filled(&calendar, clock::today()).await {
                 Ok(true) => {
                     let _ =
                         sqlx::query("UPDATE projects SET revision = revision + 1, updated_at = ?1")

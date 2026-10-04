@@ -40,7 +40,7 @@ async fn index(cx: &Cx) -> Result {
     let today = data
         .today
         .parse::<Date>()
-        .unwrap_or_else(|_| jiff::Zoned::now().date());
+        .unwrap_or_else(|_| crate::clock::today());
 
     let from_month = month(window.from.as_deref()).unwrap_or_else(|| first_of(today));
     let to_month = month(window.to.as_deref()).unwrap_or(from_month);
@@ -123,7 +123,7 @@ async fn everywhere(cx: &Cx) -> Result {
     let l = crate::i18n::lang(cx).await;
 
     let (rows, projects) = project::tasks_everywhere(cx, &user.id).await?;
-    let today = jiff::Zoned::now().date();
+    let today = crate::clock::today();
 
     let data = domain::build(
         "",

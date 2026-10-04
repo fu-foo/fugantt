@@ -3,7 +3,6 @@
 
 use std::collections::HashMap;
 
-use jiff::Zoned;
 use serde::Deserialize;
 use sqlx::FromRow;
 use topcoat::{
@@ -706,7 +705,7 @@ async fn assemble(
 ) -> Result<GridData> {
     // "Late" is a question about the user's calendar day, so it follows the
     // server's local zone rather than UTC.
-    let today = Zoned::now().date();
+    let today = crate::clock::today();
 
     let holidays = holidays(cx, &project.id).await?;
     let leaves = leaves(cx, &project.id).await?;

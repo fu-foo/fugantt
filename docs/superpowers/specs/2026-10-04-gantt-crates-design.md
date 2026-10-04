@@ -78,15 +78,17 @@ fugantt/
    └─ fugantt/             それ以外すべて（DB, 認証, ページ, api.rs, migrations/）
 ```
 
-依存は下向きのみ。`apps/fugantt` → 3クレート、`fu-gantt-core` → `fu-calendar`。
+依存は下向きのみ。`apps/fugantt` → 3クレート。3クレートは互いに依存しない
+（`domain.rs` は祝日の計算を呼ばず、祝日は設定として受け取るだけ）。
 
 ### fu-calendar
 
 `holidays::japanese(year)` と、その下請け（第n月曜、春分・秋分、振替休日、国民の休日）。
 
-- 依存なし。日付は `(年, 月, 日)` の数値で返す
-- `jiff` フィーチャーで `jiff::civil::Date` を、`chrono` フィーチャーで `chrono::NaiveDate` を返す
-  関数を足す。FuAshiAto は chrono、fugantt は jiff なので両方要る
+- 依存なし。日付は自前の `Day`（年・月・日の数値、`YYYY-MM-DD` で表示できる）で返す。
+  曜日と翌日の計算も自前で持つ
+- `jiff` フィーチャーで `jiff::civil::Date` へ、`chrono` フィーチャーで `chrono::NaiveDate` へ
+  変換できる。FuAshiAto は chrono、fugantt は jiff なので両方要る
 - `keep_filled` は DB に書くので `apps/fugantt` に残す
 
 中身は祝日だけで、和暦と年度は入らない（Rust 側に計算がないため）。名前を広めにしてあるのは、
@@ -94,9 +96,10 @@ fugantt/
 
 ### fu-gantt-core
 
-`domain.rs` と `sortkey.rs` をそのまま移す。加えて、API の入出力の型を置く。
+`domain.rs` と `sortkey.rs` をそのまま移す。加えて、API の入出力の型と、セルに打たれた文字の
+読み取りを置く。
 
-- 依存: `jiff`、`serde`、`fu-calendar`
+- 依存: `jiff`、`serde`
 - `sqlx` フィーチャーを付けたときだけ `TaskRow` と `FilterSet` に `FromRow` を付ける。
   fugantt はこのフィーチャーを使う。sqlx を使わないホストは自分で `TaskRow` を組み立てる
 - Topcoat に依存しない。axum など他のフレームワークからも使える
@@ -106,16 +109,23 @@ API の型は、いま `api.rs` の中で非公開になっている入力の型
 `SaveFilterSet`、`LeaveList`／`LeaveEntry`。出力は `GridData` と、`patch`・`live` の応答。
 設定画面のフォーム（`StatusForm` など）は `grid.ts` が送らないので移さない。
 
+セルの文字の読み取りも移す。グリッドは日付を `8/5` や `0805` のような打ったままの文字で送り、
+読むのはサーバーの仕事になっている。いまは `api.rs` の末尾（`flexible_date`・`parse_date`・
+`parse_waits`・`parse_targets`・`parse_colour`）にあり、エラー文の翻訳と「今日」の取得が
+混ざっている。これを「今日」を引数で受け取り、エラーを列挙型で返す純粋な関数にして移す。
+`api.rs` には、同じ名前・同じエラー文の薄い包みを残す。これが無いと、ホストはグリッドが送る
+文字を正しく受け取れない。
+
 ### fu-gantt-web
 
 `web/` をディレクトリごと移す。Rust 側は埋め込みだけを持つ。
 
 - Rust の依存なし
-- 公開するもの: `GRID_JS`、`GRID_CSS`、`THEME_CSS` の定数と、内容から作るハッシュ
-  （キャッシュ破棄用）
-- `favicon.svg` と `page.js` は fugantt のページのものなので `apps/fugantt` に移す
-- `theme.css` をグリッドがどこまで必要とするかは段5で確かめる。グリッドが使う変数だけなら
-  `grid.css` に寄せ、残りは `apps/fugantt` に置く
+- 公開するもの: `GRID_JS`、`GRID_CSS` の定数と、内容から作るハッシュ（キャッシュ破棄用）
+- `theme.css`・`favicon.svg`・`page.js` は fugantt のページのものなので `apps/fugantt` に移す
+- `grid.css` は自分の既定値（明るい配色）だけで描ける。`theme.css` は `.fg-grid` の `--fg-*`
+  変数をページの色に結び直しているだけなので、これがホストの配色の入口になる。
+  fugantt の `theme.css` をその見本として文書に書く
 - 配信するルートは持たない。ホストが自分のやり方で返す。fugantt では `static_files.rs` が
   これまでどおり `/static/{hash}/{name}` で返す
 - `web/dist/` はこれまでどおりリポジトリに入れる。git 依存で使う側に Node を要求しないため
@@ -153,14 +163,18 @@ API の型は、いま `api.rs` の中で非公開になっている入力の型
 
 ### 1. 挙動を固定するテストを先に作る
 
-- 実データ入りの DB を固定データとして `apps/fugantt/tests/fixtures/` に置く
+- データ入りの DB を固定データとして `apps/fugantt/tests/fixtures/` に置く
   （この段ではまだ `tests/fixtures/`）
 - 固定 DB から次を取って記録し、毎回突き合わせる
   - `GET /api/projects/{id}/grid` の JSON
   - JSON 書き出し（全体・タスクのみ）
   - `/api/summary`
   - 主要ページの HTML
-- `today` に依存する出力は、日付を固定できる入口から取る
+- 「今日」は `Zoned::now()` から来ていて、遅れの判定も祝日の自動投入もそれに従う。
+  記録と突き合わせるため、デバッグビルドに限り `FUGANTT_TODAY` で今日を固定できるようにする。
+  リリースビルドではこの分岐はコンパイルされない
+- 固定 DB は作り物のデータで作る。リポジトリは公開なので、業務の実データは入れない。
+  作る手順（スクリプトと SQL）も一緒に置き、作り直せるようにする
 
 ### 2. 器だけワークスペースにする
 
@@ -177,7 +191,8 @@ API の型は、いま `api.rs` の中で非公開になっている入力の型
 
 - `domain.rs`・`sortkey.rs` と単体テストを移す
 - `FromRow` を `sqlx` フィーチャーの下に入れる
-- `api.rs` の入力の型のうち `grid.ts` が送るものを公開の型として移す
+- `api.rs` の入出力の型のうち `grid.ts` とやり取りするものを公開の型として移す
+- セルの文字の読み取りを純粋な関数にして移す
 
 ### 5. fu-gantt-web を切り出す
 
@@ -189,7 +204,8 @@ API の型は、いま `api.rs` の中で非公開になっている入力の型
 ### 6. 契約を文書にして v1.1.0 を出す
 
 - `docs/gantt-api.md` を書く
-- CHANGELOG・README を更新する。利用者向けの変更点は「なし」
+- README の開発手順を新しい配置に合わせる。利用者向けの変更点は「なし」
+  （CHANGELOG のファイルは無く、リリースノートは GitHub が自動で作る）
 
 ## 確かめ方
 

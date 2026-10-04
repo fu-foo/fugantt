@@ -1,4 +1,5 @@
 import "./grid.css";
+import { apiBase } from "./base";
 
 /** One row as the server resolved it. Nothing here is recomputed in the browser. */
 interface Task {
@@ -1104,6 +1105,8 @@ class Grid {
   constructor(
     private readonly root: HTMLElement,
     private readonly projectId: string,
+    /** Where the API lives, without a trailing slash. */
+    private readonly api: string,
     private data: GridData,
   ) {
     this.collapsed = loadCollapsed(projectId);
@@ -1129,7 +1132,7 @@ class Grid {
    */
   private listen(): void {
     const source = new EventSource(
-      `/api/projects/${encodeURIComponent(this.projectId)}/live`,
+      `${this.api}/live`,
     );
 
     source.addEventListener("change", (event) => {
@@ -1167,7 +1170,7 @@ class Grid {
 
     try {
       const response = await fetch(
-        `/api/projects/${encodeURIComponent(this.projectId)}/tasks/${encodeURIComponent(taskId)}/patch`,
+        `${this.api}/tasks/${encodeURIComponent(taskId)}/patch`,
       );
 
       // A row that is not there any more, or a plan this browser has fallen
@@ -1200,7 +1203,7 @@ class Grid {
 
     try {
       const response = await fetch(
-        `/api/projects/${encodeURIComponent(this.projectId)}/grid`,
+        `${this.api}/grid`,
       );
       if (!response.ok) return;
 
@@ -1287,7 +1290,10 @@ class Grid {
 
   /** Wires the header's filter box, which lives outside the island's markup. */
   private updateFilterCount(): void {
-    const label = document.getElementById("fugantt-filter-count");
+    // The host says where its counter is. One that does not gets the id
+    // fugantt's own header uses.
+    const where = this.root.dataset["filterCount"]?.trim() || "#fugantt-filter-count";
+    const label = document.querySelector<HTMLElement>(where);
     if (!label) return;
 
     label.textContent = "";
@@ -1367,7 +1373,7 @@ class Grid {
         drop.addEventListener("click", async () => {
           close();
           await this.send(
-            `/api/projects/${encodeURIComponent(this.projectId)}/filters/remove`,
+            `${this.api}/filters/remove`,
             { method: "POST", body: { id: set.id } },
           );
         });
@@ -1403,7 +1409,7 @@ class Grid {
       }
 
       close();
-      await this.send(`/api/projects/${encodeURIComponent(this.projectId)}/filters`, {
+      await this.send(`${this.api}/filters`, {
         method: "POST",
         body: {
           name: name.value.trim(),
@@ -2631,7 +2637,7 @@ class Grid {
 
       dialog.close();
 
-      await this.send(`/api/projects/${encodeURIComponent(this.projectId)}/leaves`, {
+      await this.send(`${this.api}/leaves`, {
         method: "POST",
         body: { leaves },
       });
@@ -2736,7 +2742,7 @@ class Grid {
 
       dialog.close();
 
-      await this.send(`/api/projects/${encodeURIComponent(this.projectId)}/tasks/${task.id}`, {
+      await this.send(`${this.api}/tasks/${task.id}`, {
         method: "POST",
         body: { field: "targets", value: lines.join("\n") },
         follow: task.id,
@@ -2835,7 +2841,7 @@ class Grid {
 
       dialog.close();
 
-      await this.send(`/api/projects/${encodeURIComponent(this.projectId)}/tasks/${task.id}`, {
+      await this.send(`${this.api}/tasks/${task.id}`, {
         method: "POST",
         body: { field: "waits", value: lines.join("\n") },
         follow: task.id,
@@ -2914,7 +2920,7 @@ class Grid {
     this.applyLocally(task, column, value);
     this.render();
 
-    await this.send(`/api/projects/${encodeURIComponent(this.projectId)}/tasks/${task.id}`, {
+    await this.send(`${this.api}/tasks/${task.id}`, {
       method: "POST",
       body: column.fieldId
         ? { field: "custom", field_id: column.fieldId, value }
@@ -2938,7 +2944,7 @@ class Grid {
     this.applyLocally(task, column, value);
     this.render();
 
-    await this.send(`/api/projects/${encodeURIComponent(this.projectId)}/tasks/${task.id}`, {
+    await this.send(`${this.api}/tasks/${task.id}`, {
       method: "POST",
       body: column.fieldId
         ? { field: "custom", field_id: column.fieldId, value }
@@ -2950,7 +2956,7 @@ class Grid {
 
   /** Writes both dates at once, the way dragging a bar does. */
   private async writeSpan(task: Task, field: string, value: string): Promise<void> {
-    await this.send(`/api/projects/${encodeURIComponent(this.projectId)}/tasks/${task.id}`, {
+    await this.send(`${this.api}/tasks/${task.id}`, {
       method: "POST",
       body: { field, value },
       follow: task.id,
@@ -3139,7 +3145,7 @@ class Grid {
     this.inserting++;
     let result: Mutation | null;
     try {
-      result = await this.send(`/api/projects/${encodeURIComponent(this.projectId)}/tasks`, {
+      result = await this.send(`${this.api}/tasks`, {
         method: "POST",
         body: { after },
       });
@@ -3194,7 +3200,7 @@ class Grid {
     const was = this.spotOf(task.id);
 
     const result = await this.send(
-      `/api/projects/${encodeURIComponent(this.projectId)}/tasks/${task.id}/move`,
+      `${this.api}/tasks/${task.id}/move`,
       { method: "POST", body: { action }, follow: task.id, was: was ?? undefined },
     );
 
@@ -3216,7 +3222,7 @@ class Grid {
     if (!window.confirm(question)) return;
 
     await this.send(
-      `/api/projects/${encodeURIComponent(this.projectId)}/tasks/${task.id}`,
+      `${this.api}/tasks/${task.id}`,
       { method: "DELETE" },
     );
 
@@ -3419,7 +3425,7 @@ class Grid {
   /** The plan as the server has it, when a patch could not be trusted. */
   private async refetch(): Promise<void> {
     const response = await fetch(
-      `/api/projects/${encodeURIComponent(this.projectId)}/grid`,
+      `${this.api}/grid`,
       { headers: { accept: "application/json" } },
     );
 
@@ -3648,7 +3654,7 @@ class Grid {
 
     this.replaying = true;
     const result = await this.send(
-      `/api/projects/${encodeURIComponent(this.projectId)}/tasks/${step.taskId}`,
+      `${this.api}/tasks/${step.taskId}`,
       {
         method: "POST",
         body: { field: step.field, field_id: step.fieldId, value: target.send, expect },
@@ -3689,7 +3695,7 @@ class Grid {
 
     this.replaying = true;
     const result = await this.send(
-      `/api/projects/${encodeURIComponent(this.projectId)}/tasks/${step.taskId}/place`,
+      `${this.api}/tasks/${step.taskId}/place`,
       { method: "POST", body: target, follow: step.taskId, was: now },
     );
     this.replaying = false;
@@ -3715,7 +3721,7 @@ class Grid {
     if (direction === "redo") {
       this.replaying = true;
       const result = await this.send(
-        `/api/projects/${encodeURIComponent(this.projectId)}/tasks`,
+        `${this.api}/tasks`,
         { method: "POST", body: { after: step.at.after ?? step.at.parent } },
       );
       this.replaying = false;
@@ -3727,7 +3733,7 @@ class Grid {
       if (step.at.after === null && step.at.parent !== null) {
         this.replaying = true;
         await this.send(
-          `/api/projects/${encodeURIComponent(this.projectId)}/tasks/${result.task_id}/place`,
+          `${this.api}/tasks/${result.task_id}/place`,
           { method: "POST", body: step.at, follow: result.task_id },
         );
         this.replaying = false;
@@ -3755,7 +3761,7 @@ class Grid {
 
     this.replaying = true;
     const result = await this.send(
-      `/api/projects/${encodeURIComponent(this.projectId)}/tasks/${step.taskId}`,
+      `${this.api}/tasks/${step.taskId}`,
       { method: "DELETE" },
     );
     this.replaying = false;
@@ -5213,7 +5219,7 @@ class Grid {
       const was = this.spotOf(task.id);
 
       await this.send(
-        `/api/projects/${encodeURIComponent(this.projectId)}/tasks/${task.id}/place`,
+        `${this.api}/tasks/${task.id}/place`,
         { method: "POST", body: drop, follow: task.id, was: was ?? undefined },
       );
     };
@@ -5281,7 +5287,7 @@ class Grid {
       task.progress = progress;
       this.render();
 
-      await this.send(`/api/projects/${encodeURIComponent(this.projectId)}/tasks/${task.id}`, {
+      await this.send(`${this.api}/tasks/${task.id}`, {
         method: "POST",
         body: { field: "progress", value: String(progress) },
         rollback,
@@ -6185,7 +6191,7 @@ class Grid {
             ? { field: "actual_end", value: end }
             : { field: "actual_schedule", value: `${start}/${end}` };
 
-      await this.send(`/api/projects/${encodeURIComponent(this.projectId)}/tasks/${task.id}`, {
+      await this.send(`${this.api}/tasks/${task.id}`, {
         method: "POST",
         body: edit,
         follow: task.id,
@@ -6292,7 +6298,7 @@ class Grid {
       const start = shiftDate(origin, from + (mode === "end" ? 0 : shift));
       const end = shiftDate(origin, from + span - 1 + (mode === "start" ? 0 : shift));
 
-      await this.send(`/api/projects/${encodeURIComponent(this.projectId)}/tasks/${task.id}`, {
+      await this.send(`${this.api}/tasks/${task.id}`, {
         method: "POST",
         body: { field: "schedule", value: `${start}/${end}` },
         follow: task.id,
@@ -6600,7 +6606,7 @@ class Grid {
     which: "background" | "color" | "both",
     colour: string,
   ): Promise<void> {
-    const url = `/api/projects/${encodeURIComponent(this.projectId)}/tasks/${task.id}`;
+    const url = `${this.api}/tasks/${task.id}`;
 
     for (const field of which === "both" ? ["background", "color"] : [which]) {
       await this.send(url, {
@@ -6677,14 +6683,16 @@ async function start(): Promise<void> {
   const projectId = root.dataset["project"];
   if (!projectId) return;
 
+  const api = apiBase(root.dataset["api"], projectId);
+
   try {
-    const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/grid`, {
+    const response = await fetch(`${api}/grid`, {
       headers: { accept: "application/json" },
     });
 
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
-    new Grid(root, projectId, (await response.json()) as GridData);
+    new Grid(root, projectId, api, (await response.json()) as GridData);
   } catch (error) {
     root.replaceChildren(
       element("p", "fg-empty", t("スケジュールを読み込めませんでした。再読み込みしてください。")),

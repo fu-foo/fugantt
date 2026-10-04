@@ -1,5 +1,11 @@
 "use strict";
 (() => {
+  // src/base.ts
+  function apiBase(given, projectId) {
+    const base = (given ?? "").trim().replace(/\/+$/, "");
+    return base !== "" ? base : `/api/projects/${encodeURIComponent(projectId)}`;
+  }
+
   // src/grid.ts
   function column(key) {
     return BASE_COLUMNS.find((entry) => entry.key === key) ?? BASE_COLUMNS[0];
@@ -496,9 +502,10 @@
     return tasks.filter((_, index) => keep[index]);
   }
   var _Grid = class _Grid {
-    constructor(root, projectId, data) {
+    constructor(root, projectId, api, data) {
       this.root = root;
       this.projectId = projectId;
+      this.api = api;
       this.data = data;
       this.row = 0;
       this.column = 0;
@@ -604,7 +611,7 @@
      */
     listen() {
       const source = new EventSource(
-        `/api/projects/${encodeURIComponent(this.projectId)}/live`
+        `${this.api}/live`
       );
       source.addEventListener("change", (event) => {
         const change = JSON.parse(event.data);
@@ -623,7 +630,7 @@
       if (this.editing || this.composing) return;
       try {
         const response = await fetch(
-          `/api/projects/${encodeURIComponent(this.projectId)}/tasks/${encodeURIComponent(taskId)}/patch`
+          `${this.api}/tasks/${encodeURIComponent(taskId)}/patch`
         );
         if (!response.ok) {
           void this.refresh(actor);
@@ -644,7 +651,7 @@
       const here = this.selected?.id;
       try {
         const response = await fetch(
-          `/api/projects/${encodeURIComponent(this.projectId)}/grid`
+          `${this.api}/grid`
         );
         if (!response.ok) return;
         const shape = this.shape();
@@ -705,7 +712,8 @@
     }
     /** Wires the header's filter box, which lives outside the island's markup. */
     updateFilterCount() {
-      const label = document.getElementById("fugantt-filter-count");
+      const where = this.root.dataset["filterCount"]?.trim() || "#fugantt-filter-count";
+      const label = document.querySelector(where);
       if (!label) return;
       label.textContent = "";
       if (this.filtering) {
@@ -764,7 +772,7 @@
           drop.addEventListener("click", async () => {
             close();
             await this.send(
-              `/api/projects/${encodeURIComponent(this.projectId)}/filters/remove`,
+              `${this.api}/filters/remove`,
               { method: "POST", body: { id: set.id } }
             );
           });
@@ -791,7 +799,7 @@
           return;
         }
         close();
-        await this.send(`/api/projects/${encodeURIComponent(this.projectId)}/filters`, {
+        await this.send(`${this.api}/filters`, {
           method: "POST",
           body: {
             name: name.value.trim(),
@@ -1681,7 +1689,7 @@ ${lines.join("\n")}` : "";
           };
         }).filter((leave) => leave.assignee && leave.start && leave.end);
         dialog.close();
-        await this.send(`/api/projects/${encodeURIComponent(this.projectId)}/leaves`, {
+        await this.send(`${this.api}/leaves`, {
           method: "POST",
           body: { leaves }
         });
@@ -1763,7 +1771,7 @@ ${lines.join("\n")}` : "";
           lines.push(`${date.value} ${percent.value}%`);
         }
         dialog.close();
-        await this.send(`/api/projects/${encodeURIComponent(this.projectId)}/tasks/${task.id}`, {
+        await this.send(`${this.api}/tasks/${task.id}`, {
           method: "POST",
           body: { field: "targets", value: lines.join("\n") },
           follow: task.id
@@ -1841,7 +1849,7 @@ ${lines.join("\n")}` : "";
           lines.push(reason ? `${range} ${reason}` : range);
         }
         dialog.close();
-        await this.send(`/api/projects/${encodeURIComponent(this.projectId)}/tasks/${task.id}`, {
+        await this.send(`${this.api}/tasks/${task.id}`, {
           method: "POST",
           body: { field: "waits", value: lines.join("\n") },
           follow: task.id
@@ -1890,7 +1898,7 @@ ${lines.join("\n")}` : "";
       const rollback = structuredClone(this.data);
       this.applyLocally(task, column2, value);
       this.render();
-      await this.send(`/api/projects/${encodeURIComponent(this.projectId)}/tasks/${task.id}`, {
+      await this.send(`${this.api}/tasks/${task.id}`, {
         method: "POST",
         body: column2.fieldId ? { field: "custom", field_id: column2.fieldId, value } : { field: column2.key, value },
         rollback
@@ -1908,7 +1916,7 @@ ${lines.join("\n")}` : "";
       const rollback = structuredClone(this.data);
       this.applyLocally(task, column2, value);
       this.render();
-      await this.send(`/api/projects/${encodeURIComponent(this.projectId)}/tasks/${task.id}`, {
+      await this.send(`${this.api}/tasks/${task.id}`, {
         method: "POST",
         body: column2.fieldId ? { field: "custom", field_id: column2.fieldId, value } : { field: column2.key, value },
         rollback,
@@ -1917,7 +1925,7 @@ ${lines.join("\n")}` : "";
     }
     /** Writes both dates at once, the way dragging a bar does. */
     async writeSpan(task, field, value) {
-      await this.send(`/api/projects/${encodeURIComponent(this.projectId)}/tasks/${task.id}`, {
+      await this.send(`${this.api}/tasks/${task.id}`, {
         method: "POST",
         body: { field, value },
         follow: task.id
@@ -2062,7 +2070,7 @@ ${lines.join("\n")}` : "";
       this.inserting++;
       let result;
       try {
-        result = await this.send(`/api/projects/${encodeURIComponent(this.projectId)}/tasks`, {
+        result = await this.send(`${this.api}/tasks`, {
           method: "POST",
           body: { after }
         });
@@ -2100,7 +2108,7 @@ ${lines.join("\n")}` : "";
       this.notice = null;
       const was = this.spotOf(task.id);
       const result = await this.send(
-        `/api/projects/${encodeURIComponent(this.projectId)}/tasks/${task.id}/move`,
+        `${this.api}/tasks/${task.id}/move`,
         { method: "POST", body: { action }, follow: task.id, was: was ?? void 0 }
       );
       if (result?.note) this.showNotice(result.note);
@@ -2113,7 +2121,7 @@ ${lines.join("\n")}` : "";
       const question = task.has_children ? `\u300C${label}\u300D\u3068\u3001\u305D\u306E\u5B50\u30BF\u30B9\u30AF\u3092\u3059\u3079\u3066\u524A\u9664\u3057\u307E\u3059\u3002\u3088\u308D\u3057\u3044\u3067\u3059\u304B\uFF1F` : `\u300C${label}\u300D\u3092\u524A\u9664\u3057\u307E\u3059\u3002\u3088\u308D\u3057\u3044\u3067\u3059\u304B\uFF1F`;
       if (!window.confirm(question)) return;
       await this.send(
-        `/api/projects/${encodeURIComponent(this.projectId)}/tasks/${task.id}`,
+        `${this.api}/tasks/${task.id}`,
         { method: "DELETE" }
       );
       this.select(this.row, this.column);
@@ -2233,7 +2241,7 @@ ${lines.join("\n")}` : "";
     /** The plan as the server has it, when a patch could not be trusted. */
     async refetch() {
       const response = await fetch(
-        `/api/projects/${encodeURIComponent(this.projectId)}/grid`,
+        `${this.api}/grid`,
         { headers: { accept: "application/json" } }
       );
       if (response.ok) this.setData(await response.json());
@@ -2399,7 +2407,7 @@ ${lines.join("\n")}` : "";
       const expect = direction === "undo" ? step.after.stored : step.before.stored;
       this.replaying = true;
       const result = await this.send(
-        `/api/projects/${encodeURIComponent(this.projectId)}/tasks/${step.taskId}`,
+        `${this.api}/tasks/${step.taskId}`,
         {
           method: "POST",
           body: { field: step.field, field_id: step.fieldId, value: target.send, expect },
@@ -2430,7 +2438,7 @@ ${lines.join("\n")}` : "";
       const target = direction === "undo" ? step.from : step.to;
       this.replaying = true;
       const result = await this.send(
-        `/api/projects/${encodeURIComponent(this.projectId)}/tasks/${step.taskId}/place`,
+        `${this.api}/tasks/${step.taskId}/place`,
         { method: "POST", body: target, follow: step.taskId, was: now }
       );
       this.replaying = false;
@@ -2451,7 +2459,7 @@ ${lines.join("\n")}` : "";
       if (direction === "redo") {
         this.replaying = true;
         const result2 = await this.send(
-          `/api/projects/${encodeURIComponent(this.projectId)}/tasks`,
+          `${this.api}/tasks`,
           { method: "POST", body: { after: step.at.after ?? step.at.parent } }
         );
         this.replaying = false;
@@ -2459,7 +2467,7 @@ ${lines.join("\n")}` : "";
         if (step.at.after === null && step.at.parent !== null) {
           this.replaying = true;
           await this.send(
-            `/api/projects/${encodeURIComponent(this.projectId)}/tasks/${result2.task_id}/place`,
+            `${this.api}/tasks/${result2.task_id}/place`,
             { method: "POST", body: step.at, follow: result2.task_id }
           );
           this.replaying = false;
@@ -2482,7 +2490,7 @@ ${lines.join("\n")}` : "";
       }
       this.replaying = true;
       const result = await this.send(
-        `/api/projects/${encodeURIComponent(this.projectId)}/tasks/${step.taskId}`,
+        `${this.api}/tasks/${step.taskId}`,
         { method: "DELETE" }
       );
       this.replaying = false;
@@ -3501,7 +3509,7 @@ ${lines.join("\n")}` : "";
         if (drop.parent === task.id) return;
         const was = this.spotOf(task.id);
         await this.send(
-          `/api/projects/${encodeURIComponent(this.projectId)}/tasks/${task.id}/place`,
+          `${this.api}/tasks/${task.id}/place`,
           { method: "POST", body: drop, follow: task.id, was: was ?? void 0 }
         );
       };
@@ -3548,7 +3556,7 @@ ${lines.join("\n")}` : "";
         const rollback = structuredClone(this.data);
         task.progress = progress;
         this.render();
-        await this.send(`/api/projects/${encodeURIComponent(this.projectId)}/tasks/${task.id}`, {
+        await this.send(`${this.api}/tasks/${task.id}`, {
           method: "POST",
           body: { field: "progress", value: String(progress) },
           rollback,
@@ -4159,7 +4167,7 @@ ${lines.join("\n")}` : "";
         const start2 = shiftDate(origin, from + (mode === "end" ? 0 : shift));
         const end = shiftDate(origin, from + span - 1 + (mode === "start" ? 0 : shift));
         const edit = open && mode !== "end" ? { field: "actual_start", value: start2 } : open ? { field: "actual_end", value: end } : { field: "actual_schedule", value: `${start2}/${end}` };
-        await this.send(`/api/projects/${encodeURIComponent(this.projectId)}/tasks/${task.id}`, {
+        await this.send(`${this.api}/tasks/${task.id}`, {
           method: "POST",
           body: edit,
           follow: task.id
@@ -4223,7 +4231,7 @@ ${lines.join("\n")}` : "";
         }
         const start2 = shiftDate(origin, from + (mode === "end" ? 0 : shift));
         const end = shiftDate(origin, from + span - 1 + (mode === "start" ? 0 : shift));
-        await this.send(`/api/projects/${encodeURIComponent(this.projectId)}/tasks/${task.id}`, {
+        await this.send(`${this.api}/tasks/${task.id}`, {
           method: "POST",
           body: { field: "schedule", value: `${start2}/${end}` },
           follow: task.id
@@ -4453,7 +4461,7 @@ ${lines.join("\n")}` : "";
     }
     /** Writes one of the row's colours, or clears both. */
     async paint(task, which, colour) {
-      const url = `/api/projects/${encodeURIComponent(this.projectId)}/tasks/${task.id}`;
+      const url = `${this.api}/tasks/${task.id}`;
       for (const field of which === "both" ? ["background", "color"] : [which]) {
         await this.send(url, {
           method: "POST",
@@ -4514,12 +4522,13 @@ ${lines.join("\n")}` : "";
     if (!root) return;
     const projectId = root.dataset["project"];
     if (!projectId) return;
+    const api = apiBase(root.dataset["api"], projectId);
     try {
-      const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/grid`, {
+      const response = await fetch(`${api}/grid`, {
         headers: { accept: "application/json" }
       });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      new Grid(root, projectId, await response.json());
+      new Grid(root, projectId, api, await response.json());
     } catch (error) {
       root.replaceChildren(
         element("p", "fg-empty", t("\u30B9\u30B1\u30B8\u30E5\u30FC\u30EB\u3092\u8AAD\u307F\u8FBC\u3081\u307E\u305B\u3093\u3067\u3057\u305F\u3002\u518D\u8AAD\u307F\u8FBC\u307F\u3057\u3066\u304F\u3060\u3055\u3044\u3002"))

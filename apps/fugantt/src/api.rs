@@ -11,7 +11,7 @@
 use futures_core::Stream;
 use futures_util::stream;
 use jiff::civil::Date;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use tokio::sync::broadcast;
 use topcoat::{
     Result,
@@ -26,6 +26,12 @@ use topcoat::{
         error::{SeeOther, bad_request, forbidden, see_other},
         headers, query_params, route,
     },
+};
+
+use fu_gantt_core::text::{self, TextError, normalize_width};
+use fu_gantt_core::wire::{
+    CellEdit, CellField as Field, InsertTask, LeaveList, MoveRequest, Moved, Mutation, Patch,
+    PlaceRequest, RemoveFilterSet, SaveFilterSet,
 };
 
 use crate::{
@@ -290,108 +296,8 @@ async fn write_document(
     Ok(Json(project::grid_data(cx, &project).await?))
 }
 
-/// What a mutation gives back: the new state, and the row it concerns.
-#[derive(Serialize)]
-struct Mutation {
-    /// The whole plan. Sent by the writes that can move anything anywhere —
-    /// reordering, importing, a change to the calendar or the columns.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    grid: Option<GridData>,
-    /// What one ordinary write changed, which is a handful of rows however
-    /// long the plan is. See [`Patch`].
-    #[serde(skip_serializing_if = "Option::is_none")]
-    patch: Option<Patch>,
-    task_id: Option<String>,
-    /// Why a request that succeeded still changed nothing.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    note: Option<&'static str>,
-}
-
-/// What a write changed, rather than the plan it changed it in.
-///
-/// Writing one cell used to answer with every row there was, because the
-/// server owns the derived numbers and the caller cannot know how far a value
-/// carries. It carries exactly as far as the summary rows above it: a date
-/// moves its parent's dates, and its parent's parent's, and stops. So that is
-/// what comes back — three or four rows on a plan of ten thousand, instead of
-/// four megabytes of JSON that the browser then has to read.
-#[derive(Debug, Serialize)]
-struct Patch {
-    revision: i64,
-    /// The row that was written to, and the summary rows above it.
-    rows: Vec<TaskView>,
-    /// Where a new row belongs: the id it comes after, or `None` for the top.
-    /// Only a write that adds a row sets this.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    after: Option<String>,
-    /// A row that changed places, with its subtree following it.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    moved: Option<Moved>,
-    /// Rows that are gone, subtree and all.
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    removed: Vec<String>,
-    /// The chart's window, which a date can push outwards.
-    range_start: String,
-    range_end: String,
-    /// How many rows the plan has now.
-    ///
-    /// The browser compares this with what it holds. If they disagree it has
-    /// missed something, and it asks for the whole plan rather than drawing
-    /// numbers it cannot vouch for.
-    total: usize,
-}
-
-#[derive(Debug, Clone, Copy, Deserialize)]
-#[serde(rename_all = "snake_case")]
-enum Field {
-    Name,
-    Start,
-    End,
-    /// 納期: the day this was promised for. Not the plan's end — the plan says
-    /// which days are booked, this says which day was named to somebody else.
-    Due,
-    Progress,
-    Status,
-    Assignee,
-    Note,
-    /// 実施開始 / 実施終了.
-    ActualStart,
-    ActualEnd,
-    /// Waiting periods, as many as needed: `8/17〜8/21, 9/1〜9/3`.
-    Waits,
-    /// 予定進捗: the checkpoints the plan names — `8/20 30%, 8/28 100%`.
-    Targets,
-    /// The row's own colours, `#rrggbb` or empty to take them off.
-    Color,
-    Background,
-    /// One of the project's own columns, named by `field_id`.
-    Custom,
-    /// Both dates at once, as `START/END`. Dragging a bar moves them together,
-    /// and sending them apart would put the row through an invalid state.
-    Schedule,
-    /// 実施開始 / 実施終了 together, for the same reason.
-    ActualSchedule,
-}
-
 /// Free text fields are capped so one paste cannot bloat every grid fetch.
 const TEXT_LIMIT: usize = 500;
-
-#[derive(Deserialize)]
-struct CellEdit {
-    field: Field,
-    /// Which project-defined column, when `field` is `custom`.
-    field_id: Option<String>,
-    /// The raw cell text. An empty string clears a date.
-    value: String,
-    /// What the sender believes is there now, as it is stored.
-    ///
-    /// Undo sends this. Putting a value back is only right if the value it is
-    /// putting back is still the one that replaced it — otherwise the person
-    /// pressing Ctrl+Z would silently throw away somebody else's work, which is
-    /// the one thing an undo must never do. Absent means "write it regardless",
-    /// which is what an ordinary edit means.
-    expect: Option<String>,
-}
 
 /// What a cell holds now, in the shape a caller would send it back.
 ///
@@ -776,13 +682,6 @@ fn field_label(field: Field) -> &'static str {
     }
 }
 
-#[derive(Deserialize)]
-struct InsertTask {
-    /// Insert below this row, keeping it among the same siblings. `None`
-    /// appends to the top level.
-    after: Option<String>,
-}
-
 #[route(POST "/api/projects/{project_id}/tasks")]
 async fn insert_task(cx: &Cx, Json(insert): Json<InsertTask>) -> Result<Json<Mutation>> {
     let user = require_user(cx).await?;
@@ -839,11 +738,6 @@ async fn insert_task(cx: &Cx, Json(insert): Json<InsertTask>) -> Result<Json<Mut
     .await
 }
 
-#[derive(Deserialize)]
-struct MoveRequest {
-    action: project::Move,
-}
-
 #[route(POST "/api/projects/{project_id}/tasks/{task_id}/move")]
 async fn move_task(cx: &Cx, Json(request): Json<MoveRequest>) -> Result<Json<Mutation>> {
     let user = require_user(cx).await?;
@@ -898,14 +792,6 @@ async fn move_task(cx: &Cx, Json(request): Json<MoveRequest>) -> Result<Json<Mut
         },
     )
     .await
-}
-
-#[derive(Deserialize)]
-struct PlaceRequest {
-    /// The new parent, or `None` for the top level.
-    parent: Option<String>,
-    /// The sibling it lands after, or `None` to become the first child.
-    after: Option<String>,
 }
 
 #[route(POST "/api/projects/{project_id}/tasks/{task_id}/place")]
@@ -1245,21 +1131,6 @@ async fn respond_patch(
     }))
 }
 
-/// Where a row ended up after being moved.
-///
-/// The browser holds the plan as one flat list, so a subtree is the row plus
-/// the run of deeper rows behind it. Told which row it now follows and how
-/// deep it now sits, the browser can cut that run out and put it back — no
-/// need to be sent the plan to find out what order it is in.
-#[derive(Debug, Serialize)]
-struct Moved {
-    id: String,
-    /// The row it comes after, or `None` for the top of the plan.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    after: Option<String>,
-    depth: usize,
-}
-
 /// Which shape of change a write made, so the answer can say what moved.
 enum Change {
     Wrote(String),
@@ -1301,28 +1172,6 @@ fn with_ancestors(tasks: &[TaskView], id: &str) -> Vec<TaskView> {
     }
 
     wanted
-}
-
-/// Folds full-width digits and separators onto their ASCII forms.
-///
-/// A Japanese keyboard left in kana or full-width mode turns "2026-09-01" into
-/// "２０２６－０９－０１", which is the same date typed the same way and should
-/// not be refused for it.
-fn normalize_width(value: &str) -> String {
-    value
-        .chars()
-        .map(|c| match c {
-            '０'..='９' => char::from_u32(c as u32 - '０' as u32 + '0' as u32).unwrap_or(c),
-            'ａ'..='ｚ' => char::from_u32(c as u32 - 'ａ' as u32 + 'a' as u32).unwrap_or(c),
-            'Ａ'..='Ｚ' => char::from_u32(c as u32 - 'Ａ' as u32 + 'A' as u32).unwrap_or(c),
-            '－' | 'ー' | '−' | '‐' => '-',
-            '／' => '/',
-            '．' => '.',
-            '％' => '%',
-            '　' => ' ',
-            _ => c,
-        })
-        .collect()
 }
 
 fn trim(value: &str) -> String {
@@ -1529,23 +1378,6 @@ async fn add_leave(cx: &Cx, Form(form): Form<LeaveForm>) -> Result<SeeOther> {
 
     // Leave is ordinary work rather than a setting, so this goes back to the schedule.
     Ok(see_other(&format!("/projects/{project_id}")))
-}
-
-#[derive(Deserialize)]
-struct LeaveList {
-    leaves: Vec<LeaveEntry>,
-}
-
-#[derive(Deserialize)]
-struct LeaveEntry {
-    assignee: String,
-    start: String,
-    end: String,
-    #[serde(default)]
-    note: String,
-    /// `off` for a day away, `on` for a day worked regardless.
-    #[serde(default)]
-    kind: String,
 }
 
 /// Replaces the whole list, for the dialog on the schedule.
@@ -2268,21 +2100,6 @@ async fn remove_field(cx: &Cx, Form(form): Form<RemoveField>) -> Result<SeeOther
     )))
 }
 
-/// The columns: which are shown, how wide, and in what order.
-///
-/// Their own form rather than part of the view one, because the ↑↓ buttons have
-/// to live beside the fields they reorder — and a form cannot nest in a form.
-/// Pressing ↑ submits the same form, so the widths typed alongside are saved
-/// rather than discarded.
-/// A named set of conditions, as the island writes it.
-#[derive(Deserialize)]
-struct SaveFilterSet {
-    name: String,
-    conditions: String,
-    /// Everybody's, or only mine.
-    shared: bool,
-}
-
 /// Keeps a set of filter conditions under a name.
 ///
 /// Shared or personal, because both are real: "遅れているものだけ" is how a team
@@ -2338,7 +2155,7 @@ async fn save_filter_set(cx: &Cx, Json(set): Json<SaveFilterSet>) -> Result<Json
 
 /// Forgets one.
 #[route(POST "/api/projects/{project_id}/filters/remove")]
-async fn remove_filter_set(cx: &Cx, Json(which): Json<Named>) -> Result<Json<Mutation>> {
+async fn remove_filter_set(cx: &Cx, Json(which): Json<RemoveFilterSet>) -> Result<Json<Mutation>> {
     let user = require_user(cx).await?;
     let project_id = project::id_from_path(cx)?.to_owned();
     let project = project::authorize(cx, &user.id, &project_id).await?;
@@ -2363,11 +2180,6 @@ async fn remove_filter_set(cx: &Cx, Json(which): Json<Named>) -> Result<Json<Mut
         task_id: None,
         note: None,
     }))
-}
-
-#[derive(Deserialize)]
-struct Named {
-    id: String,
 }
 
 /// Which columns a bar repeats when somebody points at it.
@@ -3153,233 +2965,40 @@ async fn check_order(cx: &Cx, task_id: &str, field: Field, date: Option<&str>) -
     Ok(())
 }
 
-/// A colour, or nothing.
-///
-/// Only `#rrggbb`, and only lower case: the value goes straight into a style
-/// attribute, and a colour is the one kind of user input that has no reason to
-/// be anything but six hex digits.
+/// A refusal from the reader, in the words the person reads.
+fn refused(error: TextError, l: crate::i18n::Lang) -> topcoat::Error {
+    bad_request(l.t(match error {
+        TextError::Colour => "色は #rrggbb の形式で指定してください。",
+        TextError::TargetShape => "予定進捗は「8/20 30%」のように日付と％で入力してください。",
+        TextError::TargetPercent => "進捗は0〜100で入力してください。",
+        TextError::WaitShape => "待ちは「8/17〜8/21」のように範囲で入力してください。",
+        TextError::WaitDate => "待ちの日付は「8/17」か「2026-08-17」の形式です。",
+        TextError::Date => {
+            "日付は 5・805・0805・20260805・8/5・2026-08-05 のように入力してください。"
+        }
+    }))
+    .into()
+}
+
 fn parse_colour(value: &str, l: crate::i18n::Lang) -> Result<String> {
-    let value = value.trim();
-    if value.is_empty() {
-        return Ok(String::new());
-    }
-
-    let hex = value.strip_prefix('#').unwrap_or(value);
-    if hex.len() != 6 || !hex.chars().all(|c| c.is_ascii_hexdigit()) {
-        return Err(bad_request(l.t("色は #rrggbb の形式で指定してください。")).into());
-    }
-
-    Ok(format!("#{}", hex.to_ascii_lowercase()))
+    text::colour(value).map_err(|error| refused(error, l))
 }
 
-/// Reads a cell of 予定進捗 into the stored form: `YYYY-MM-DD/PERCENT` a line.
-///
-/// Written the way a person would say it — `8/20 30%, 8/28 100%` — in either
-/// width, with the percent sign optional. Each line is one promise: by this
-/// date, this much. Nothing is read into the gap between two of them.
 fn parse_targets(value: &str, l: crate::i18n::Lang) -> Result<String> {
-    let text = normalize_width(value);
-    let mut stored: Vec<(Date, i64)> = Vec::new();
-
-    for part in text.split(['\n', ',', '、']) {
-        let part = part.trim();
-        if part.is_empty() {
-            continue;
-        }
-
-        let (date, percent) = part.rsplit_once([' ', '/', '\t']).ok_or_else(|| {
-            bad_request(l.t("予定進捗は「8/20 30%」のように日付と％で入力してください。"))
-        })?;
-
-        let date = wait_date(date.trim(), l)?;
-        let percent: i64 = percent
-            .trim()
-            .trim_end_matches(['%', '％'])
-            .trim()
-            .parse()
-            .map_err(|_| {
-                bad_request(l.t("予定進捗は「8/20 30%」のように日付と％で入力してください。"))
-            })?;
-
-        if !(0..=100).contains(&percent) {
-            return Err(bad_request(l.t("進捗は0〜100で入力してください。")).into());
-        }
-
-        // The same date twice is one promise revised, not two.
-        stored.retain(|(had, _)| *had != date);
-        stored.push((date, percent));
-    }
-
-    stored.sort_by_key(|(date, _)| *date);
-
-    Ok(stored
-        .iter()
-        .map(|(date, percent)| format!("{date}/{percent}"))
-        .collect::<Vec<_>>()
-        .join("\n"))
+    text::targets(value, crate::clock::today()).map_err(|error| refused(error, l))
 }
 
-/// Reads a cell of waiting periods into the stored form.
-///
-/// People write ranges every which way — `8/17〜8/21`, `2026-08-17 - 2026-08-21`
-/// — and in whichever width the IME was in. A range with no end (`9/1〜`) is one
-/// that has not finished: the days keep counting until it does. Anything after
-/// the range is the reason, which is a note that happens to be worth counting.
 fn parse_waits(value: &str, l: crate::i18n::Lang) -> Result<String> {
-    let text = normalize_width(value);
-    let mut stored: Vec<String> = Vec::new();
-
-    for part in text.split(['\n', ',', '、']) {
-        let part = part.trim();
-        if part.is_empty() {
-            continue;
-        }
-
-        let (range, reason) = split_reason(part);
-        let range = range.replace(' ', "");
-
-        let (from, to) = range
-            .split_once(['〜', '~', '～'])
-            .or_else(|| range.split_once(" - "))
-            .or_else(|| split_dash_range(&range))
-            .ok_or_else(|| {
-                bad_request(l.t("待ちは「8/17〜8/21」のように範囲で入力してください。"))
-            })?;
-
-        let from = wait_date(from, l)?;
-        let to = to.trim();
-
-        // No end written means it is still waiting.
-        if to.is_empty() {
-            stored.push(with_reason(&format!("{from}/"), &reason));
-            continue;
-        }
-
-        let to = wait_date(to, l)?;
-        let (from, to) = if to < from { (to, from) } else { (from, to) };
-
-        stored.push(with_reason(&format!("{from}/{to}"), &reason));
-    }
-
-    Ok(stored.join("\n"))
+    text::waits(value, crate::clock::today()).map_err(|error| refused(error, l))
 }
 
-/// Splits `8/17〜8/21 他部署` into its range and its reason.
-///
-/// Token by token: the range is however many words at the front are made only
-/// of date characters, and everything after them is the reason. That reads
-/// `8/17 〜 8/21 他部署` and `8/17〜8/21 3社` the same way a person does.
-fn split_reason(part: &str) -> (String, String) {
-    let is_date_ish = |text: &str| {
-        !text.is_empty()
-            && text
-                .chars()
-                .all(|c| c.is_ascii_digit() || "-/.〜~～年月日".contains(c))
-    };
-
-    let tokens: Vec<&str> = part.split_whitespace().collect();
-    let range = tokens
-        .iter()
-        .take_while(|token| is_date_ish(token))
-        .count()
-        .max(1);
-
-    (tokens[..range].join(" "), tokens[range..].join(" "))
-}
-
-fn with_reason(range: &str, reason: &str) -> String {
-    if reason.is_empty() {
-        range.to_owned()
-    } else {
-        // Newline separated above, so a colon is free to mark the reason.
-        format!("{range}:{}", reason.replace([':', '\n'], " ").trim())
-    }
-}
-
-/// `2026-08-17 - 2026-08-21`, where the separator is the same character the
-/// dates themselves use. Splitting on the dash surrounded by spaces is the only
-/// reading that cannot be confused with the date's own dashes.
-fn split_dash_range(part: &str) -> Option<(&str, &str)> {
-    part.split_once(" - ")
-        .or_else(|| part.split_once('/').filter(|(from, _)| from.contains('-')))
-}
-
-/// A day inside a waiting range, read the same way as any other date cell.
-fn wait_date(text: &str, l: crate::i18n::Lang) -> Result<Date> {
-    flexible_date(text)
-        .ok_or_else(|| bad_request(l.t("待ちの日付は「8/17」か「2026-08-17」の形式です。")).into())
-}
-
-/// An empty cell clears the date; anything else must be a real calendar day.
 fn parse_date(value: &str, l: crate::i18n::Lang) -> Result<Option<String>> {
-    let value = normalize_width(value.trim());
-    let value = value.trim_end_matches('%').trim();
-
-    if value.is_empty() {
-        return Ok(None);
-    }
-
-    let date = flexible_date(value).ok_or_else(|| {
-        bad_request(
-            l.t("日付は 5・805・0805・20260805・8/5・2026-08-05 のように入力してください。"),
-        )
-    })?;
-
-    Ok(Some(date.to_string()))
+    text::date(value, crate::clock::today()).map_err(|error| refused(error, l))
 }
 
-/// A date, however somebody typed it.
-///
-/// Nobody reaches for the hyphens: on a numeric keypad `20260805`, `0805`,
-/// `805` and `05` are the fast ways to say a day, and `8/5` is how it gets
-/// written by hand. All of them mean a day, so all of them are accepted.
-///
-/// Bare digits are read by how many there are: one or two are a day this
-/// month, three or four a day this year, eight a whole date. Nothing is
-/// carried forward — `3` on the 28th of December is the third of December, in
-/// the past. Most of what gets typed into 実施開始 is in the past, and a
-/// reading that helpfully moved it on would make yesterday impossible to say.
+/// A date, however somebody typed it. See [`text::flexible_date`].
 pub fn flexible_date(value: &str) -> Option<Date> {
-    // 年, 月 and 日 read as separators; a trailing 日 is only punctuation.
-    let value = normalize_width(value)
-        .trim()
-        .replace(['/', '.', '年', '月'], "-")
-        .replace('日', "");
-    let value = value.trim_end_matches('-').to_owned();
-    let today = crate::clock::today();
-    let year = today.year();
-    let month = today.month();
-
-    if value.chars().all(|c| c.is_ascii_digit()) {
-        // Only the odd lengths that mean something. Padding any odd length
-        // would let seven digits fall into the whole-date reading and come
-        // back as the year 26.
-        let padded = match value.len() {
-            1 | 3 => format!("0{value}"),
-            _ => value.clone(),
-        };
-
-        return match padded.len() {
-            8 => format!("{}-{}-{}", &padded[..4], &padded[4..6], &padded[6..])
-                .parse()
-                .ok(),
-            4 => format!("{year}-{}-{}", &padded[..2], &padded[2..])
-                .parse()
-                .ok(),
-            2 => format!("{year}-{month:02}-{padded}").parse().ok(),
-            _ => None,
-        };
-    }
-
-    let parts: Vec<&str> = value.split('-').filter(|part| !part.is_empty()).collect();
-
-    let text = match parts.as_slice() {
-        [month, day] => format!("{year}-{month:0>2}-{day:0>2}"),
-        [year, month, day] => format!("{year:0>4}-{month:0>2}-{day:0>2}"),
-        _ => return None,
-    };
-
-    text.parse().ok()
+    text::flexible_date(value, crate::clock::today())
 }
 
 #[cfg(test)]

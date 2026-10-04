@@ -3,7 +3,6 @@
 
 use std::collections::HashMap;
 
-use serde::Deserialize;
 use sqlx::FromRow;
 use topcoat::{
     Result,
@@ -833,19 +832,7 @@ pub async fn next_sort_key(cx: &Cx, project_id: &str) -> Result<String> {
     ))
 }
 
-/// How a row moves through the outline.
-#[derive(Debug, Clone, Copy, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum Move {
-    /// Become a child of the row above.
-    Indent,
-    /// Become a sibling of the current parent, just after it.
-    Outdent,
-    /// Swap with the previous sibling.
-    Up,
-    /// Swap with the next sibling.
-    Down,
-}
+pub use fu_gantt_core::wire::Move;
 
 /// Moves a row through the outline.
 ///

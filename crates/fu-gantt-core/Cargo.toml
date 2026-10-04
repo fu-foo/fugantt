@@ -1,0 +1,18 @@
+[package]
+name = "fu-gantt-core"
+version = "0.1.0"
+description = "The arithmetic of a Gantt chart: plan against actual, counted in working days."
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish = false
+
+[features]
+# Lets the stored rows be read straight out of a query.
+sqlx = ["dep:sqlx"]
+
+[dependencies]
+jiff.workspace = true
+serde.workspace = true
+sqlx = { workspace = true, features = ["derive"], optional = true }

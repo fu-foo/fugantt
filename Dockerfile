@@ -7,7 +7,7 @@ FROM rust:1.97-bookworm AS build
 
 WORKDIR /src
 COPY . .
-RUN cargo build --release --locked
+RUN cargo build --release --locked -p fugantt
 
 FROM debian:bookworm-slim
 

@@ -1,0 +1,94 @@
+{
+  "name": "リリース計画",
+  "tasks": [
+    {
+      "actual_end": "2026-08-18",
+      "actual_start": "2026-08-03",
+      "assignee": "山田",
+      "depth": 0,
+      "end": "2026-08-14",
+      "id": "t-req",
+      "name": "要件定義",
+      "progress": 100,
+      "start": "2026-08-03",
+      "status": "完了",
+      "targets": [
+        "2026-08-14/100"
+      ]
+    },
+    {
+      "depth": 0,
+      "id": "t-dev",
+      "name": "開発",
+      "progress": 0,
+      "status": "未着手"
+    },
+    {
+      "actual_start": "2026-08-12",
+      "assignee": "佐藤",
+      "depth": 1,
+      "end": "2026-08-28",
+      "id": "t-des",
+      "name": "設計",
+      "note": "画面は別紙",
+      "progress": 60,
+      "start": "2026-08-10",
+      "status": "待ち",
+      "targets": [
+        "2026-08-20/50",
+        "2026-10-15/90"
+      ],
+      "waits": [
+        "2026-08-17/2026-08-21",
+        "2026-09-10/2026-09-15"
+      ]
+    },
+    {
+      "assignee": "佐藤",
+      "depth": 1,
+      "end": "2026-09-25",
+      "fields": {
+        "チケット": "DEV-102"
+      },
+      "id": "t-imp",
+      "name": "実装",
+      "progress": 10,
+      "start": "2026-08-24",
+      "status": "未着手"
+    },
+    {
+      "assignee": "山田",
+      "background": "#fee2e2",
+      "color": "#b91c1c",
+      "depth": 0,
+      "end": "2026-10-09",
+      "id": "t-test",
+      "name": "テスト",
+      "progress": 0,
+      "start": "2026-09-21",
+      "status": "未着手"
+    },
+    {
+      "depth": 0,
+      "end": "2026-08-20",
+      "id": "t-doc",
+      "name": "ドキュメント整備",
+      "progress": 5,
+      "start": "2026-08-01",
+      "status": "進行中",
+      "targets": [
+        "2026-08-27/50"
+      ]
+    },
+    {
+      "assignee": "山田",
+      "depth": 0,
+      "due": "2026-10-16",
+      "id": "t-due",
+      "name": "納品",
+      "progress": 0,
+      "status": "未着手"
+    }
+  ],
+  "version": 1
+}

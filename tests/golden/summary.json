@@ -1,0 +1,22 @@
+[
+  {
+    "delayed": 2,
+    "id": "golden",
+    "late_days": 25,
+    "name": "リリース計画",
+    "progress": 29,
+    "slipped": 30,
+    "tasks": 6,
+    "wait_days": 5
+  },
+  {
+    "delayed": 0,
+    "id": "empty",
+    "late_days": 0,
+    "name": "空の計画",
+    "progress": 0,
+    "slipped": 0,
+    "tasks": 0,
+    "wait_days": 0
+  }
+]

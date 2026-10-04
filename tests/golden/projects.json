@@ -1,0 +1,12 @@
+[
+  {
+    "id": "golden",
+    "name": "リリース計画",
+    "revision": 7
+  },
+  {
+    "id": "empty",
+    "name": "空の計画",
+    "revision": 0
+  }
+]

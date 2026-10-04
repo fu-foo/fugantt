@@ -33,3 +33,13 @@ jobs:
       # fugantt always turns `sqlx` on, so nothing else would notice the core
       # no longer building without it.
       - run: cargo test -p fu-gantt-core --no-default-features
+      # The one part of the grid that can be checked without a browser, and
+      # that the committed bundle is what the source builds.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+        working-directory: crates/fu-gantt-web/web
+      - run: npm run typecheck && npm run test:unit && npm run build
+        working-directory: crates/fu-gantt-web/web
+      - run: git diff --exit-code crates/fu-gantt-web/web/dist

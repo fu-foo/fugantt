@@ -3,7 +3,7 @@
 *.db-wal
 *.db-shm
 # テストが読む固定データ。これだけは持つ
-!tests/fixtures/v1.db
+!apps/fugantt/tests/fixtures/v1.db
 /web/node_modules
 
 # web/dist is committed on purpose: the Rust build embeds it as an asset, so

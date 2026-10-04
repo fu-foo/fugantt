@@ -1,2 +1,2 @@
 *.db binary
-tests/golden/* text eol=lf
+apps/fugantt/tests/golden/* text eol=lf

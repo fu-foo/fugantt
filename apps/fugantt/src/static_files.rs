@@ -21,13 +21,13 @@ use topcoat::{
 const TAILWIND: &str = include_str!(concat!(env!("OUT_DIR"), "/tailwind.css"));
 
 /// The grid island, built by `npm run build` in `web/` and committed.
-const GRID_CSS: &str = include_str!("../web/dist/grid.css");
+const GRID_CSS: &str = include_str!("../../../web/dist/grid.css");
 /// Dark mode and the colour tokens the pages read. Hand-written, so it is
 /// included from the source rather than from a bundle.
-const THEME_CSS: &str = include_str!("../web/src/theme.css");
-const GRID_JS: &str = include_str!("../web/dist/grid.js");
-const FAVICON: &str = include_str!("../web/dist/favicon.svg");
-const PAGE_JS: &str = include_str!("../web/src/page.js");
+const THEME_CSS: &str = include_str!("../../../web/src/theme.css");
+const GRID_JS: &str = include_str!("../../../web/dist/grid.js");
+const FAVICON: &str = include_str!("../../../web/dist/favicon.svg");
+const PAGE_JS: &str = include_str!("../../../web/src/page.js");
 
 struct StaticFile {
     name: &'static str,

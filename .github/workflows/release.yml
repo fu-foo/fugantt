@@ -66,7 +66,7 @@ jobs:
           key: ${{ matrix.target }}
 
       - name: Build
-        run: cargo build --release --locked --target ${{ matrix.target }}
+        run: cargo build --release --locked -p fugantt --target ${{ matrix.target }}
 
       # The licence travels with the binary: Apache-2.0 asks for it, and a
       # download that arrives without one is a download nobody can use at work.

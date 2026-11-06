@@ -151,7 +151,7 @@ async fn index(cx: &Cx) -> Result {
             <section class="mt-6 rounded-xl border border-slate-200 bg-white p-6">
                 <h2 class="text-lg font-semibold">(l.t("最近の管理操作"))</h2>
                 <p class="mt-1 text-xs text-slate-500">
-                    (l.t("ユーザーの追加・削除・権限変更と、休暇・出社の追加・削除を、誰がどの計画からしたかと一緒に残します。"))
+                    (l.t("ユーザーの追加・削除・権限変更、休暇・出社の追加・削除、プロジェクトの名前変更・削除を、誰がどの計画からしたかと一緒に残します。"))
                 </p>
 
                 if admin_log.is_empty() {

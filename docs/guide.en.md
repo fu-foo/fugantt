@@ -212,6 +212,7 @@ What the company has decided goes in the **global** settings (administrators); w
 
 | | |
 | --- | --- |
+| Project name | Editors can change it. The URL stays |
 | Display | Days left out of counts, business-year start, era years, quarters, day width |
 | Columns | Shown, width, order. Built-in columns and your own fields together. The task name stays first |
 | What a bar shows on hover | The items shown when pointing at a bar. Columns off the table can be chosen |
@@ -220,6 +221,9 @@ What the company has decided goes in the **global** settings (administrators); w
 | Bar colours | Plan, done, actual, summary, late, today, Saturday, Sunday, holiday, leave, waiting |
 | Members | Owner, editor, viewer |
 | API tokens | A token that opens this project only ([reference](reference.en.md#api)) |
+| Delete the project | Owners and administrators. Tasks, history and settings go with it; there is no undo |
+
+**The project list** is in one order for everyone. Administrators move plans with ↑↓ on the list. A new plan goes to the end.
 
 **A new plan starts with eleven columns**: task, behind plan, past due, assignee, status, due date, planned start
 and end, actual start and end, comment. Day counts, variances, progress, waits and checkpoints are hidden and come

@@ -7,7 +7,10 @@ use sqlx::FromRow;
 use topcoat::{
     Result,
     context::Cx,
-    router::{error::RouterErrorExt, raw_path_params},
+    router::{
+        error::{RouterErrorExt, bad_request},
+        raw_path_params,
+    },
 };
 
 use crate::{
@@ -273,9 +276,11 @@ pub async fn summaries(cx: &Cx, reach: &Reach) -> Result<Vec<Summary>> {
                 .await?
         }
         Reach::Everything => {
-            sqlx::query_as::<_, Summary>("SELECT id, name, revision FROM projects ORDER BY name")
-                .fetch_all(db::pool(cx))
-                .await?
+            sqlx::query_as::<_, Summary>(
+                "SELECT id, name, revision FROM projects ORDER BY position, name",
+            )
+            .fetch_all(db::pool(cx))
+            .await?
         }
         // The same rule the project list page uses: named on the project, or a
         // base role that is not `none`.
@@ -288,7 +293,7 @@ pub async fn summaries(cx: &Cx, reach: &Reach) -> Result<Vec<Summary>> {
                      ON project_members.project_id = projects.id
                     AND project_members.user_id = ?1
                   WHERE project_members.role IS NOT NULL OR users.base_role <> 'none'
-                  ORDER BY projects.name",
+                  ORDER BY projects.position, projects.name",
             )
             .bind(user_id)
             .fetch_all(db::pool(cx))
@@ -505,16 +510,239 @@ pub async fn available_id(cx: &Cx, name: &str) -> Result<String> {
     Ok(uuid::Uuid::new_v4().to_string())
 }
 
-/// Whether a project of this name already exists.
-pub async fn name_taken(cx: &Cx, name: &str) -> Result<bool> {
+/// A name a project may take: trimmed, not empty, and nobody else's.
+///
+/// `except` is the project being renamed, which may keep its own name or only
+/// change its case.
+async fn usable_name(cx: &Cx, name: &str, except: Option<&str>) -> Result<String> {
+    let l = crate::i18n::lang(cx).await;
+    let name = name.trim();
+
+    if name.is_empty() {
+        return Err(bad_request(l.t("プロジェクト名を入力してください。")).into());
+    }
+
     let (taken,) = sqlx::query_as::<_, (bool,)>(
-        "SELECT EXISTS(SELECT 1 FROM projects WHERE name = ?1 COLLATE NOCASE)",
+        "SELECT EXISTS(SELECT 1 FROM projects
+                        WHERE name = ?1 COLLATE NOCASE AND id IS NOT ?2)",
     )
     .bind(name)
+    .bind(except)
     .fetch_one(db::pool(cx))
     .await?;
 
-    Ok(taken)
+    // Two plans under one name is two plans nobody can tell apart in a list.
+    // Refusing here is clearer than quietly handing out "リリース計画-2".
+    if taken {
+        return Err(bad_request(l.t("その名前のプロジェクトはすでにあります。")).into());
+    }
+
+    Ok(name.to_owned())
+}
+
+/// Makes a project, owned by `owner_id`, and answers its id.
+///
+/// The screen and the API both make them, and a project made either way has to
+/// open the same: statuses, the starting columns, one empty row.
+pub async fn create(cx: &Cx, name: &str, owner_id: &str) -> Result<String> {
+    let name = usable_name(cx, name, None).await?;
+    let id = available_id(cx, &name).await?;
+    let statuses = default_statuses(cx).await?;
+    let now = db::now();
+    let mut tx = db::pool(cx).begin().await?;
+
+    // A new plan goes to the end of the list, where whoever made it will look.
+    sqlx::query(
+        "INSERT INTO projects (id, name, owner_id, created_at, updated_at, position)
+         VALUES (?1, ?2, ?3, ?4, ?4, (SELECT COALESCE(MAX(position), -1) + 1 FROM projects))",
+    )
+    .bind(&id)
+    .bind(&name)
+    .bind(owner_id)
+    .bind(now)
+    .execute(&mut *tx)
+    .await?;
+
+    // The owner is a member too, so membership alone answers "may I see this?".
+    sqlx::query("INSERT INTO project_members (project_id, user_id, role) VALUES (?1, ?2, 'owner')")
+        .bind(&id)
+        .bind(owner_id)
+        .execute(&mut *tx)
+        .await?;
+
+    // The statuses come across as a copy. From here the project owns them, and
+    // a later change to the installation's list leaves this plan alone.
+    for (position, status) in statuses.iter().enumerate() {
+        sqlx::query(
+            "INSERT INTO project_statuses (project_id, position, name, color, percent)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+        )
+        .bind(&id)
+        .bind(position as i64)
+        .bind(&status.name)
+        .bind(&status.color)
+        .bind(status.percent)
+        .execute(&mut *tx)
+        .await?;
+    }
+
+    // 進捗 follows ステータス from the start: 完了 that leaves the bar at 0% is
+    // the first thing anybody trips over, and the statuses above already say
+    // what each one means. A team that would rather type percentages switches
+    // it off in the settings — which is also why only a new project gets this,
+    // and one that never chose keeps entering them by hand.
+    sqlx::query(
+        "INSERT INTO project_settings (project_id, key, value) VALUES (?1, 'progress_mode', 'status')",
+    )
+    .bind(&id)
+    .execute(&mut *tx)
+    .await?;
+
+    // The columns a new plan starts with: who, what state, late or not, and
+    // the plan beside what happened — the whole point, and nothing more. What
+    // is hidden here is all still on the chart (a bar's length, its variance
+    // label, the hatched waits, the checkpoint marks) or in the bar's tooltip,
+    // and one tick in the settings away. 実進捗 included: with progress taken
+    // from the status, the number mostly writes itself, and the bar shows it.
+    sqlx::query(
+        "INSERT INTO project_settings (project_id, key, value) VALUES (?1, 'hidden_columns', ?2)",
+    )
+    .bind(&id)
+    .bind("days targets actual_days progress start_variance end_variance waits")
+    .execute(&mut *tx)
+    .await?;
+
+    // And what a bar says when pointed at, besides its dates: who, what state,
+    // how far — so a chart read with the table dragged shut still answers.
+    // 実進捗 above all, now that it is not a column.
+    sqlx::query(
+        "INSERT INTO project_settings (project_id, key, value) VALUES (?1, 'tooltip_columns', ?2)",
+    )
+    .bind(&id)
+    .bind("assignee status progress")
+    .execute(&mut *tx)
+    .await?;
+
+    // One empty row to start on. A plan that opens as a blank page reads as
+    // something that failed to load, and the first thing anybody does here is
+    // type a task name anyway.
+    sqlx::query(
+        "INSERT INTO tasks (id, project_id, sort_key, name, status, updated_at, updated_by)
+         VALUES (?1, ?2, ?3, '', ?4, ?5, ?6)",
+    )
+    .bind(uuid::Uuid::new_v4().to_string())
+    .bind(&id)
+    .bind(crate::sortkey::between(None, None))
+    .bind(
+        statuses
+            .first()
+            .map(|status| status.name.clone())
+            .unwrap_or_default(),
+    )
+    .bind(now)
+    .bind(owner_id)
+    .execute(&mut *tx)
+    .await?;
+
+    tx.commit().await?;
+
+    Ok(id)
+}
+
+/// Gives a project a new name, and answers what it was called before.
+///
+/// The id stays. It is the URL, and the URL is in bookmarks, in links people
+/// pasted to each other, and in whatever calls the API — a rename that broke
+/// all of those would be a rename nobody dared make.
+pub async fn rename(cx: &Cx, project_id: &str, name: &str) -> Result<(String, String)> {
+    let name = usable_name(cx, name, Some(project_id)).await?;
+    let (before, _) = name_and_revision(cx, project_id).await?.ok_or_not_found()?;
+
+    sqlx::query("UPDATE projects SET name = ?2 WHERE id = ?1")
+        .bind(project_id)
+        .bind(&name)
+        .execute(db::pool(cx))
+        .await?;
+
+    Ok((before, name))
+}
+
+/// Deletes a project and everything in it, and answers what it was called.
+///
+/// Tasks, history, settings, tokens: every table that hangs from a project
+/// cascades, so one row going takes the plan with it. There is no undo.
+pub async fn remove(cx: &Cx, project_id: &str) -> Result<String> {
+    let (name, _) = name_and_revision(cx, project_id).await?.ok_or_not_found()?;
+
+    sqlx::query("DELETE FROM projects WHERE id = ?1")
+        .bind(project_id)
+        .execute(db::pool(cx))
+        .await?;
+
+    Ok(name)
+}
+
+/// Every project's id, in list order.
+async fn order(cx: &Cx) -> Result<Vec<String>> {
+    Ok(
+        sqlx::query_scalar::<_, String>("SELECT id FROM projects ORDER BY position, name")
+            .fetch_all(db::pool(cx))
+            .await?,
+    )
+}
+
+/// Puts the projects in this order.
+///
+/// The ones named go first, as named; the rest follow in the order they were
+/// already in. So moving one plan to the top takes a list of one, and an id
+/// that is not a project is passed over rather than refused.
+pub async fn reorder(cx: &Cx, ids: &[String]) -> Result<()> {
+    let current = order(cx).await?;
+
+    let mut wanted: Vec<&String> = Vec::new();
+    for id in ids {
+        if current.contains(id) && !wanted.contains(&id) {
+            wanted.push(id);
+        }
+    }
+    for id in &current {
+        if !wanted.contains(&id) {
+            wanted.push(id);
+        }
+    }
+
+    let mut tx = db::pool(cx).begin().await?;
+    for (position, id) in wanted.iter().enumerate() {
+        sqlx::query("UPDATE projects SET position = ?2 WHERE id = ?1")
+            .bind(id)
+            .bind(position as i64)
+            .execute(&mut *tx)
+            .await?;
+    }
+    tx.commit().await?;
+
+    Ok(())
+}
+
+/// Swaps a project with its neighbour in the list.
+pub async fn move_in_list(cx: &Cx, project_id: &str, up: bool) -> Result<()> {
+    let mut ids = order(cx).await?;
+    let Some(at) = ids.iter().position(|id| id == project_id) else {
+        return Ok(());
+    };
+
+    let to = if up {
+        at.checked_sub(1)
+    } else {
+        (at + 1 < ids.len()).then_some(at + 1)
+    };
+
+    if let Some(to) = to {
+        ids.swap(at, to);
+        reorder(cx, &ids).await?;
+    }
+
+    Ok(())
 }
 
 /// Re-reads a project, picking up a revision a write just bumped.

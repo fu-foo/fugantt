@@ -56,21 +56,27 @@ async fn authorize_edit(cx: &Cx, user_id: &str, project_id: &str) -> Result<proj
     Ok(project)
 }
 
+/// The token in `Authorization: Bearer …`, if one was sent.
+fn bearer(cx: &Cx) -> Option<String> {
+    headers(cx)
+        .get("authorization")
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.strip_prefix("Bearer "))
+        .map(str::trim)
+        .filter(|token| !token.is_empty())
+        .map(str::to_owned)
+}
+
 /// Who is asking, when it may not be a browser.
 ///
 /// A `Authorization: Bearer fug_…` token stands for one project and one role,
 /// which is the whole point: something automated can be given the plan it needs
 /// and nothing else. Without one this falls back to the signed-in person.
 async fn actor(cx: &Cx, project_id: &str) -> Result<(project::Project, String)> {
-    let bearer = headers(cx)
-        .get("authorization")
-        .and_then(|value| value.to_str().ok())
-        .and_then(|value| value.strip_prefix("Bearer "))
-        .map(str::trim)
-        .filter(|token| !token.is_empty());
+    let bearer = bearer(cx);
 
     if let Some(token) = bearer {
-        let Some(opened) = crate::tokens::resolve(cx, token).await? else {
+        let Some(opened) = crate::tokens::resolve(cx, &token).await? else {
             return Err(forbidden().into());
         };
 
@@ -155,15 +161,10 @@ async fn summary(cx: &Cx) -> Result<Json<Vec<project::Numbers>>> {
 /// A token for one project sees that one; a token for all of them, or a signed
 /// in person, sees what they are allowed to.
 async fn reach(cx: &Cx) -> Result<project::Reach> {
-    let bearer = headers(cx)
-        .get("authorization")
-        .and_then(|value| value.to_str().ok())
-        .and_then(|value| value.strip_prefix("Bearer "))
-        .map(str::trim)
-        .filter(|token| !token.is_empty());
+    let bearer = bearer(cx);
 
     if let Some(token) = bearer {
-        let Some(opened) = crate::tokens::resolve(cx, token).await? else {
+        let Some(opened) = crate::tokens::resolve(cx, &token).await? else {
             return Err(forbidden().into());
         };
 
@@ -176,6 +177,235 @@ async fn reach(cx: &Cx) -> Result<project::Reach> {
     let user = crate::auth::current_user(cx).await?.ok_or_else(forbidden)?;
 
     Ok(project::Reach::Person(user.id))
+}
+
+// --- the projects themselves ------------------------------------------------
+
+/// Who is asking to change the list of projects, rather than one plan in it.
+enum Caller {
+    Token(crate::tokens::Opened),
+    Person(crate::auth::User),
+}
+
+impl Caller {
+    /// The name the record of it goes under.
+    fn who(&self) -> String {
+        match self {
+            Caller::Token(opened) => opened.who.clone(),
+            Caller::Person(user) => user.display().to_owned(),
+        }
+    }
+
+    /// A token that reaches every project and may write. Making, deleting and
+    /// ordering plans is about all of them, so a token for one plan cannot.
+    fn wide_editor(&self) -> bool {
+        matches!(self, Caller::Token(opened) if opened.project_id.is_none() && opened.role == "editor")
+    }
+}
+
+async fn caller(cx: &Cx) -> Result<Caller> {
+    if let Some(token) = bearer(cx) {
+        let opened = crate::tokens::resolve(cx, &token)
+            .await?
+            .ok_or_else(forbidden)?;
+
+        return Ok(Caller::Token(opened));
+    }
+
+    let user = crate::auth::current_user(cx).await?.ok_or_else(forbidden)?;
+
+    Ok(Caller::Person(user))
+}
+
+/// Whether this person may delete the project: its owner, or an administrator.
+async fn may_delete(cx: &Cx, user: &crate::auth::User, project_id: &str) -> Result<bool> {
+    let project = project::authorize(cx, &user.id, project_id).await?;
+
+    Ok(project.is_owner() || user.is_admin())
+}
+
+/// Renames a project, and says so where the accounts' changes are kept.
+async fn rename_project(cx: &Cx, project_id: &str, name: &str, who: &str) -> Result<()> {
+    let (before, after) = project::rename(cx, project_id, name).await?;
+
+    if before != after {
+        history::record_admin(
+            cx,
+            history::AdminEntry {
+                action: "プロジェクト名変更",
+                about: project_id,
+                before: &before,
+                after: &after,
+                actor: who,
+            },
+        )
+        .await?;
+    }
+
+    // The name is in every open screen's header.
+    bump_and_announce(cx, project_id, who).await
+}
+
+/// Deletes a project. Its own history goes with it, so the record that it
+/// existed is kept with the installation's.
+async fn remove_project(cx: &Cx, project_id: &str, who: &str) -> Result<()> {
+    let name = project::remove(cx, project_id).await?;
+
+    history::record_admin(
+        cx,
+        history::AdminEntry {
+            action: "プロジェクト削除",
+            about: &name,
+            before: "",
+            after: "",
+            actor: who,
+        },
+    )
+    .await
+}
+
+#[derive(Deserialize)]
+struct ProjectName {
+    name: String,
+}
+
+#[derive(Deserialize)]
+struct ProjectOrder {
+    ids: Vec<String>,
+}
+
+/// Makes a project.
+///
+/// With a token, the token has to reach every project: a plan that did not
+/// exist yet cannot have been handed out. The project is owned by whoever
+/// issued the token.
+#[route(POST "/api/projects")]
+async fn create_project(cx: &Cx, Json(body): Json<ProjectName>) -> Result<Json<project::Summary>> {
+    let owner = match caller(cx).await? {
+        caller @ Caller::Token(_) if !caller.wide_editor() => return Err(forbidden().into()),
+        Caller::Token(opened) => owner_for(cx, &opened.created_by).await?,
+        Caller::Person(user) => user.id,
+    };
+
+    let id = project::create(cx, &body.name, &owner).await?;
+
+    Ok(Json(summary_of(cx, &id).await?))
+}
+
+/// The account a token's project belongs to: the person who issued it, or an
+/// administrator when that person has since gone.
+async fn owner_for(cx: &Cx, issuer: &str) -> Result<String> {
+    let found = sqlx::query_scalar::<_, String>(
+        "SELECT id FROM users
+          WHERE id = ?1 OR base_role = 'admin'
+          ORDER BY id = ?1 DESC, created_at
+          LIMIT 1",
+    )
+    .bind(issuer)
+    .fetch_optional(db::pool(cx))
+    .await?;
+
+    Ok(found.ok_or_else(forbidden)?)
+}
+
+async fn summary_of(cx: &Cx, project_id: &str) -> Result<project::Summary> {
+    let (name, revision) = project::name_and_revision(cx, project_id)
+        .await?
+        .ok_or_else(forbidden)?;
+
+    Ok(project::Summary {
+        id: project_id.to_owned(),
+        name,
+        revision,
+    })
+}
+
+/// Gives a project a new name. The id, and so the URL, stays as it was.
+#[route(POST "/api/projects/{project_id}/name")]
+async fn rename_project_api(
+    cx: &Cx,
+    Json(body): Json<ProjectName>,
+) -> Result<Json<project::Summary>> {
+    let project_id = project::id_from_path(cx)?.to_owned();
+    let (_, who) = actor_edit(cx, &project_id).await?;
+
+    rename_project(cx, &project_id, &body.name, &who).await?;
+
+    Ok(Json(summary_of(cx, &project_id).await?))
+}
+
+/// Deletes a project and everything in it. Answers the projects that are left.
+#[route(DELETE "/api/projects/{project_id}")]
+async fn remove_project_api(cx: &Cx) -> Result<Json<Vec<project::Summary>>> {
+    let project_id = project::id_from_path(cx)?.to_owned();
+    let caller = caller(cx).await?;
+
+    let allowed = match &caller {
+        Caller::Token(_) => caller.wide_editor(),
+        Caller::Person(user) => may_delete(cx, user, &project_id).await?,
+    };
+    if !allowed {
+        return Err(forbidden().into());
+    }
+
+    // A project that is not there answers as one this caller cannot see.
+    summary_of(cx, &project_id).await?;
+    remove_project(cx, &project_id, &caller.who()).await?;
+
+    let reach = reach(cx).await?;
+
+    Ok(Json(project::summaries(cx, &reach).await?))
+}
+
+/// Puts the project list in an order. The ids named go first, in that order;
+/// the rest keep theirs after them. Answers the list as it now stands.
+#[route(POST "/api/projects/order")]
+async fn order_projects(
+    cx: &Cx,
+    Json(body): Json<ProjectOrder>,
+) -> Result<Json<Vec<project::Summary>>> {
+    let caller = caller(cx).await?;
+
+    let allowed = match &caller {
+        Caller::Token(_) => caller.wide_editor(),
+        Caller::Person(user) => user.is_admin(),
+    };
+    if !allowed {
+        return Err(forbidden().into());
+    }
+
+    project::reorder(cx, &body.ids).await?;
+
+    let reach = reach(cx).await?;
+
+    Ok(Json(project::summaries(cx, &reach).await?))
+}
+
+#[route(POST "/projects/{project_id}/rename")]
+async fn rename_project_form(cx: &Cx, Form(form): Form<ProjectName>) -> Result<SeeOther> {
+    let user = require_user(cx).await?;
+    let project_id = project::id_from_path(cx)?.to_owned();
+    authorize_edit(cx, &user.id, &project_id).await?;
+
+    rename_project(cx, &project_id, &form.name, user.display()).await?;
+
+    Ok(see_other(&format!(
+        "/projects/{project_id}/settings?open=name#name"
+    )))
+}
+
+#[route(POST "/projects/{project_id}/remove")]
+async fn remove_project_form(cx: &Cx) -> Result<SeeOther> {
+    let user = require_user(cx).await?;
+    let project_id = project::id_from_path(cx)?.to_owned();
+
+    if !may_delete(cx, &user, &project_id).await? {
+        return Err(forbidden().into());
+    }
+
+    remove_project(cx, &project_id, user.display()).await?;
+
+    Ok(see_other("/"))
 }
 
 #[route(GET "/api/projects/{project_id}/grid")]

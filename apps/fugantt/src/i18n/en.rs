@@ -447,6 +447,16 @@ pub fn of(ja: &str) -> Option<&'static str> {
             "A project already has that name."
         }
         "閲覧のみの権限です。" => "You can read this one, not change it.",
+        "プロジェクト名" => "Project name",
+        "URL は変わりません。" => "The URL stays the same.",
+        "プロジェクトの削除" => "Delete the project",
+        "このプロジェクトを削除" => "Delete this project",
+        "タスク・履歴・設定・APIトークンもすべて消えます。元に戻せません。" => {
+            "Its tasks, history, settings and API tokens go with it. This cannot be undone."
+        }
+        "「{}」を削除します。元に戻せません。よろしいですか？" => {
+            "Delete “{}”? This cannot be undone."
+        }
         "読み込み中…" => "Loading…",
         "ステータスに連動（進捗を決めたステータスがまだありません）" => {
             "From the status (no status names a progress yet)"
@@ -527,9 +537,11 @@ pub fn of(ja: &str) -> Option<&'static str> {
         "プロジェクト一覧へ" => "Back to the projects",
         // --- 管理操作の記録 -----------------------------------------------
         "最近の管理操作" => "Recent changes to accounts",
-        "ユーザーの追加・削除・権限変更と、休暇・出社の追加・削除を、誰がどの計画からしたかと一緒に残します。" => {
-            "Accounts added, removed or changed, and leave added or removed — with who did it, and from which plan."
+        "ユーザーの追加・削除・権限変更、休暇・出社の追加・削除、プロジェクトの名前変更・削除を、誰がどの計画からしたかと一緒に残します。" => {
+            "Accounts added, removed or changed, leave added or removed, and projects renamed or deleted — with who did it, and from which plan."
         }
+        "プロジェクト名変更" => "Project renamed",
+        "プロジェクト削除" => "Project deleted",
         "まだ何もありません。" => "Nothing yet.",
         "権限変更" => "Role",
         "名前変更" => "Renamed",

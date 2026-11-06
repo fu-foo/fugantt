@@ -186,7 +186,8 @@
   background-color: var(--accent-soft);
 }
 
-.bg-red-50 {
+.bg-red-50,
+.hover\:bg-red-50:hover {
   background-color: var(--danger-soft);
 }
 

@@ -5,7 +5,7 @@ use topcoat::{
     context::Cx,
     router::{
         content::Form,
-        error::{SeeOther, bad_request, see_other},
+        error::{SeeOther, forbidden, see_other},
         page, query_params, route,
     },
     view::view,
@@ -39,7 +39,7 @@ async fn index(cx: &Cx) -> Result {
              -- ベース権限が「無効」でない人は、名前が無くても一覧に出る。
              OR (SELECT base_role FROM users WHERE id = ?1) <> 'none'
           GROUP BY projects.id
-          ORDER BY projects.updated_at DESC",
+          ORDER BY projects.position, projects.name",
     )
     .bind(&user.id)
     .fetch_all(db::pool(cx))
@@ -71,11 +71,11 @@ async fn index(cx: &Cx) -> Result {
             </p>
         } else {
             <ul class="mt-6 divide-y divide-slate-200 rounded-xl border border-slate-200 bg-white">
-                for project in &projects {
-                    <li>
+                for (at, project) in projects.iter().enumerate() {
+                    <li class="flex items-center">
                         <a
                             href=(("/projects/", &project.id))
-                            class="flex items-center justify-between px-5 py-4 hover:bg-slate-50"
+                            class="flex min-w-0 flex-1 items-center justify-between px-5 py-4 hover:bg-slate-50"
                         >
                             <span class="font-medium">(&project.name)</span>
                             <span class="text-sm text-slate-500">
@@ -83,6 +83,32 @@ async fn index(cx: &Cx) -> Result {
                                 (l.t(" タスク"))
                             </span>
                         </a>
+
+                        if user.is_admin() {
+                            <form method="POST" action="/projects/move" class="flex gap-1 pr-3">
+                                <input type="hidden" name="id" value=(&project.id)>
+                                <button
+                                    name="direction"
+                                    value="up"
+                                    title=(l.t("上へ"))
+                                    aria-label=(l.t("上へ"))
+                                    disabled=((at == 0).then_some(""))
+                                    class="rounded border border-slate-200 px-1.5 text-xs text-slate-500 hover:bg-slate-50 disabled:opacity-30"
+                                >
+                                    "↑"
+                                </button>
+                                <button
+                                    name="direction"
+                                    value="down"
+                                    title=(l.t("下へ"))
+                                    aria-label=(l.t("下へ"))
+                                    disabled=((at + 1 == projects.len()).then_some(""))
+                                    class="rounded border border-slate-200 px-1.5 text-xs text-slate-500 hover:bg-slate-50 disabled:opacity-30"
+                                >
+                                    "↓"
+                                </button>
+                            </form>
+                        }
                     </li>
                 }
             </ul>
@@ -99,119 +125,31 @@ struct NewProject {
 #[route(POST "/projects")]
 async fn create(cx: &Cx, Form(form): Form<NewProject>) -> Result<SeeOther> {
     let user = require_user(cx).await?;
-    let l = crate::i18n::lang(cx).await;
-
-    let name = form.name.trim();
-    if name.is_empty() {
-        return Err(bad_request(l.t("プロジェクト名を入力してください。")).into());
-    }
-
-    // The name is the URL, so two projects cannot share one. Refusing here is
-    // clearer than quietly handing out "リリース計画-2".
-    if project::name_taken(cx, name).await? {
-        return Err(bad_request(l.t("その名前のプロジェクトはすでにあります。")).into());
-    }
-
-    let id = project::available_id(cx, name).await?;
-    let now = db::now();
-    let mut tx = db::pool(cx).begin().await?;
-
-    sqlx::query(
-        "INSERT INTO projects (id, name, owner_id, created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?4)",
-    )
-    .bind(&id)
-    .bind(name)
-    .bind(&user.id)
-    .bind(now)
-    .execute(&mut *tx)
-    .await?;
-
-    // The owner is a member too, so membership alone answers "may I see this?".
-    sqlx::query("INSERT INTO project_members (project_id, user_id, role) VALUES (?1, ?2, 'owner')")
-        .bind(&id)
-        .bind(&user.id)
-        .execute(&mut *tx)
-        .await?;
-
-    // The statuses come across as a copy. From here the project owns them, and
-    // a later change to the installation's list leaves this plan alone.
-    for (position, status) in project::default_statuses(cx).await?.iter().enumerate() {
-        sqlx::query(
-            "INSERT INTO project_statuses (project_id, position, name, color, percent)
-             VALUES (?1, ?2, ?3, ?4, ?5)",
-        )
-        .bind(&id)
-        .bind(position as i64)
-        .bind(&status.name)
-        .bind(&status.color)
-        .bind(status.percent)
-        .execute(&mut *tx)
-        .await?;
-    }
-
-    // 進捗 follows ステータス from the start: 完了 that leaves the bar at 0% is
-    // the first thing anybody trips over, and the statuses above already say
-    // what each one means. A team that would rather type percentages switches
-    // it off in the settings — which is also why only a new project gets this,
-    // and one that never chose keeps entering them by hand.
-    sqlx::query(
-        "INSERT INTO project_settings (project_id, key, value) VALUES (?1, 'progress_mode', 'status')",
-    )
-    .bind(&id)
-    .execute(&mut *tx)
-    .await?;
-
-    // The columns a new plan starts with: who, what state, late or not, and
-    // the plan beside what happened — the whole point, and nothing more. What
-    // is hidden here is all still on the chart (a bar's length, its variance
-    // label, the hatched waits, the checkpoint marks) or in the bar's tooltip,
-    // and one tick in the settings away. 実進捗 included: with progress taken
-    // from the status, the number mostly writes itself, and the bar shows it.
-    sqlx::query(
-        "INSERT INTO project_settings (project_id, key, value) VALUES (?1, 'hidden_columns', ?2)",
-    )
-    .bind(&id)
-    .bind("days targets actual_days progress start_variance end_variance waits")
-    .execute(&mut *tx)
-    .await?;
-
-    // And what a bar says when pointed at, besides its dates: who, what state,
-    // how far — so a chart read with the table dragged shut still answers.
-    // 実進捗 above all, now that it is not a column.
-    sqlx::query(
-        "INSERT INTO project_settings (project_id, key, value) VALUES (?1, 'tooltip_columns', ?2)",
-    )
-    .bind(&id)
-    .bind("assignee status progress")
-    .execute(&mut *tx)
-    .await?;
-
-    // One empty row to start on. A plan that opens as a blank page reads as
-    // something that failed to load, and the first thing anybody does here is
-    // type a task name anyway.
-    sqlx::query(
-        "INSERT INTO tasks (id, project_id, sort_key, name, status, updated_at, updated_by)
-         VALUES (?1, ?2, ?3, '', ?4, ?5, ?6)",
-    )
-    .bind(uuid::Uuid::new_v4().to_string())
-    .bind(&id)
-    .bind(crate::sortkey::between(None, None))
-    .bind(
-        project::default_statuses(cx)
-            .await?
-            .first()
-            .map(|status| status.name.clone())
-            .unwrap_or_default(),
-    )
-    .bind(now)
-    .bind(&user.id)
-    .execute(&mut *tx)
-    .await?;
-
-    tx.commit().await?;
+    let id = project::create(cx, &form.name, &user.id).await?;
 
     Ok(see_other(&format!("/projects/{id}")))
+}
+
+#[derive(Deserialize)]
+struct MoveProject {
+    id: String,
+    direction: String,
+}
+
+/// Moves a project one place up or down the list.
+///
+/// The list is the same for everyone, so who may rearrange it is the person
+/// who looks after the installation.
+#[route(POST "/projects/move")]
+async fn move_project(cx: &Cx, Form(form): Form<MoveProject>) -> Result<SeeOther> {
+    let user = require_user(cx).await?;
+    if !user.is_admin() {
+        return Err(forbidden().into());
+    }
+
+    project::move_in_list(cx, form.id.trim(), form.direction == "up").await?;
+
+    Ok(see_other("/"))
 }
 
 /// What an import left behind, carried back on the redirect.

@@ -145,10 +145,17 @@ curl -H "Authorization: Bearer fug_…" https://example.com/api/summary    # num
 | `GET /api/projects/{id}/document` | Export as JSON. `?settings=0` for tasks only |
 | `POST /api/projects/{id}/document` | Import JSON ([replaces all](guide.en.md#export-and-import)) |
 | `GET /api/projects/{id}/grid` | The table with day counts, variances and lateness computed (not covered by the 1.0 promise) |
-| `GET /api/projects` | The plans |
+| `GET /api/projects` | The plans, in the project list's order |
+| `POST /api/projects` | Make a plan. `{"name": "…"}` |
+| `POST /api/projects/{id}/name` | Rename it. `{"name": "…"}`. The id (the URL) stays |
+| `DELETE /api/projects/{id}` | Delete it, with its tasks, history, settings and tokens. No confirmation |
+| `POST /api/projects/order` | Reorder. The ids in `{"ids": [...]}` go first, in that order; the rest keep theirs after them |
 | `GET /api/summary` | The statistics page's arithmetic, one row per project (`late_days + wait_days = slipped`) |
 
 - A token for another project, a write with a read-only token, and a request with neither token nor cookie all get **403**
+- Making, deleting and reordering take a read-and-write token for every project. Renaming also works with that project's own read-and-write token
+- A plan made with a token is owned by the administrator who issued it
+- With a signed-in session the rules are the screens': anyone may make one, owners and administrators delete, administrators reorder
 - A change made with a token is recorded in the task history as **`API <what the token is for>`**
 - `/api/projects` and `/api/summary` also work with a signed-in session, returning only what that person may see
 - `delayed` in `/api/summary` counts rows late now (behind plan, or past due and unfinished)

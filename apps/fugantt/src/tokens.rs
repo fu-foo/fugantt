@@ -48,6 +48,8 @@ pub struct Opened {
     /// Which token this was, for the history. Its name if it has one, and the
     /// front of its id if not — never the token itself.
     pub who: String,
+    /// The account that issued it.
+    pub created_by: String,
 }
 
 /// The project and role a token opens, or nothing.
@@ -59,8 +61,8 @@ pub async fn resolve(cx: &Cx, token: &str) -> Result<Option<Opened>> {
         return Ok(None);
     };
 
-    let found = sqlx::query_as::<_, (Option<String>, String, String, String)>(
-        "SELECT project_id, role, name, id FROM api_tokens WHERE token_hash = ?1",
+    let found = sqlx::query_as::<_, (Option<String>, String, String, String, String)>(
+        "SELECT project_id, role, name, id, created_by FROM api_tokens WHERE token_hash = ?1",
     )
     .bind(&hash[..])
     .fetch_optional(db::pool(cx))
@@ -74,15 +76,18 @@ pub async fn resolve(cx: &Cx, token: &str) -> Result<Option<Opened>> {
             .await?;
     }
 
-    Ok(found.map(|(project_id, role, name, id)| Opened {
-        project_id,
-        role,
-        who: if name.trim().is_empty() {
-            format!("API {}", id.chars().take(8).collect::<String>())
-        } else {
-            format!("API {}", name.trim())
-        },
-    }))
+    Ok(
+        found.map(|(project_id, role, name, id, created_by)| Opened {
+            project_id,
+            role,
+            created_by,
+            who: if name.trim().is_empty() {
+                format!("API {}", id.chars().take(8).collect::<String>())
+            } else {
+                format!("API {}", name.trim())
+            },
+        }),
+    )
 }
 
 impl Opened {

@@ -144,6 +144,30 @@ impl Server {
         )
     }
 
+    /// One request of any kind, answered as the raw response.
+    ///
+    /// `headers` are whole lines, `Content-Type: application/json` and the like.
+    pub fn send(&self, method: &str, path: &str, headers: &[&str], body: &str) -> String {
+        let mut stream = TcpStream::connect(("127.0.0.1", self.port)).expect("つながらない");
+        let mut head = format!(
+            "{method} {path} HTTP/1.1\r\nHost: 127.0.0.1:{}\r\nAccept: */*\r\nConnection: close\r\nContent-Length: {}\r\n",
+            self.port,
+            body.len()
+        );
+        for line in headers {
+            head.push_str(line);
+            head.push_str("\r\n");
+        }
+        head.push_str("\r\n");
+
+        stream.write_all(head.as_bytes()).unwrap();
+        stream.write_all(body.as_bytes()).unwrap();
+
+        let mut raw = Vec::new();
+        stream.read_to_end(&mut raw).expect("応答を読めなかった");
+        String::from_utf8_lossy(&raw).into_owned()
+    }
+
     /// One GET. The server is already listening by the time there is a
     /// `Server` to ask.
     fn raw(&self, path: &str) -> Vec<u8> {

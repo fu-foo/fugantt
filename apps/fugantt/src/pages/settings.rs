@@ -42,6 +42,7 @@ async fn settings(cx: &Cx) -> Result {
 
     let l = crate::i18n::lang(cx).await;
     let tokens = crate::tokens::list(cx, &project.id).await?;
+    let may_delete = project.is_owner() || user.is_admin();
 
     let usage = format!(
         "curl -H 'Authorization: Bearer fug_…' \\\n  {origin}/api/projects/{id}/document\n\n         curl -X POST -H 'Authorization: Bearer fug_…' \\\n  -H 'Content-Type: application/json' \\\n           --data @plan.json \\\n  {origin}/api/projects/{id}/document",
@@ -142,6 +143,35 @@ async fn settings(cx: &Cx) -> Result {
     view! {
         <div class="mx-auto w-full max-w-3xl">
             <h1 class="text-2xl font-bold tracking-tight">(l.t("設定"))</h1>
+
+            // --- name -------------------------------------------------------
+
+            <section id="name" class="mt-6 rounded-xl border border-slate-200 bg-white p-6">
+                <h2 class="text-lg font-semibold">(l.t("プロジェクト名"))</h2>
+
+                if project.can_edit() {
+                    <form
+                        method="POST"
+                        action=(("/projects/", &project.id, "/rename"))
+                        class="mt-4 flex flex-wrap items-center gap-2"
+                    >
+                        <input
+                            name="name"
+                            value=(&project.name)
+                            required=""
+                            class="w-72 rounded-lg border border-slate-300 px-3 py-2"
+                        >
+                        <button class="rounded-lg border border-slate-300 px-3 py-2 text-sm hover:bg-slate-100">
+                            (l.t("名前を保存"))
+                        </button>
+                    </form>
+                } else {
+                    <p class="mt-4 font-medium">(&project.name)</p>
+                }
+                <p class="mt-2 text-xs text-slate-500">
+                    (l.t("URL は変わりません。"))
+                </p>
+            </section>
 
             // --- view -------------------------------------------------------
 
@@ -1286,6 +1316,25 @@ async fn settings(cx: &Cx) -> Result {
                     }
                 </ul>
             </section>
+
+            // --- delete -----------------------------------------------------
+
+            if may_delete {
+                <section id="delete" class="mt-6 rounded-xl border border-red-200 bg-white p-6">
+                    <h2 class="text-lg font-semibold">(l.t("プロジェクトの削除"))</h2>
+                    <p class="mt-1 text-xs text-slate-500">
+                        (l.t("タスク・履歴・設定・APIトークンもすべて消えます。元に戻せません。"))
+                    </p>
+                    <form method="POST" action=(("/projects/", &project.id, "/remove")) class="mt-4">
+                        <button
+                            class="rounded-lg border border-red-300 px-3 py-2 text-sm text-red-700 hover:bg-red-50"
+                            data-confirm=(l.about("「{}」を削除します。元に戻せません。よろしいですか？", &project.name))
+                        >
+                            (l.t("このプロジェクトを削除"))
+                        </button>
+                    </form>
+                </section>
+            }
         </div>
     }
 }

@@ -142,10 +142,17 @@ curl -H "Authorization: Bearer fug_…" https://example.com/api/summary    # 案
 | `GET /api/projects/{id}/document` | JSON で書き出す。`?settings=0` でタスクだけ |
 | `POST /api/projects/{id}/document` | JSON を取り込む（[全置換](guide.md#書き出しと取り込み)） |
 | `GET /api/projects/{id}/grid` | 日数・差異・遅れを計算済みの表（1.0 の約束の外） |
-| `GET /api/projects` | 計画の一覧 |
+| `GET /api/projects` | 計画の一覧（一覧画面と同じ並び） |
+| `POST /api/projects` | 計画を作る。`{"name": "…"}` |
+| `POST /api/projects/{id}/name` | 名前を変える。`{"name": "…"}`。id（URL）は変わらない |
+| `DELETE /api/projects/{id}` | 計画を消す。タスク・履歴・設定・トークンも消え、確認は出ない |
+| `POST /api/projects/order` | 並べ替える。`{"ids": [...]}` の順に先頭へ、残りは今の順で後ろへ |
 | `GET /api/summary` | 統計画面と同じ計算を、プロジェクト単位で（`late_days + wait_days = slipped`） |
 
 - 他のプロジェクトのトークン、読むだけのトークンでの書き込み、トークンもクッキーも無い要求は、すべて **403**
+- 作成・削除・並べ替えは、全プロジェクト用の読み書きトークンだけ。名前の変更は、そのプロジェクトの読み書きトークンでもできる
+- トークンで作った計画のオーナーは、そのトークンを発行した管理者
+- ログイン中のセッションで叩くときは画面と同じ。作成は誰でも、削除はオーナーと管理者、並べ替えは管理者
 - トークンで書いた変更は、タスク変更履歴に **`API <トークンの用途>`** として残る
 - `/api/projects` と `/api/summary` はログイン中のセッションでも叩けて、その場合は自分が見られるプロジェクトだけが返る
 - `/api/summary` の `delayed` は、いま遅れている行（予定遅れ、または終わっていない納期遅れ）の数
